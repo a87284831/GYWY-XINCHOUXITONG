@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安装昊轩云枢</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px; background: #eef3f8; font-family: "Microsoft YaHei", sans-serif; color: #172033; }
+  .panel { width: min(460px, 100%); background: #fff; border: 1px solid #d8e0ea; border-radius: 12px; padding: 32px; box-shadow: 0 14px 40px rgba(30, 58, 95, .12); }
+  h1 { margin: 0 0 8px; font-size: 24px; color: #1e3a5f; }
+  .intro { margin: 0 0 24px; color: #64748b; font-size: 14px; line-height: 1.7; }
+  label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; }
+  input { width: 100%; padding: 12px 13px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 15px; outline: none; }
+  input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+  button { width: 100%; margin-top: 24px; padding: 12px; border: 0; border-radius: 7px; background: #1e3a5f; color: white; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: wait; }
+  .msg { margin-top: 16px; padding: 10px 12px; border-radius: 6px; font-size: 13px; display: none; }
+  .msg.error { display: block; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+  .msg.ok { display: block; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .checks { margin: 18px 0; padding: 12px; border: 1px solid #dbe4ee; border-radius: 7px; background: #f8fafc; font-size: 13px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
+  .check.ok { color: #166534; }
+  .check.fail { color: #b91c1c; }
+  .detail { color: #64748b; word-break: break-all; }
+</style>
+</head>
+<body>
+<main class="panel">
+  <h1>安装昊轩云枢</h1>
+  <p class="intro">这是首次安装。请创建超级管理员账号，安装完成后将进入正常登录页面。</p>
+  <div id="checks" class="checks">正在检查服务器环境...</div>
+  <form id="setupForm">
+    <label for="username">管理员账号</label>
+    <input id="username" autocomplete="username" minlength="3" maxlength="32" required pattern="[A-Za-z0-9_.\-]+">
+    <label for="name">管理员姓名</label>
+    <input id="name" maxlength="50" placeholder="可选">
+    <label for="password">管理员密码</label>
+    <input id="password" type="password" autocomplete="new-password" minlength="8" required>
+    <label for="confirm">确认密码</label>
+    <input id="confirm" type="password" autocomplete="new-password" minlength="8" required>
+    <button id="submit" type="submit" disabled>创建超级管理员</button>
+    <div id="msg" class="msg"></div>
+  </form>
+</main>
+<script>
+const form = document.getElementById("setupForm");
+const button = document.getElementById("submit");
+const msg = document.getElementById("msg");
+function show(text, type) { msg.textContent = text; msg.className = "msg " + type; }
+async function checkEnvironment() {
+  const box = document.getElementById("checks");
+  try {
+    const data = await fetch("/api/setup/check").then(response => response.json());
+    box.innerHTML = data.checks.map(item => `<div class="check ${item.ok ? "ok" : "fail"}"><strong>${item.ok ? "通过" : "失败"}</strong><span>${item.name}<br><span class="detail">${item.detail}</span></span></div>`).join("");
+    button.disabled = !data.ok || data.installed;
+  } catch (error) {
+    box.textContent = "环境检查失败，请确认 Python 服务正常运行";
+    box.className = "checks check fail";
+    button.disabled = true;
+  }
+}
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const password = document.getElementById("password").value;
+  if (password !== document.getElementById("confirm").value) { show("两次输入的密码不一致", "error"); return; }
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/setup/create-admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      username: document.getElementById("username").value.trim(),
+      name: document.getElementById("name").value.trim(), password
+    }) });
+    const data = await response.json();
+    if (!data.ok) { show(data.error || "安装失败", "error"); button.disabled = false; return; }
+    show("安装完成，正在进入登录页面...", "ok");
+    setTimeout(() => { location.href = "/index.html"; }, 500);
+  } catch (error) { show("网络错误，请检查服务状态", "error"); button.disabled = false; }
+});
+checkEnvironment();
+</script>
+</body>
+</html>

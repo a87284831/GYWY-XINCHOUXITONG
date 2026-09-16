@@ -1,0 +1,320 @@
+<?php
+/** 招采端接口 */
+
+// 填报进度总览：各项目×条线状态
+function handle_admin_overview() {
+    require_admin();
+    $month = $_GET['month'] ?? date('Y-m');
+    $projects = projects_all();
+    $lines = ['环境', '绿化', '工程', '秩序', '行政'];
+    $st = db()->prepare(
+        "SELECT project_id, line,
+            COUNT(*) AS total,
+            SUM(status='draft') AS drafts,
+            SUM(status='submitted') AS submitted,
+            SUM(status='confirmed') AS confirmed,
+            SUM(status='returned') AS returned,
+            MAX(updated_at) AS last_fill
+         FROM purchase_items WHERE month=? GROUP BY project_id, line"
+    );
+    $st->execute([$month]);
+    $stats = [];
+    foreach ($st->fetchAll() as $r) {
+        $stats[$r['project_id']][$r['line']] = [
+            'total' => (int)$r['total'], 'drafts' => (int)$r['drafts'],
+            'submitted' => (int)$r['submitted'], 'confirmed' => (int)$r['confirmed'],
+            'returned' => (int)$r['returned'], 'last_fill' => $r['last_fill'],
+        ];
+    }
+    // 该月各项目已导入金额
+    $stA = db()->prepare("SELECT project_id, SUM(total) AS amount FROM archived_purchases WHERE month=? GROUP BY project_id");
+    $stA->execute([$month]);
+    $amounts = [];
+    foreach ($stA->fetchAll() as $r) $amounts[(int)$r['project_id']] = (float)$r['amount'];
+    // 该月各项目预算
+    $stB = db()->prepare("SELECT project_id, amount FROM budget_plan WHERE month=?");
+    $stB->execute([$month]);
+    $budgets = [];
+    foreach ($stB->fetchAll() as $r) $budgets[(int)$r['project_id']] = (float)$r['amount'];
+
+    $rows = [];
+    $unfilled = [];
+    $totBudget = 0; $totAmount = 0;
+    foreach ($projects as $p) {
+        $lineStats = [];
+        $allCount = 0; $confirmedCount = 0; $returnedCount = 0; $hasFill = false; $lastFill = null;
+        foreach ($lines as $l) {
+            $s = $stats[$p['id']][$l] ?? ['total' => 0, 'drafts' => 0, 'submitted' => 0, 'confirmed' => 0, 'returned' => 0, 'last_fill' => null];
+            $lineStats[$l] = $s;
+            $allCount += $s['total'];
+            $confirmedCount += $s['confirmed'];
+            $returnedCount += $s['returned'];
+            if ($s['total'] > 0) $hasFill = true;
+            if ($s['last_fill'] && (!$lastFill || $s['last_fill'] > $lastFill)) $lastFill = $s['last_fill'];
+        }
+        $status = $allCount === 0 ? '未填报' : ($returnedCount > 0 ? '已退回' : ($confirmedCount === $allCount ? '已确认' : '填报中'));
+        if ($allCount === 0) $unfilled[] = ['project_id' => (int)$p['id'], 'project_name' => $p['name']];
+        $budget = $budgets[$p['id']] ?? 0;
+        $amount = $amounts[$p['id']] ?? 0;
+        $totBudget += $budget;
+        $totAmount += $amount;
+        $rows[] = [
+            'project_id' => (int)$p['id'], 'project_name' => $p['name'],
+            'lines' => $lineStats, 'total' => $allCount,
+            'confirmed' => $confirmedCount, 'returned' => $returnedCount,
+            'has_fill' => $hasFill, 'status' => $status,
+            'last_fill' => $lastFill,
+            'budget' => $budget, 'amount' => round($amount, 2),
+            'over' => $budget > 0 && $amount > $budget,
+            'rate' => $budget > 0 ? round($amount / $budget * 100, 1) : null,
+        ];
+    }
+    // 汇总统计
+    $totFill = 0; $totConfirm = 0; $totReturn = 0;
+    foreach ($rows as $r) { $totFill += $r['total']; $totConfirm += $r['confirmed']; $totReturn += $r['returned']; }
+    $summary = [
+        'total_items' => $totFill,
+        'confirmed' => $totConfirm,
+        'returned' => $totReturn,
+        'pending' => $totFill - $totConfirm,
+        'unfilled_count' => count($unfilled),
+        'unfilled' => $unfilled,
+        'total_budget' => round($totBudget, 2),
+        'total_amount' => round($totAmount, 2),
+        'total_rate' => $totBudget > 0 ? round($totAmount / $totBudget * 100, 1) : null,
+    ];
+    return ['ok' => true, 'data' => ['month' => $month, 'rows' => $rows, 'lines' => $lines, 'summary' => $summary, 'archived' => month_archived($month)]];
+}
+
+// 确认单条明细（退回后的记录须员工重新提交后才可确认）
+function handle_admin_confirm_item($id) {
+    require_admin();
+    $item = fetch_item($id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可确认'];
+    if ($item['status'] === 'returned') {
+        return ['ok' => false, 'msg' => '该记录已退回，员工尚未重新提交，暂不能确认'];
+    }
+    $wasReturned = ($item['status'] === 'returned'); // 保留分支（正常流程下 reached 时返回过 false，不会执行到）
+    db()->prepare("UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE id=?")->execute([$id]);
+    // 退回后重新确认：同步存档数量与金额（单价保留）
+    if ($wasReturned && $item['price'] > 0) {
+        $total = round((float)$item['quantity'] * (float)$item['price'], 2);
+        $st = db()->prepare(
+            "UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?"
+        );
+        $st->execute([$item['quantity'], $total, $item['month'], $item['project_id'], $item['item_name'], $item['spec']]);
+    }
+    log_action('确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} x{$item['quantity']}");
+    // Q14③：确认完成提醒员工
+    $pname = project_name((int)$item['project_id']);
+    foreach (project_user_ids((int)$item['project_id']) as $uid) {
+        notify_user((int)$uid, 'confirmed', "{$item['month']}月 填报已确认", "【{$pname}】{$item['item_name']} 已确认通过。", "#/my-items?month={$item['month']}");
+    }
+    return ['ok' => true, 'msg' => '已确认'];
+}
+
+// 退回修改（提交/已确认的记录退回给填报人，须填原因）
+function handle_admin_return_item($id) {
+    require_admin();
+    $item = fetch_item($id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可退回'];
+    if (!in_array($item['status'], ['submitted', 'confirmed'])) {
+        return ['ok' => false, 'msg' => '仅已提交或已确认的记录可退回'];
+    }
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $reason = trim($in['reason'] ?? '');
+    if ($reason === '') return ['ok' => false, 'msg' => '请填写退回原因（填报人将看到）'];
+    db()->prepare("UPDATE purchase_items SET status='returned', return_reason=?, returned_at=NOW() WHERE id=?")
+        ->execute([$reason, $id]);
+    log_action('退回修改', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} 原因:{$reason}");
+    // Q14②：被退回提醒员工
+    $pname = project_name((int)$item['project_id']);
+    foreach (project_user_ids((int)$item['project_id']) as $uid) {
+        notify_user((int)$uid, 'returned', "{$item['month']}月 填报被退回", "【{$pname}】{$item['item_name']} 被退回：{$reason}。请修改后重新提交。", "#/my-items?month={$item['month']}");
+    }
+    return ['ok' => true, 'msg' => '已退回给填报人修改'];
+}
+
+// 项目级退回（该月该项目的已提交/已确认记录全部退回）
+function handle_admin_return_project() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $month = $in['month'] ?? '';
+    $project_id = (int)($in['project_id'] ?? 0);
+    $line = $in['line'] ?? '';
+    $reason = trim($in['reason'] ?? '');
+    if ($month === '' || $project_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    if (month_archived($month)) return ['ok' => false, 'msg' => '本月已归档锁定，不可退回'];
+    if ($reason === '') return ['ok' => false, 'msg' => '请填写退回原因（填报人将看到）'];
+    $sql = "UPDATE purchase_items SET status='returned', return_reason=?, returned_at=NOW() WHERE month=? AND project_id=? AND status IN ('submitted','confirmed')";
+    $params = [$reason, $month, $project_id];
+    if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
+    $st = db()->prepare($sql);
+    $st->execute($params);
+    log_action('项目退回', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 原因:{$reason} 共{$st->rowCount()}条");
+    // Q14②：被退回提醒员工
+    $pname = project_name((int)$project_id);
+    foreach (project_user_ids((int)$project_id) as $uid) {
+        notify_user((int)$uid, 'returned', "{$month}月 填报被退回", "【{$pname}】{$month}月填报被退回：{$reason}。请修改后重新提交。", "#/my-items?month=$month");
+    }
+    return ['ok' => true, 'msg' => "已退回 {$st->rowCount()} 条给填报人修改"];
+}
+
+// 撤销确认
+function handle_admin_unconfirm_item($id) {
+    require_admin();
+    $item = fetch_item($id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可取消确认'];
+    db()->prepare("UPDATE purchase_items SET status='submitted' WHERE id=?")->execute([$id]);
+    log_action('取消确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']}");
+    return ['ok' => true, 'msg' => '已撤销确认'];
+}
+
+// 批量确认（按项目/条线）
+function handle_admin_confirm_batch() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $month = $in['month'] ?? '';
+    $project_id = (int)($in['project_id'] ?? 0);
+    $line = $in['line'] ?? '';
+    if ($month === '' || $project_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    if (month_archived($month)) return ['ok' => false, 'msg' => '本月已归档锁定，不可批量确认'];
+    // 统计该范围内所有已退回记录（用于提示；无论是否有价格）
+    $sqlR = "SELECT COUNT(*) FROM purchase_items WHERE month=? AND project_id=? AND status='returned'";
+    $paramsR = [$month, $project_id];
+    if ($line !== '') { $sqlR .= " AND line=?"; $paramsR[] = $line; }
+    $stR = db()->prepare($sqlR);
+    $stR->execute($paramsR);
+    $returnedTotal = (int)$stR->fetchColumn();
+    // 有价格的退回记录（需同步存档）
+    $sql = "SELECT id, item_name, spec, quantity, price FROM purchase_items WHERE month=? AND project_id=? AND status='returned' AND price>0";
+    $params = [$month, $project_id];
+    if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
+    $st = db()->prepare($sql);
+    $st->execute($params);
+    $returnedCount = $st->rowCount();
+    foreach ($st->fetchAll() as $r) {
+        $total = round((float)$r['quantity'] * (float)$r['price'], 2);
+        db()->prepare("UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?")
+            ->execute([$r['quantity'], $total, $month, $project_id, $r['item_name'], $r['spec']]);
+    }
+    $sql = "UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE month=? AND project_id=? AND status='submitted'";
+    $params = [$month, $project_id];
+    if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
+    $st = db()->prepare($sql);
+    $st->execute($params);
+    $confirmed = $st->rowCount();
+    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedCount > 0 ? "，跳过已退回{$returnedCount}条" : ''));
+    // Q14③：确认完成提醒员工
+    if ($confirmed > 0) {
+        $pname = project_name((int)$project_id);
+        foreach (project_user_ids((int)$project_id) as $uid) {
+            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedCount > 0 ? "，{$returnedCount} 条已退回待重新提交。" : '。'), "#/my-items?month=$month");
+        }
+    }
+    $msg = "已确认 {$confirmed} 条";
+    if ($returnedTotal > 0) $msg .= "，跳过已退回 {$returnedTotal} 条（需员工重新提交后确认）";
+    return ['ok' => true, 'msg' => $msg];
+}
+
+// 归档确认：当月全部条目已确认后锁定为最终版（此后任何修改/导入均拒绝，导出照常）
+function handle_admin_archive() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $month = trim($in['month'] ?? '');
+    if ($month === '') return ['ok' => false, 'msg' => '月份缺失'];
+    if (month_archived($month)) return ['ok' => false, 'msg' => '本月已归档锁定'];
+    $st = db()->prepare("SELECT COUNT(*) c, COALESCE(SUM(status='confirmed'),0) cf FROM purchase_items WHERE month=?");
+    $st->execute([$month]);
+    $r = $st->fetch();
+    $total = (int)$r['c']; $confirmed = (int)$r['cf'];
+    if ($total === 0) return ['ok' => false, 'msg' => '本月无填报记录，无需归档'];
+    if ($confirmed < $total) {
+        $pending = $total - $confirmed;
+        $st2 = db()->prepare("SELECT line, item_name, spec, status FROM purchase_items WHERE month=? AND status<>'confirmed' ORDER BY line, id LIMIT 8");
+        $st2->execute([$month]);
+        $names = array_map(fn($x) => $x['item_name'] . ($x['spec'] ? "({$x['spec']})" : '') . "[{$x['status']}]", $st2->fetchAll());
+        $suffix = count($names) > 0 ? '，如：' . implode('、', $names) : '';
+        return ['ok' => false, 'msg' => "本月尚有 {$pending} 条未确认，全部确认后才能归档" . $suffix];
+    }
+    $uid = (int)(\App\Purchase\Support::context()['id'] ?? $in['by'] ?? 0);
+    db()->prepare("INSERT INTO monthly_archive (month, archived_at, archived_by, note) VALUES (?,NOW(),?,'')")
+        ->execute([$month, $uid]);
+    log_action('归档确认', "{$month} 归档锁定（最终版，共 {$total} 条）");
+    return ['ok' => true, 'msg' => "本月已归档锁定（{$total} 条全部确认），员工端与招采端均只读"];
+}
+
+// 撤销归档（仅管理员，防误操作）
+function handle_admin_unarchive() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $month = trim($in['month'] ?? '');
+    if ($month === '') return ['ok' => false, 'msg' => '月份缺失'];
+    if (!month_archived($month)) return ['ok' => false, 'msg' => '本月未归档'];
+    db()->prepare("DELETE FROM monthly_archive WHERE month=?")->execute([$month]);
+    log_action('撤销归档', "{$month} 撤销归档锁定");
+    return ['ok' => true, 'msg' => '已撤销归档，恢复可编辑'];
+}
+
+// 清单外列表（is_custom=1 或 秩序条线）
+function handle_admin_customs() {
+    require_admin();
+    $month = $_GET['month'] ?? date('Y-m');
+    $st = db()->prepare(
+        "SELECT pi.*, p.name AS project_name FROM purchase_items pi
+         JOIN payroll.payroll_projects p ON pi.project_id=p.id
+         WHERE pi.month=? AND pi.is_custom=1 ORDER BY pi.project_id, pi.line, pi.id"
+    );
+    $st->execute([$month]);
+    $items = $st->fetchAll();
+    // 附带商品库匹配候选
+    $db = db();
+    foreach ($items as &$it) {
+        $cand = $db->prepare(
+            "SELECT id, line, category, name, brand, spec, unit FROM products
+             WHERE status=1 AND (name LIKE ? OR spec LIKE ?) ORDER BY id LIMIT 8"
+        );
+        $like = "%" . $it['item_name'] . "%";
+        $cand->execute([$like, $like]);
+        $it['candidates'] = $cand->fetchAll();
+    }
+    return ['ok' => true, 'data' => $items];
+}
+
+// 清单外归类：映射到标准商品（可选保存别名）
+function handle_admin_map_custom() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $item_id = (int)($in['item_id'] ?? 0);
+    $product_id = (int)($in['product_id'] ?? 0);
+    $save_alias = !empty($in['save_alias']);
+    if ($item_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    $item = fetch_item($item_id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
+    if ($product_id > 0) {
+        $pst = db()->prepare("SELECT * FROM products WHERE id=? AND status=1");
+        $pst->execute([$product_id]);
+        $prod = $pst->fetch();
+        if (!$prod) return ['ok' => false, 'msg' => '目标商品不存在'];
+        // 更新明细为标准商品
+        db()->prepare(
+            "UPDATE purchase_items SET product_id=?, item_name=?, brand=?, spec=?, unit=?, is_custom=0 WHERE id=?"
+        )->execute([$product_id, $prod['name'], $prod['brand'], $prod['spec'], $prod['unit'], $item_id]);
+        // 保存别名
+        if ($save_alias && $item['item_name'] !== $prod['name']) {
+            try {
+                db()->prepare("INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)")
+                    ->execute([$product_id, $item['item_name']]);
+            } catch (PDOException $e) {}
+        }
+        db()->prepare("INSERT INTO audit_records (item_id, product_id, action, alias_saved, created_by) VALUES (?,?,?,?,?)")
+            ->execute([$item_id, $product_id, 'map', $save_alias ? 1 : 0, (int)($in['by'] ?? $in['created_by'] ?? 0)]);
+        log_action('清单外映射', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 标准商品「{$prod['name']}」" . ($save_alias ? '（并保存别名）' : ''));
+        return ['ok' => true, 'msg' => '已归入标准商品「' . $prod['name'] . '」'];
+    }
+    return ['ok' => false, 'msg' => '请选择要归入的商品'];
+}

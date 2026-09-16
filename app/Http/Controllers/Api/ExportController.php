@@ -1,0 +1,488 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\{Color, Alignment, Border, Fill, Font};
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use ZipArchive;
+
+class ExportController extends ApiController
+{
+    private const COLUMNS = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '固定月薪', '基本工资', '应出勤', '实际出勤',
+        '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
+        '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计', '养老保险',
+        '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '实发工资', '备注'];
+
+    /** 表头分区配色（列序号从 1 开始），与考勤模板风格一致 */
+    private const COL_BASE = 'DDEBF7';   // 基本信息：浅蓝
+    private const COL_ATT  = 'F2F2F2';   // 出勤统计：浅灰
+    private const COL_PAY  = 'E2EFDA';   // 应发项目：浅绿
+    private const COL_SOC  = 'FFF2CC';   // 五险一金：浅黄
+    private const COL_NET  = 'FCE4D6';   // 个税/实发：浅橙
+
+    /** 每列归属的分区（与 COLUMNS 一一对应） */
+    private function columnBand(int $idx): string
+    {
+        return match (true) {
+            $idx <= 8                       => self::COL_BASE,  // 序号..基本工资
+            $idx <= 11                      => self::COL_ATT,   // 应出勤..绩效系数
+            $idx <= 25                      => self::COL_PAY,   // 应发基本..应发合计
+            $idx <= 31                      => self::COL_SOC,   // 五险..五险一金合计
+            default                         => self::COL_NET,   // 专项/个税/实发/备注
+        };
+    }
+
+    private function denyProjectNotArchived($account, string $ym): ?JsonResponse
+    {
+        if (!$this->isProjectScope($account)) return null;
+        $archived = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('project_name', (string) $account->project_name)->where('archived', true)->exists();
+        if (!$archived) {
+            return response()->json(['ok' => false, 'error' => '本月薪资总部尚未核定，核定完成后才能导出'], 403);
+        }
+        return null;
+    }
+
+    public function project(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        $deny = $this->denyProjectNotArchived($account, $ym);
+        if ($deny) return $deny;
+        $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
+        if ($project === '') return response()->json(['ok' => false, 'error' => '项目不能为空'], 400);
+        $rows = $this->rows($ym, $project);
+        if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+        $book = new Spreadsheet();
+        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
+        return $this->xlsx($book, $project . '_' . $ym . '工资表.xlsx');
+    }
+
+    public function summary(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        $deny = $this->denyProjectNotArchived($account, $ym);
+        if ($deny) return $deny;
+        $query = DB::table('payroll_results')->where('year_month', $ym);
+        if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
+        // 汇总表主体 = 项目员工（不含管理人员）；管理人员单独成行/单独 Sheet
+        $all = $query->where('is_manager_row', false)->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
+        if ($all->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+        $allMgrs = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_manager_row', true)->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
+        // 权限收紧：项目账号导出完全不可见管理人员工资（含本项目的），仅总部可见
+        if ($this->isProjectScope($account)) $allMgrs = collect();
+
+        $book = new Spreadsheet();
+        // ===== Sheet1：汇总报表 =====
+        $sheet = $book->getActiveSheet();
+        $sheet->setTitle('汇总');
+        // 上月实发（环比基准，口径与主体一致：仅项目员工）
+        $prevYm = date('Y-m', strtotime($ym . '-01 -1 month'));
+        $prevNet = DB::table('payroll_results')->where('year_month', $prevYm)->where('is_manager_row', false)->get()
+            ->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])
+            ->groupBy(fn ($x) => $x['project'] ?? '')
+            ->map(fn ($rows) => round($rows->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2))
+            ->all();
+        // 当月预算（月度预算 + 预算执行率 = 应发 ÷ 月度预算，与预算页口径一致）
+        $budgetMap = DB::table('payroll_budgets')->where('year', (int) substr($ym, 0, 4))->get()
+            ->mapWithKeys(fn ($row) => [$row->project_name => $this->jsonValue($row->data) ?: []])->all();
+        $monthKey = (string) ((int) substr($ym, 5, 2));
+
+        // ---- 第1行 大标题 ----
+        $sheet->setCellValue('A1', $ym . ' 工资汇总报表');
+        $sheet->mergeCells('A1:M1');
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+        $sheet->getRowDimension(1)->setRowHeight(30);
+
+        // ---- 第2行 明细表头（分区配色） ----
+        $detailHead = ['项目', '发放人数', '应发工资合计', '五险一金合计', '本月个税', '实发工资合计',
+            '人均应发', '人均实发', '月度预算', '预算执行率', '上月实发', '较上月增减', '较上月幅度'];
+        $band = [self::COL_BASE, self::COL_BASE, self::COL_PAY, self::COL_SOC, self::COL_SOC, self::COL_NET,
+            self::COL_PAY, self::COL_NET, self::COL_SOC, self::COL_SOC, self::COL_ATT, self::COL_ATT, self::COL_ATT];
+        foreach ($detailHead as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
+            $sheet->setCellValue($col, $v);
+            $sheet->getStyle($col)->getFont()->setBold(true);
+            $sheet->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($band[$ci]);
+            $sheet->getStyle($col)->getAlignment()->setHorizontal('center');
+        }
+        $sheet->getRowDimension(2)->setRowHeight(22);
+
+        // ---- 明细行 ----
+        $r = 3;
+        $sumGross = $sumSoc = $sumTax = $sumNet = $sumBudget = 0.0;
+        foreach ($all->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
+            $gross = round($rows->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            $soc = round($rows->sum(fn ($x) => (float) ($x['soc_total'] ?? 0)), 2);
+            $tax = round($rows->sum(fn ($x) => (float) ($x['actual_tax'] ?? 0)), 2);
+            $net = round($rows->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2);
+            $cnt = $rows->count();
+            $budget = (float) (($budgetMap[(string) $project]['months'][$monthKey] ?? 0));
+            $execRate = $budget > 0 ? round($gross / $budget, 4) : null;
+            $prev = $prevNet[(string) $project] ?? null;
+            $diff = $prev === null ? null : round($net - $prev, 2);
+            $rateDiff = ($prev !== null && $prev > 0) ? round($diff / $prev, 4) : null;
+            $vals = [$project, $cnt, $gross, $soc, $tax, $net,
+                $cnt > 0 ? round($gross / $cnt, 2) : 0, $cnt > 0 ? round($net / $cnt, 2) : 0,
+                $budget > 0 ? $budget : null, $execRate, $prev, $diff, $rateDiff];
+            foreach ($vals as $ci => $v) {
+                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            }
+            $sumGross += $gross; $sumSoc += $soc; $sumTax += $tax; $sumNet += $net; $sumBudget += $budget;
+            $r++;
+        }
+        // 合计行（项目员工）
+        $totalHeadCount = $all->count();
+        $totalVals = ['合计', $totalHeadCount, round($sumGross, 2), round($sumSoc, 2), round($sumTax, 2), round($sumNet, 2),
+            $totalHeadCount > 0 ? round($sumGross / $totalHeadCount, 2) : 0,
+            $totalHeadCount > 0 ? round($sumNet / $totalHeadCount, 2) : 0,
+            $sumBudget > 0 ? round($sumBudget, 2) : null,
+            $sumBudget > 0 ? round($sumGross / $sumBudget, 4) : null,
+            null, null, null];
+        foreach ($totalVals as $ci => $v) {
+            if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+        }
+        $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+        $last = $r;
+
+        // 管理人员合计行（独立一行，与"管理人员"Sheet 数字一致；仅总部且有管理人员数据时渲染）
+        $mCnt = $allMgrs->count();
+        $mGross = round($allMgrs->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+        $mSoc = round($allMgrs->sum(fn ($x) => (float) ($x['soc_total'] ?? 0)), 2);
+        $mTax = round($allMgrs->sum(fn ($x) => (float) ($x['actual_tax'] ?? 0)), 2);
+        $mNet = round($allMgrs->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2);
+        if ($mCnt > 0) {
+            $r++;
+            $mgrVals = ['管理人员合计', $mCnt, $mGross, $mSoc, $mTax, $mNet,
+                $mCnt > 0 ? round($mGross / $mCnt, 2) : 0, $mCnt > 0 ? round($mNet / $mCnt, 2) : 0,
+                null, null, null, null, null];
+            foreach ($mgrVals as $ci => $v) {
+                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            }
+            $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
+        }
+        $mgrRow = $r;
+
+        // 总计行（项目员工 + 管理人员）
+        $r++;
+        $gCnt = $totalHeadCount + $mCnt;
+        $gVals = ['总计', $gCnt, round($sumGross + $mGross, 2), round($sumSoc + $mSoc, 2), round($sumTax + $mTax, 2), round($sumNet + $mNet, 2),
+            $gCnt > 0 ? round(($sumGross + $mGross) / $gCnt, 2) : 0,
+            $gCnt > 0 ? round(($sumNet + $mNet) / $gCnt, 2) : 0,
+            $sumBudget > 0 ? round($sumBudget, 2) : null,
+            $sumBudget > 0 ? round(($sumGross + $mGross) / $sumBudget, 4) : null,
+            null, null, null];
+        foreach ($gVals as $ci => $v) {
+            if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+        }
+        $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+        $last = $r;
+
+        // 样式：列宽/边框/金额格式
+        $sheet->getColumnDimension('A')->setWidth(20);
+        $sheet->getColumnDimension('B')->setWidth(10);
+        foreach (['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'] as $c) {
+            $sheet->getColumnDimension($c)->setWidth(15);
+        }
+        $moneyCols = ['C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L'];
+        foreach (range(2, $last) as $rr) {
+            foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'] as $cc) {
+                $st = $sheet->getStyle("{$cc}{$rr}");
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                if (in_array($cc, $moneyCols, true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
+                if (in_array($cc, ['J', 'M'], true)) $st->getNumberFormat()->setFormatCode('0.00%');
+            }
+            $sheet->getRowDimension($rr)->setRowHeight(20);
+        }
+        $sheet->freezePane('A3');
+
+        // ===== 管理人员汇总 Sheet（第2个：汇总后面，按项目汇总管理人员工资；仅总部导出时生成） =====
+        $mgrSummaryRows = $allMgrs;
+        if ($mgrSummaryRows->isNotEmpty()) {
+            $ms = $book->createSheet();
+            $ms->setTitle('管理人员汇总');
+            // 第1行 大标题
+            $ms->setCellValue('A1', $ym . ' 管理人员工资汇总');
+            $ms->mergeCells('A1:H1');
+            $ms->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
+            $ms->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+            $ms->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+            $ms->getRowDimension(1)->setRowHeight(30);
+            // 第2行 表头
+            $mHead = ['项目', '人数', '应发工资合计', '五险一金合计', '本月个税', '已发/福利奖金', '实发工资合计', '调个税差额'];
+            foreach ($mHead as $ci => $v) {
+                $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
+                $ms->setCellValue($col, $v);
+                $ms->getStyle($col)->getFont()->setBold(true);
+                $ms->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
+                $ms->getStyle($col)->getAlignment()->setHorizontal('center');
+            }
+            $ms->getRowDimension(2)->setRowHeight(22);
+            // 明细行（按项目分组）
+            $mr = 3;
+            $msGross = $msSoc = $msTax = $msBonus = $msNet = $msDiff = 0.0; $msCnt = 0;
+            foreach ($mgrSummaryRows->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
+                $cnt = $rows->count();
+                $gross = round($rows->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+                $soc = round($rows->sum(fn ($x) => (float) ($x['soc_total'] ?? 0)), 2);
+                $tax = round($rows->sum(fn ($x) => (float) ($x['actual_tax'] ?? 0)), 2);
+                $bonus = round($rows->sum(fn ($x) => (float) ($x['reward'] ?? 0) + (float) ($x['welfare'] ?? 0)), 2);
+                $net = round($rows->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2);
+                $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
+                $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
+                foreach ($vals as $ci => $v) {
+                    $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+                }
+                $msGross += $gross; $msSoc += $soc; $msTax += $tax; $msBonus += $bonus; $msNet += $net; $msDiff += $diff; $msCnt += $cnt;
+                $mr++;
+            }
+            // 合计行
+            $mTotal = ['合计', $msCnt, round($msGross, 2), round($msSoc, 2), round($msTax, 2), round($msBonus, 2), round($msNet, 2), round($msDiff, 2)];
+            foreach ($mTotal as $ci => $v) {
+                $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+            }
+            $ms->getStyle("A{$mr}:H{$mr}")->getFont()->setBold(true);
+            $ms->getStyle("A{$mr}:H{$mr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDF3E0');
+            $mLast = $mr;
+            // 样式：列宽/边框/金额格式
+            $ms->getColumnDimension('A')->setWidth(20);
+            $ms->getColumnDimension('B')->setWidth(8);
+            foreach (['C', 'D', 'E', 'F', 'G', 'H'] as $c) {
+                $ms->getColumnDimension($c)->setWidth(15);
+            }
+            foreach (range(2, $mLast) as $rr) {
+                foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $cc) {
+                    $st = $ms->getStyle("{$cc}{$rr}");
+                    $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                    if (in_array($cc, ['C', 'D', 'E', 'F', 'G', 'H'], true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
+                }
+                $ms->getRowDimension($rr)->setRowHeight(20);
+            }
+            $ms->freezePane('A3');
+        }
+
+        // ===== 各项目明细 Sheet（不含管理人员） =====
+        foreach ($all->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
+            $detail = $book->createSheet();
+            $detail->setTitle(mb_substr((string) $project, 0, 28));
+            $this->fillSheet($detail, $rows->values(), $project . ' ' . $ym . '工资表');
+        }
+        // ===== 管理人员 Sheet（所有项目管理人员明细） =====
+        if ($allMgrs->isNotEmpty()) {
+            $mgrSheet = $book->createSheet();
+            $mgrSheet->setTitle('管理人员');
+            $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($allMgrs->values()->all()))->values(), $ym . '管理人员工资表');
+        }
+        $book->setActiveSheetIndex(0);
+        return $this->xlsx($book, '工资汇总_' . $ym . '.xlsx');
+    }
+
+    public function projectsAll(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        $deny = $this->denyProjectNotArchived($account, $ym);
+        if ($deny) return $deny;
+        $query = DB::table('payroll_results')->where('year_month', $ym);
+        if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
+        // 全部项目工资表 zip 同样不含管理人员（管理人员单独导出）
+        $groups = $query->where('is_manager_row', false)->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->groupBy(fn ($r) => $r['project'] ?? '');
+        if ($groups->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+        $zipPath = tempnam(sys_get_temp_dir(), 'payroll_export_') . '.zip'; $zip = new ZipArchive(); $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        foreach ($groups as $project => $rows) {
+            $book = new Spreadsheet(); $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
+            $tmp = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($tmp); rewind($tmp);
+            $zip->addFromString($project . '_' . $ym . '工资表.xlsx', stream_get_contents($tmp)); fclose($tmp);
+        }
+        $zip->close();
+        return response()->download($zipPath, '全部项目工资表_' . $ym . '.zip', ['Content-Type' => 'application/zip'])->deleteFileAfterSend(true);
+    }
+
+    public function performance(Request $request)
+    {
+        return $request->filled('project') ? $this->project($request) : $this->summary($request);
+    }
+
+    public function dashboard(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->input('ym', now()->format('Y-m')); $query = DB::table('payroll_results')->where('year_month', $ym);
+        if ($this->isProjectScope($account)) {
+            $query->where('project_name', $account->project_name)->where('is_manager_row', false);
+        }
+        $rows = $query->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: []);
+        $book = new Spreadsheet(); $sheet = $book->getActiveSheet(); $sheet->setTitle('数据驾驶舱');
+        $sheet->fromArray(['指标', '数值'], null, 'A1');
+        $sheet->fromArray(['月份', $ym], null, 'A2');
+        $sheet->fromArray(['发放人数', $rows->count()], null, 'A3');
+        $sheet->fromArray(['应发总额', $rows->sum(fn ($r) => (float) ($r['gross'] ?? 0))], null, 'A4');
+        $sheet->fromArray(['实发总额', $rows->sum(fn ($r) => (float) ($r['net'] ?? 0))], null, 'A5');
+        return $this->xlsx($book, '薪资驾驶舱_' . $ym . '.xlsx');
+    }
+
+    private function rows(string $ym, string $project)
+    {
+        $rows = DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)
+            ->where('is_manager_row', false)
+            ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->all();
+        return collect(\App\Services\PayrollCalculator::orderRows($rows))->values();
+    }
+
+    /** 管理人员工资表导出（仅总部）：选月份 → 所有项目管理人员一张 Excel，含项目列 */
+    public function managers(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '管理人员工资表仅总部可导出'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        $rows = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_manager_row', true)
+            ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
+        if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无管理人员核算数据'], 404);
+        $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
+        $book = new Spreadsheet();
+        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '管理人员工资表');
+        return $this->xlsx($book, '管理人员工资表_' . $ym . '.xlsx');
+    }
+
+    /** 分项目管理人员工资表导出（仅总部）：选项目 → 该项目管理人员单独一张 Excel */
+    public function projectManagers(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '管理人员工资表仅总部可导出'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        $project = $request->string('project')->toString();
+        if ($project === '') return response()->json(['ok' => false, 'error' => '请选择项目'], 422);
+        $rows = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('project_name', $project)
+            ->where('is_manager_row', true)
+            ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
+        if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '该项目无管理人员核算数据'], 404);
+        $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
+        $book = new Spreadsheet();
+        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '管理人员工资表');
+        return $this->xlsx($book, $project . '_管理人员工资表_' . $ym . '.xlsx');
+    }
+
+    private function fillSheet($sheet, $rows, string $title): void
+    {
+        $sheet->setTitle(preg_replace('#[\[\]:*?/\\\\]#u', '_', mb_substr($title, 0, 31)));
+        $colCount = count(self::COLUMNS);
+        $lastLetter = Coordinate::stringFromColumnIndex($colCount);
+
+        // ===== 第1行：大标题 =====
+        $sheet->mergeCells("A1:{$lastLetter}1");
+        $sheet->setCellValue('A1', $title);
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getRowDimension(1)->setRowHeight(28);
+
+        // ===== 第2行：表头（分区配色）=====
+        $sheet->fromArray(self::COLUMNS, null, 'A2');
+        for ($c = 1; $c <= $colCount; $c++) {
+            $letter = Coordinate::stringFromColumnIndex($c);
+            $style = $sheet->getStyle("{$letter}2");
+            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($this->columnBand($c));
+            $style->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
+            $style->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+            $style->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension(2)->setRowHeight(34);
+        $sheet->freezePane('F3'); // 冻结表头两行 + 前5列（序号/项目/部门/岗位/姓名）
+
+        // ===== 数据行 =====
+        $rowNumber = 3;
+        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
+        foreach ($rows->values() as $index => $row) {
+            $values = [$index + 1, $row['project'] ?? '', $row['department'] ?? '', $row['position'] ?? '', $row['name'] ?? '',
+                $row['status'] ?? '', $row['fixed'] ?? 0, $row['base'] ?? 0, $row['req_att'] ?? 0, $row['act_att'] ?? 0,
+                $row['coef'] ?? 0, $row['base_pay'] ?? 0, $row['perf_pay'] ?? 0, $row['sick_pay'] ?? 0,
+                $row['night'] ?? 0, $row['meal'] ?? 0, $row['title_sub'] ?? 0, $row['reward'] ?? 0, $row['welfare'] ?? 0,
+                $row['punish'] ?? 0, $row['late_d'] ?? 0, $row['miss_d'] ?? 0, $row['other_d'] ?? 0, $row['uniform_d'] ?? 0,
+                $row['gross'] ?? 0, $row['pen'] ?? 0, $row['med'] ?? 0, $row['une'] ?? 0, $row['house'] ?? 0, $row['big'] ?? 0,
+                $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? ''];
+            $sheet->fromArray($values, null, 'A' . $rowNumber);
+            // 显式重写数值（fromArray 会跳过 float(0) 单元格，导致 0 值列留空）
+            foreach ($values as $ci => $v) {
+                $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $rowNumber, $v);
+            }
+            for ($c = 1; $c <= $colCount; $c++) {
+                $letter = Coordinate::stringFromColumnIndex($c);
+                $cellStyle = $sheet->getStyle("{$letter}{$rowNumber}");
+                $cellStyle->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
+                $cellStyle->getFont()->setName('微软雅黑')->setSize(10);
+                if (in_array($c, $moneyCols, true)) {
+                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00');
+                    $cellStyle->getAlignment()->setHorizontal('right');
+                } elseif (in_array($c, [9, 10, 11], true)) {
+                    $cellStyle->getAlignment()->setHorizontal('center');
+                } elseif ($c === 35) {
+                    $cellStyle->getAlignment()->setHorizontal('left');
+                } else {
+                    $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
+                }
+            }
+            // 应发合计(25)、实发(34)加粗
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(25) . $rowNumber)->getFont()->setBold(true);
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(34) . $rowNumber)->getFont()->setBold(true);
+            $sheet->getRowDimension($rowNumber)->setRowHeight(20);
+            $rowNumber++;
+        }
+
+        // ===== 合计行 =====
+        $totalRow = $rowNumber;
+        $sumCols = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
+        $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
+        $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);
+        $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal('right');
+        foreach ($sumCols as $c) {
+            $letter = Coordinate::stringFromColumnIndex($c);
+            $sheet->setCellValue($letter . $totalRow, '=SUM(' . $letter . '3:' . $letter . ($totalRow - 1) . ')');
+            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle($letter . $totalRow)->getAlignment()->setHorizontal('right');
+        }
+        for ($c = 1; $c <= $colCount; $c++) {
+            $letter = Coordinate::stringFromColumnIndex($c);
+            $st = $sheet->getStyle($letter . $totalRow);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+            $st->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension($totalRow)->setRowHeight(22);
+
+        // ===== 列宽 =====
+        $widths = [6, 14, 12, 12, 10, 9, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
+            10, 10, 10, 11, 8, 12, 12, 10, 12, 16];
+        for ($c = 1; $c <= $colCount; $c++) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);
+        }
+    }
+
+    private function xlsx(Spreadsheet $book, string $filename)
+    {
+        $stream = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($stream); rewind($stream);
+        return response()->streamDownload(fn () => fpassthru($stream), $filename,
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+}

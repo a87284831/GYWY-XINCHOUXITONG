@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>昊轩云枢 · 财务管理</title>
+<link rel="stylesheet" href="./assets/echarts.min.js" />
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* 财务管理 SPA —— 纯前端实现，无构建 */
+(function () {
+  "use strict";
+  var BASE = "/api/finance";
+  var TK = "";
+  (function () {
+    var q = new URLSearchParams(location.search);
+    TK = q.get("token") || sessionStorage.getItem("gw_token") || "";
+    if (TK) sessionStorage.setItem("gw_token", TK);
+  })();
+
+  var META = null;
+  var CATS = {};
+  var TYPES = {};
+  var PROJS = [];
+  var IS_ADMIN = false;
+  var MY_PROJECT = null;
+  var MY_PROJECT_ID = null;
+  var ROLE = "";
+
+  function api(action, params, method) {
+    var url = BASE + "/" + action;
+    var opt = { method: method || "GET", headers: { "X-Token": TK } };
+    if (params && method === "POST") {
+      opt.headers["Content-Type"] = "application/json";
+      opt.body = JSON.stringify(params);
+    } else if (params) {
+      var qs = new URLSearchParams();
+      Object.keys(params).forEach(function (k) { if (params[k] !== undefined && params[k] !== null && params[k] !== "") qs.append(k, params[k]); });
+      var sp = qs.toString();
+      url += (url.indexOf("?") >= 0 ? "&" : "?") + sp;
+    }
+    return fetch(url, opt).then(function (r) {
+      return r.json().then(function (d) {
+        if (r.status === 401) {
+          toast("登录已失效，请重新登录", false);
+          setTimeout(function () { try { top.location.href = "/"; } catch (e) { location.href = "/"; } }, 1200);
+          throw new Error("登录已失效，正在跳转登录页…");
+        }
+        if (!r.ok || d.ok === false) throw new Error(d.msg || ("请求失败(" + r.status + ")"));
+        return d;
+      });
+    });
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function fmtMoney(v) {
+    var n = Number(v || 0);
+    return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function moneyCell(v) {
+    var n = Number(v || 0);
+    return n ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  }
+  function toast(msg, ok) {
+    var t = document.createElement("div");
+    t.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;padding:10px 22px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.18);max-width:80%;" +
+      (ok === false ? "background:#ea6668;" : "background:#2f9e6e;");
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2600);
+  }
+  function confirmDlg(msg) { return window.confirm(msg); }
+  function downloadBlob(url, name) {
+    fetch(url, { headers: { "X-Token": TK } }).then(function (r) {
+      if (r.status === 401) {
+        toast("登录已失效，请重新登录", false);
+        setTimeout(function () { try { top.location.href = "/"; } catch (e) { location.href = "/"; } }, 1200);
+        throw new Error("登录已失效");
+      }
+      if (!r.ok) throw new Error("导出失败(" + r.status + ")");
+      return r.blob();
+    }).then(function (blob) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+      toast("已导出：" + name);
+    }).catch(function (e) { toast(e.message, false); });
+  }
+  function stateBadge(v, t) {
+    if (v === 1) return '<span style="color:#2f9e6e;font-weight:600;">' + t + "</span>";
+    if (v === 0) return '<span style="color:#ea6668;font-weight:600;">未' + t + "</span>";
+    return '<span style="color:#999;">未填</span>';
+  }
+
+  /* ---------- 路由 ---------- */
+  var routes = {
+    "dashboard": pageDashboard, "ledger": pageLedger, "payments": pagePayments,
+    "summary": pageSummary, "import": pageImport
+  };
+  function currentHash() { return (location.hash || "#/dashboard").replace(/^#\//, ""); }
+  function route() {
+    var key = currentHash().split("?")[0];
+    if (!routes[key]) key = "dashboard";
+    var fn = routes[key];
+    if (key === "import") {
+      if (!IS_ADMIN) { key = "dashboard"; fn = routes["dashboard"]; }
+    }
+    try { fn(); } catch (e) { console.error(e); toast("页面加载失败: " + e.message, false); }
+  }
+  function go(key) { location.hash = "#/" + key; }
+  window.addEventListener("hashchange", route);
+
+  /* ---------- 布局 ---------- */
+  function layout(title, bodyHtml) {
+    var app = document.getElementById("app");
+    app.innerHTML =
+      '<div class="fwrap">' +
+      '  <div class="fhead"><span class="ftitle">' + esc(title) + "</span>" +
+      '    <span class="fuser">' + esc(ROLE === "admin" ? "管理员" : (ROLE === "finance_admin" ? "总部财务" : "项目财务")) + (MY_PROJECT ? " · " + esc(MY_PROJECT) : "") + "</span></div>" +
+      '  <div class="fbody">' + bodyHtml + "</div>" +
+      "</div>";
+  }
+
+  function chart(id, option) {
+    var el = document.getElementById(id);
+    if (!el || typeof echarts === "undefined") return null;
+    var c = echarts.init(el);
+    c.setOption(option);
+    window.addEventListener("resize", function () { c.resize(); });
+    return c;
+  }
+
+  function yearSelect(id, selected, years, onchange) {
+    var y = years || [];
+    var hasAll = y[0] === "all";
+    if (hasAll) y = y.slice(1);
+    if (!y.length) { var cur = new Date().getFullYear(); for (var i = 2026; i >= 2020; i--) y.push(i); }
+    var html = '<select id="' + id + '" class="fsel"' + (onchange ? ' onchange="' + onchange + '()"' : "") + ">";
+    if (hasAll) html += '<option value="all"' + (selected === "all" ? " selected" : "") + '>截至目前（全部年度）</option>';
+    y.forEach(function (v) { html += '<option value="' + v + '"' + (String(v) === String(selected) ? " selected" : "") + ">" + v + "年</option>"; });
+    html += "</select>";
+    return html;
+  }
+  function projSelect(id, selected, onlyMine, onchange) {
+    var list = PROJS.filter(function (p) {
+      if (onlyMine) return p.id == MY_PROJECT_ID;
+      return true;
+    });
+    var html = '<select id="' + id + '" class="fsel" style="max-width:220px;"' + (onchange ? ' onchange="' + onchange + '()"' : "") + ">";
+    if (!onlyMine && (!selected || selected == 0)) html += '<option value="0">全部项目</option>';
+    list.forEach(function (p) { html += '<option value="' + p.id + '"' + (p.id == selected ? " selected" : "") + ">" + esc(p.name) + "</option>"; });
+    html += "</select>";
+    return html;
+  }
+
+  /* ================= 1. 驾驶舱 ================= */
+  function pageDashboard() {
+    layout("数据驾驶舱", '<div id="dash">加载中…</div>');
+    var curYear = new Date().getFullYear();
+    var html = '<div style="width:100%;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
+      yearSelect("dYear", curYear, null, "__finDash") +
+      (IS_ADMIN ? projSelect("dProj", 0, false, "__finDash") : "") +
+      '<button class="fbtn" onclick="window.__finDash()">查询</button></div><div id="dashBody" style="width:100%;"></div>';
+    document.getElementById("dash").innerHTML = html;
+    window.__finDash = function () {
+      var y = document.getElementById("dYear").value;
+      var p = IS_ADMIN ? document.getElementById("dProj").value : (MY_PROJECT_ID || 0);
+      api("chart/dashboard", { year: y, project_id: p }).then(function (d) { renderDash(d); }).catch(function (e) { toast(e.message, false); });
+    };
+    window.__finDash();
+  }
+
+  function renderDash(d) {
+    var c = d.cards || {};
+    var paidRate = c.payment_rate || 0;
+    // —— KPI 卡片（渐变小条 + 支付率进度条）——
+    var cards = [
+      { t: "当年应收总额", v: fmtMoney(c.receivable_grand), s: "元", g: "linear-gradient(135deg,#3b82f6,#6366f1)" },
+      { t: "付款已确认", v: fmtMoney(c.payment_grand), s: "元", g: "linear-gradient(135deg,#06b6d4,#0891b2)" },
+      { t: "当年已支付", v: fmtMoney(c.payment_paid), s: "元", g: "linear-gradient(135deg,#10b981,#059669)" },
+      { t: "减免赠送合计", v: fmtMoney(c.discount_grand), s: "元", g: "linear-gradient(135deg,#f59e0b,#f97316)" },
+      { t: "有数据月份(应收)", v: String(c.active_months || 0), s: "个月", g: "linear-gradient(135deg,#8b5cf6,#7c3aed)" }
+    ];
+    var html = '<div class="dash-kpis">';
+    cards.forEach(function (k) {
+      html += '<div class="dash-kpi"><div class="dash-kpi-bar" style="background:' + k.g + '"></div><div class="dash-kpi-t">' + k.t + '</div><div class="dash-kpi-v">' + k.v + ' <span class="dash-kpi-s">' + k.s + "</span></div></div>";
+    });
+    // 支付率卡片带进度条
+    html += '<div class="dash-kpi"><div class="dash-kpi-bar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)"></div><div class="dash-kpi-t">付款支付率</div><div class="dash-kpi-v">' + paidRate + ' <span class="dash-kpi-s">%</span></div>' +
+      '<div style="height:8px;background:#eef2f7;border-radius:99px;margin-top:10px;overflow:hidden;"><div style="height:100%;width:' + Math.min(paidRate, 100) + '%;background:linear-gradient(90deg,#ec4899,#f43f5e);border-radius:99px;transition:width .6s;"></div></div></div>';
+    html += "</div>";
+
+    // —— 图表区 ——
+    html += '<div class="dash-grid">' +
+      '<div class="dash-card" style="grid-column:span 2;"><div class="fc-t">应收月度走势与累计</div><div id="chTrend" style="height:300px;"></div></div>' +
+      '<div class="dash-card"><div class="fc-t">付款资金流转</div><div id="chSankey" style="height:300px;"></div></div>' +
+      '<div class="dash-card"><div class="fc-t">应收费用构成（玫瑰）</div><div id="chCat" style="height:290px;"></div></div>' +
+      '<div class="dash-card"><div class="fc-t">项目应收排名</div><div id="chProj" style="height:290px;"></div></div>' +
+      '<div class="dash-card"><div class="fc-t">减免优惠 TOP</div><div id="chDisc" style="height:290px;"></div></div>' +
+      '<div class="dash-card" style="grid-column:span 3;"><div class="fc-t">项目 × 月份应收热力图</div><div id="chHeat" style="height:340px;"></div></div>' +
+      '<div class="dash-card" style="grid-column:span 3;"><div class="fc-t">历年应收总额演化</div><div id="chHist" style="height:280px;"></div></div>' +
+      "</div>";
+    document.getElementById("dashBody").innerHTML = html;
+
+    // 1) 应收月度走势 + 累计（折线 + 面积）
+    var trendMonths = Object.keys(d.monthly_trend || {});
+    var trendVals = trendMonths.map(function (m) { return Math.round((d.monthly_trend[m] || 0) * 100) / 100; });
+    var cum = 0, cumVals = trendVals.map(function (v) { cum += v; return Math.round(cum * 100) / 100; });
+    chart("chTrend", trendAreaOpt(trendMonths, trendVals, cumVals));
+
+    // 2) 付款资金流转桑基图
+    chart("chSankey", sankeyOpt(d));
+
+    // 3) 应收费用构成玫瑰图
+    var catData = Object.keys(d.category_total || {}).map(function (k) {
+      return { name: d.categories[k] || k, value: Math.round((d.category_total[k] || 0) * 100) / 100 };
+    }).filter(function (x) { return x.value > 0; });
+    chart("chCat", roseOpt(catData));
+
+    // 4) 项目应收排名（横向条形，Top 全量）
+    var proj = (d.project_compare || []).map(function (x) {
+      return { name: x.name, value: Math.round(x.total * 100) / 100 };
+    }).filter(function (x) { return x.value > 0; });
+    chart("chProj", hbarOpt(proj, ["#3b82f6", "#6366f1"]));
+
+    // 5) 减免 TOP（横向条形）
+    var disc = (d.discount_top || []).map(function (x) {
+      return { name: x.name, value: Math.round((x.discount || 0) * 100) / 100 };
+    }).filter(function (x) { return x.value > 0; });
+    chart("chDisc", hbarOpt(disc, ["#f59e0b", "#f97316"]));
+
+    // 6) 项目×月份热力图
+    chart("chHeat", heatOpt(d));
+
+    // 7) 历年应收演化（柱 + 累计线）
+    var hist = Object.keys(d.history || {}).map(function (y) {
+      return { name: y, value: Math.round((d.history[y] || 0) * 100) / 100 };
+    });
+    chart("chHist", histOpt(hist));
+  }
+
+  function trendAreaOpt(months, vals, cumVals) {
+    return {
+      color: ["#3b82f6", "#06b6d4"],
+      tooltip: { trigger: "axis", confine: true, valueFormatter: function (v) { return fmtMoney(v) + " 元"; } },
+      legend: { top: 0, textStyle: { fontSize: 11 }, data: ["月度应收", "累计应收"] },
+      grid: { left: 70, right: 70, top: 34, bottom: 26 },
+      xAxis: { type: "category", data: months, axisLabel: { fontSize: 11, formatter: function (m) { return (m || "").slice(5) + "月"; } }, axisTick: { show: false } },
+      yAxis: [
+        { type: "value", name: "月度", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "万"; } }, splitLine: { lineStyle: { color: "#eef2f7" } } },
+        { type: "value", name: "累计", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "万"; } }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: "月度应收", type: "line", smooth: true, symbolSize: 5, data: vals, itemStyle: { color: "#3b82f6" }, lineStyle: { width: 2.5 }, areaStyle: { opacity: 0.08 } },
+        { name: "累计应收", type: "line", smooth: true, symbolSize: 4, yAxisIndex: 1, data: cumVals, itemStyle: { color: "#06b6d4" }, lineStyle: { width: 2, type: "dashed" }, areaStyle: { color: "rgba(6,182,212,0.12)" } }
+      ]
+    };
+  }
+
+  function sankeyOpt(d) {
+    var types = d.payment_types || {};
+    var typeTotal = d.payment_type_total || {};
+    var typePaid = d.payment_type_paid || {};
+    var nodes = [{ name: "已确认数据", itemStyle: { color: "#3b82f6" } }, { name: "已支付", itemStyle: { color: "#10b981" } }, { name: "未支付", itemStyle: { color: "#f59e0b" } }];
+    var links = [];
+    var colors = ["#6366f1", "#06b6d4", "#8b5cf6", "#f43f5e", "#14b8a6", "#f97316", "#0ea5e9", "#a855f7"];
+    var ci = 0;
+    Object.keys(types).forEach(function (k) {
+      var t = types[k];
+      var cTotal = Math.round((typeTotal[k] || 0) * 100) / 100;
+      var cPaid = Math.round((typePaid[k] || 0) * 100) / 100;
+      var cUnpaid = Math.max(Math.round((cTotal - cPaid) * 100) / 100, 0);
+      if (!cTotal) return;
+      nodes.push({ name: t, itemStyle: { color: colors[ci++ % colors.length] } });
+      links.push({ source: "已确认数据", target: t, value: cTotal });
+      if (cPaid > 0) links.push({ source: t, target: "已支付", value: cPaid });
+      if (cUnpaid > 0) links.push({ source: t, target: "未支付", value: cUnpaid });
+    });
+    return {
+      tooltip: { trigger: "item", confine: true, valueFormatter: function (v) { return fmtMoney(v) + " 元"; } },
+      series: [{
+        type: "sankey", left: 10, right: 130, top: 16, bottom: 10,
+        nodeWidth: 12, nodeGap: 10, draggable: true,
+        emphasis: { focus: "adjacency" },
+        data: nodes,
+        links: links,
+        label: { fontSize: 10, color: "#475569" },
+        lineStyle: { color: "gradient", opacity: 0.25, curveness: 0.5 }
+      }]
+    };
+  }
+
+  function roseOpt(data) {
+    var sum = data.reduce(function (a, x) { return a + x.value; }, 0);
+    return {
+      color: ["#3b82f6", "#06b6d4", "#8b5cf6", "#f43f5e", "#14b8a6", "#f59e0b", "#0ea5e9", "#a855f7", "#ec4899", "#10b981", "#64748b"],
+      tooltip: { trigger: "item", confine: true, formatter: function (p) { return p.name + "：" + fmtMoney(p.value) + " 元（" + (sum ? (p.value / sum * 100).toFixed(1) : 0) + "%）"; } },
+      legend: { bottom: 0, type: "scroll", textStyle: { fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+      series: [{
+        type: "pie", roseType: "radius", radius: ["18%", "72%"], center: ["50%", "46%"],
+        itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
+        label: { fontSize: 9, formatter: function (p) { return p.name + "\n" + (p.value / 10000).toFixed(1) + "w"; } },
+        labelLine: { length: 6, length2: 6 },
+        data: data
+      }]
+    };
+  }
+
+  function hbarOpt(data, colors) {
+    var sorted = data.slice().sort(function (a, b) { return b.value - a.value; });
+    var top = sorted.slice(0, 12);
+    return {
+      tooltip: { trigger: "axis", confine: true, valueFormatter: function (v) { return fmtMoney(v) + " 元"; } },
+      grid: { left: 10, right: 60, top: 16, bottom: 24, containLabel: true },
+      xAxis: { type: "value", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "w"; } }, splitLine: { lineStyle: { color: "#eef2f7" } } },
+      yAxis: { type: "category", data: top.map(function (x) { return x.name; }).reverse(), axisLabel: { fontSize: 10, width: 92, overflow: "truncate" }, axisTick: { show: false } },
+      series: [{
+        type: "bar", data: top.map(function (x) { return x.value; }).reverse(), barWidth: 13,
+        itemStyle: { borderRadius: [0, 7, 7, 0], color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: colors[0] }, { offset: 1, color: colors[1] }]) },
+        label: { show: true, position: "right", fontSize: 9, formatter: function (p) { return (p.value / 10000).toFixed(1) + "w"; } }
+      }]
+    };
+  }
+
+  function heatOpt(d) {
+    var months = Object.keys((d.heatmap && d.heatmap[0] && d.heatmap[0].values) || {});
+    var projects = (d.heatmap || []).map(function (x) { return x.name; });
+    var data = [];
+    (d.heatmap || []).forEach(function (p, i) {
+      months.forEach(function (m, j) {
+        var v = Math.round((p.values[m] || 0) * 100) / 100;
+        if (v > 0) data.push([j, i, v]);
+      });
+    });
+    var max = 0;
+    data.forEach(function (x) { if (x[2] > max) max = x[2]; });
+    return {
+      tooltip: { confine: true, formatter: function (p) {
+        var nm = projects[p.value[1]] || "";
+        var mm = (months[p.value[0]] || "").slice(5) + "月";
+        return nm + " · " + mm + "：" + fmtMoney(p.value[2]) + " 元";
+      } },
+      grid: { left: 110, right: 20, top: 16, bottom: 56 },
+      xAxis: { type: "category", data: months.map(function (m) { return (m || "").slice(5) + "月"; }), axisLabel: { fontSize: 10 }, splitArea: { show: true }, axisTick: { show: false } },
+      yAxis: { type: "category", data: projects, axisLabel: { fontSize: 10, width: 100, overflow: "truncate" }, splitArea: { show: true }, axisTick: { show: false } },
+      visualMap: {
+        min: 0, max: max || 1, calculable: true, orient: "horizontal", left: "center", bottom: 6,
+        text: ["高", "低"], textStyle: { fontSize: 10 }, itemWidth: 12, itemHeight: 110,
+        inRange: { color: ["#eef4ff", "#93c5fd", "#3b82f6", "#1d4ed8"] }
+      },
+      series: [{
+        type: "heatmap", data: data,
+        label: { show: false },
+        itemStyle: { borderColor: "#fff", borderWidth: 2, borderRadius: 4 },
+        emphasis: { itemStyle: { shadowBlur: 8, shadowColor: "rgba(0,0,0,0.2)" } }
+      }]
+    };
+  }
+
+  function histOpt(hist) {
+    var vals = hist.map(function (x) { return x.value; });
+    var cum = 0, cumVals = vals.map(function (v) { cum += v; return Math.round(cum * 100) / 100; });
+    return {
+      tooltip: { trigger: "axis", confine: true, valueFormatter: function (v) { return fmtMoney(v) + " 元"; } },
+      legend: { top: 0, textStyle: { fontSize: 11 }, data: ["年度应收", "累计"] },
+      grid: { left: 70, right: 70, top: 34, bottom: 26 },
+      xAxis: { type: "category", data: hist.map(function (x) { return x.name + "年"; }), axisLabel: { fontSize: 11 }, axisTick: { show: false } },
+      yAxis: [
+        { type: "value", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "万"; } }, splitLine: { lineStyle: { color: "#eef2f7" } } },
+        { type: "value", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "万"; } }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: "年度应收", type: "bar", barWidth: 34, data: vals, itemStyle: { borderRadius: [8, 8, 0, 0], color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: "#6366f1" }, { offset: 1, color: "#a5b4fc" }]) }, label: { show: true, position: "top", fontSize: 9, formatter: function (p) { return (p.value / 10000).toFixed(1) + "w"; } } },
+        { name: "累计", type: "line", smooth: true, yAxisIndex: 1, data: cumVals, itemStyle: { color: "#f59e0b" }, lineStyle: { width: 2.5 } }
+      ]
+    };
+  }
+  function pieOpt(data) {
+    var sum = data.reduce(function (a, x) { return a + x.value; }, 0);
+    return {
+      tooltip: { trigger: "item", confine: true, formatter: function (p) {
+        return p.name + "：" + fmtMoney(p.value) + " 元（" + (sum ? (p.value / sum * 100).toFixed(1) : 0) + "%）";
+      } },
+      legend: { bottom: 0, type: "scroll", textStyle: { fontSize: 11 } },
+      series: [{
+        type: "pie", radius: ["38%", "68%"], center: ["50%", "44%"],
+        label: { formatter: function (p) { return p.name + "\n" + fmtMoney(p.value); }, fontSize: 10 },
+        data: data
+      }]
+    };
+  }
+  function barLineOpt(data, color) {
+    return {
+      tooltip: { trigger: "axis", confine: true, valueFormatter: function (v) { return fmtMoney(v) + " 元"; } },
+      grid: { left: 64, right: 20, top: 30, bottom: 80 },
+      xAxis: { type: "category", data: data.map(function (x) { return x.name || x.month; }), axisLabel: { fontSize: 10, rotate: 35 } },
+      yAxis: { type: "value", axisLabel: { fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(1) + "万"; } } },
+      series: [{ type: "bar", data: data.map(function (x) { return x.value; }), itemStyle: { color: color, borderRadius: [4, 4, 0, 0] }, label: { show: true, position: "top", fontSize: 9, formatter: function (p) { return p.value ? (p.value / 10000).toFixed(1) + "w" : ""; } } }]
+    };
+  }
+
+  /* ================= 2. 应收费用台账 ================= */
+  var LEDGER = null;
+  function defaultProjId() {
+    var def = PROJS.length ? PROJS[0].id : 0;
+    for (var i = 0; i < PROJS.length; i++) {
+      if (PROJS[i].id != 17) { def = PROJS[i].id; break; }
+    }
+    return def;
+  }
+  function pageLedger() {
+    layout("应收费用台账", '<div id="ledgerPage">加载中…</div>');
+    var y = new Date().getFullYear();
+    var html = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
+      (IS_ADMIN ? projSelect("lProj", defaultProjId(), false, "__finLedgerLoad") : "") +
+      yearSelect("lYear", y, ["all"], "__finLedgerLoad") +
+      '<button class="fbtn" onclick="window.__finLedgerLoad()">加载</button>' +
+      '<button class="fbtn ghost" onclick="window.__finLedgerExport()">导出 Excel</button>' +
+      '<span style="color:#888;font-size:12px;">金额单位：元；可直接在单元格内编辑，按“保存本月”落库</span>' +
+      "</div><div id='ledgerWrap'></div>";
+    document.getElementById("ledgerPage").innerHTML = html;
+    window.__finLedgerLoad = function () {
+      var p = IS_ADMIN ? document.getElementById("lProj").value : (MY_PROJECT_ID || 0);
+      var yr = document.getElementById("lYear").value;
+      api("ledger", { project_id: p, year: yr }).then(function (d) { LEDGER = d; renderLedger(); }).catch(function (e) { toast(e.message, false); });
+    };
+    window.__finLedgerExport = function () {
+      var p = IS_ADMIN ? document.getElementById("lProj").value : (MY_PROJECT_ID || 0);
+      var yr = document.getElementById("lYear").value;
+      var fname = "应收台账_" + (yr === "all" ? "全部年度" : yr) + ".xlsx";
+      downloadBlob(BASE + "/export_ledger?year=" + encodeURIComponent(yr) + "&project_id=" + p, fname);
+    };
+    window.__finLedgerLoad();
+  }
+
+  function renderLedger() {
+    var d = LEDGER;
+    var cats = Object.keys(d.categories);
+    var html = '<div style="overflow:auto;margin-top:14px;"><table class="ftbl" style="min-width:1900px;">';
+    html += "<thead><tr><th style='position:sticky;left:0;background:#f0f4fa;'>月份</th>";
+    cats.forEach(function (k) {
+      html += "<th style='min-width:110px;'>" + esc(d.categories[k]) + "</th>";
+    });
+    html += "<th>月度合计</th>" +
+      "<th style='min-width:96px;'>地产确认</th><th style='min-width:96px;'>合同签订</th><th style='min-width:96px;'>付款流程</th>" +
+      "<th style='min-width:100px;'>减免金额</th><th style='min-width:84px;'>减免户数</th><th style='min-width:150px;'>备注</th>" +
+      "<th style='min-width:90px;'>附件</th><th style='position:sticky;right:0;background:#f0f4fa;'>操作</th></tr></thead><tbody>";
+    d.months.forEach(function (m) {
+      var st = m.status || {};
+      html += "<tr><td style='position:sticky;left:0;background:#fff;font-weight:600;white-space:nowrap;'>" + m.month + "</td>";
+      cats.forEach(function (k) {
+        var c = m.categories[k] || { amount: 0 };
+        html += '<td><input class="fnum" data-m="' + m.month + '" data-c="' + k + '" value="' + (c.amount ? c.amount : "") + '" placeholder="0.00" /></td>';
+      });
+      html += '<td class="mtot" data-m="' + m.month + '">' + (m.total ? fmtMoney(m.total) : "—") + "</td>";
+      html += '<td>' + selBadge("confirm", m.month, st.confirm, "已确认", "未确认") + "</td>";
+      html += '<td>' + selBadge("contract", m.month, st.contract, "已签订", "未签订") + "</td>";
+      html += '<td>' + selBadge("payment", m.month, st.payment, "已完成", "未完成") + "</td>";
+      html += '<td><input class="fnum" data-m="' + m.month + '" data-st="discount_amount" value="' + (st.discount_amount ? st.discount_amount : "") + '" placeholder="0.00" /></td>';
+      html += '<td><input style="width:70px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:8px;" data-m="' + m.month + '" data-st="discount_households" value="' + esc(st.discount_households || "") + '" placeholder="户数" /></td>';
+      html += '<td><input style="width:140px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:8px;" data-m="' + m.month + '" data-st="remark" value="' + esc(st.remark || "") + '" placeholder="备注" /></td>';
+      html += "<td style='white-space:nowrap;'>" +
+        (m.attachments ? ' <button class="att-tag has" onclick="window.__finLedgerAtt(\'' + m.month + '\')" title="点击查看/上传凭证附件">📎' + m.attachments + "份</button>" :
+        ' <button class="att-tag none" onclick="window.__finLedgerAtt(\'' + m.month + '\')">无附件</button>') + "</td>";
+      html += "<td style='position:sticky;right:0;background:#fff;'><button class='fbtn sm' onclick=\"window.__finLedgerSave('" + m.month + "')\">保存本月</button></td></tr>";
+    });
+    html += "</tbody></table></div>";
+    html += '<div id="ledgerAttPanel"></div>';
+    document.getElementById("ledgerWrap").innerHTML = html;
+    // 输入联动合计
+    document.querySelectorAll(".fnum").forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        if (!inp.getAttribute("data-c")) return;
+        var m = inp.getAttribute("data-m");
+        var sum = 0;
+        document.querySelectorAll('.fnum[data-m="' + m + '"][data-c]').forEach(function (x) {
+          sum += Number(x.value || 0) || 0;
+        });
+        var el = document.querySelector('.mtot[data-m="' + m + '"]');
+        if (el) el.textContent = sum > 0 ? fmtMoney(sum) : "—";
+      });
+    });
+    window.__finLedgerSave = function (month) {
+      var items = [];
+      document.querySelectorAll('.fnum[data-m="' + month + '"][data-c]').forEach(function (inp) {
+        var v = inp.value;
+        var n = Number(v);
+        items.push({ category: inp.getAttribute("data-c"), amount: (v !== "" && !isNaN(n)) ? n : 0 });
+      });
+      var status = {
+        confirm: selVal("confirm", month),
+        contract: selVal("contract", month),
+        payment: selVal("payment", month),
+        discount_amount: document.querySelector('[data-m="' + month + '"][data-st="discount_amount"]').value,
+        discount_households: document.querySelector('[data-m="' + month + '"][data-st="discount_households"]').value,
+        remark: document.querySelector('[data-m="' + month + '"][data-st="remark"]').value
+      };
+      var p = IS_ADMIN ? document.getElementById("lProj").value : (MY_PROJECT_ID || 0);
+      api("ledger/save", { project_id: p, month: month, items: items, status: status }, "POST").then(function (d) {
+        toast("已保存 " + month + (d.saved ? "（" + d.saved + " 项金额）" : "（状态/减免）"));
+        window.__finLedgerLoad();
+      }).catch(function (e) { toast(e.message, false); });
+    };
+    window.__finLedgerAtt = function (month) { showLedgerAtt(month); };
+  }
+
+  function selBadge(key, month, val, yesTxt, noTxt) {
+    var sel = '<select class="fsel" data-sel="' + key + '" data-m="' + month + '" style="padding:5px 6px;font-size:12px;border-radius:8px;border:1px solid #d9d9d9;background:#fff;">' +
+      '<option value="">未填</option><option value="1"' + (val === 1 ? " selected" : "") + ">" + yesTxt + "</option>" +
+      '<option value="0"' + (val === 0 ? " selected" : "") + ">" + noTxt + "</option></select>";
+    return sel;
+  }
+  function selVal(key, month) {
+    var el = document.querySelector('[data-sel="' + key + '"][data-m="' + month + '"]');
+    return el ? el.value : "";
+  }
+
+  /** 附件管理面板（仅附件，不含状态） */
+  function showLedgerAtt(month) {
+    var p = IS_ADMIN ? document.getElementById("lProj").value : (MY_PROJECT_ID || 0);
+    api("ledger/attachments", { project_id: p, month: month }).then(function (d) {
+      var html = '<div style="margin-top:16px;background:#fff;border:1px solid #e4e3dd;border-radius:12px;padding:16px;">' +
+        '<div style="font-weight:600;margin-bottom:8px;">📎 ' + month + " 凭证附件（" + d.attachments.length + "）</div>";
+      if (d.attachments.length) {
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+        d.attachments.forEach(function (a) {
+          html += '<div style="border:1px solid #e4e3dd;border-radius:8px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;">' +
+            '<span>📄 ' + esc(a.file_name) + "</span><span style='color:#999;'>" + Math.round(a.file_size / 1024) + "KB</span>" +
+            "<button class='fbtn sm ghost' onclick=\"window.__finDelAtt(" + a.id + ",'" + month + "')\">删除</button></div>";
+        });
+        html += "</div>";
+      } else {
+        html += '<div style="color:#999;font-size:13px;margin-bottom:6px;">暂无附件</div>';
+      }
+      html += "<div style='margin-top:8px;display:flex;gap:8px;align-items:center;'><input type='file' id='ddFile' multiple style='font-size:12px;' />" +
+        "<button class='fbtn sm' onclick=\"window.__finUpAtt('" + month + "','" + p + "')\">上传附件</button></div></div>";
+      var det = document.getElementById("ledgerAttPanel");
+      det.innerHTML = html;
+      window.__finUpAtt = function (m, pid) {
+        var f = document.getElementById("ddFile").files[0];
+        if (!f) { toast("请选择文件", false); return; }
+        var fd2 = new FormData();
+        fd2.append("file", f); fd2.append("project_id", pid); fd2.append("month", m);
+        fetch(BASE + "/ledger/attachment_upload", { method: "POST", headers: { "X-Token": TK }, body: fd2 })
+          .then(function (r) { return r.json(); }).then(function (d2) {
+            if (d2.ok === false) throw new Error(d2.msg);
+            toast("上传成功"); showLedgerAtt(m);
+          }).catch(function (e) { toast(e.message, false); });
+      };
+      window.__finDelAtt = function (id, m) {
+        if (!confirmDlg("确认删除该附件？")) return;
+        api("ledger/attachment_delete", { id: id }, "POST").then(function () {
+          toast("已删除"); showLedgerAtt(m);
+        }).catch(function (e) { toast(e.message, false); });
+      };
+    }).catch(function (e) { toast(e.message, false); });
+  }
+
+  /* ================= 3. 付款记录 ================= */
+  function pagePayments() {
+    layout("付款记录", '<div id="payPage">加载中…</div>');
+    var html = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
+      '<button class="fbtn" onclick="window.__finPayLoad()">加载</button>' +
+      '<button class="fbtn ghost" onclick="window.__finPayExport()">导出 Excel</button>' +
+      '<span style="color:#888;font-size:12px;">2026年度 · 每个项目不分月份 · 三个状态区块（已确认数据 / 已支付 / 未支付）；金额单位：元</span>' +
+      "</div><div id='payWrap'></div>";
+    document.getElementById("payPage").innerHTML = html;
+    window.__finPayLoad = function () {
+      api("payments", {}).then(function (d) { PAY = d; renderPayments(); }).catch(function (e) { toast(e.message, false); });
+    };
+    window.__finPayExport = function () {
+      var fname = "付款记录_2026年度.xlsx";
+      downloadBlob(BASE + "/export_payments", fname);
+    };
+    window.__finPayLoad();
+  }
+  var PAY = null;
+  function renderPayments() {
+    var d = PAY;
+    var types = Object.keys(d.types);
+    var html = "";
+    Object.keys(d.blocks).forEach(function (sk) {
+      var blk = d.blocks[sk];
+      var isUnpaid = sk === "unpaid";
+      html += '<div style="margin-top:18px;"><div style="font-weight:700;font-size:15px;color:#1f3a5f;margin-bottom:8px;">' + esc(blk.status_name) + "</div>";
+      if (isUnpaid) {
+        html += '<div style="color:#8a6d1a;background:#fff8e1;border:1px solid #f0e0a8;border-radius:8px;padding:6px 12px;font-size:12px;margin-bottom:8px;">未支付 = 已确认数据 − 已支付（自动计算，不可编辑）；修改已确认或已支付后保存，本块自动刷新</div>';
+      }
+      html += '<div style="overflow:auto;"><table class="ftbl" style="min-width:1200px;">';
+      html += "<thead><tr><th style='position:sticky;left:0;background:#f0f4fa;'>项目名称</th>";
+      types.forEach(function (k) { html += "<th style='min-width:110px;'>" + esc(d.types[k]) + "</th>"; });
+      html += "<th>合计</th></tr></thead><tbody>";
+      blk.projects.forEach(function (pj) {
+        html += "<tr><td style='position:sticky;left:0;background:#fff;font-weight:600;white-space:nowrap;'>" + esc(pj.name) + "</td>";
+        types.forEach(function (k) {
+          var v = pj.types[k] || 0;
+          if (isUnpaid) {
+            html += '<td><div class="pnum ro" data-st="' + sk + '" data-p="' + pj.project_id + '" data-t="' + k + '" style="padding:6px 8px;background:#f7f8fa;border:1px solid #e9e9e9;border-radius:8px;color:#555;font-size:13px;">' + (v ? fmtMoney(v) : "—") + "</div></td>";
+          } else {
+            html += '<td><input class="pnum" data-st="' + sk + '" data-p="' + pj.project_id + '" data-t="' + k + '" value="' + (v ? v : "") + '" placeholder="0.00" /></td>';
+          }
+        });
+        html += '<td class="ptot" data-st="' + sk + '" data-p="' + pj.project_id + '"' + (isUnpaid ? ' style="color:#555;"' : "") + ">" + fmtMoney(pj.total) + "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+      if (!isUnpaid) {
+        html += '<div style="margin-top:8px;"><button class="fbtn sm" onclick="window.__finPaySaveBlock(\'' + sk + '\')">保存本块（' + esc(blk.status_name) + "）</button></div>";
+      }
+      html += "</div>";
+    });
+    document.getElementById("payWrap").innerHTML = html;
+    // 输入联动合计
+    document.querySelectorAll(".pnum").forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        var st = inp.getAttribute("data-st");
+        var p = inp.getAttribute("data-p");
+        var sum = 0;
+        document.querySelectorAll('.pnum[data-st="' + st + '"][data-p="' + p + '"]').forEach(function (x) {
+          sum += Number(x.value || 0) || 0;
+        });
+        var el = document.querySelector('.ptot[data-st="' + st + '"][data-p="' + p + '"]');
+        if (el) el.textContent = fmtMoney(sum);
+      });
+    });
+    window.__finPaySaveBlock = function (sk) {
+      var byProj = {};
+      document.querySelectorAll('.pnum[data-st="' + sk + '"]').forEach(function (inp) {
+        var p = inp.getAttribute("data-p");
+        var v = inp.value;
+        var n = Number(v);
+        if (!byProj[p]) byProj[p] = [];
+        byProj[p].push({ type: inp.getAttribute("data-t"), amount: (v !== "" && !isNaN(n)) ? n : 0 });
+      });
+      var keys = Object.keys(byProj);
+      var seq = Promise.resolve();
+      var cnt = 0;
+      keys.forEach(function (p) {
+        seq = seq.then(function () {
+          return api("payments/save", { project_id: p, status: sk, items: byProj[p] }, "POST").then(function (dd) {
+            cnt += dd.saved || 0;
+          });
+        });
+      });
+      seq.then(function () { toast("已保存 " + cnt + " 项"); window.__finPayLoad(); })
+        .catch(function (e) { toast(e.message, false); });
+    };
+  }
+
+  /* ================= 4. 汇总分析 ================= */
+  function pageSummary() {
+    layout("汇总分析", '<div id="sumPage">加载中…</div>');
+    var y = new Date().getFullYear();
+    var html = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
+      yearSelect("sYear", y, ["all"], "__finSum") +
+      '<button class="fbtn" onclick="window.__finSum()">查询</button>' +
+      '<button class="fbtn ghost" onclick="window.__finSumExport()">导出 Excel</button>' +
+      '<span style="color:#888;font-size:12px;">选“截至目前”显示全部年度的累计数据</span>' +
+      "</div><div id='sumBody'></div>";
+    document.getElementById("sumPage").innerHTML = html;
+    window.__finSum = function () {
+      var yr = document.getElementById("sYear").value;
+      var p = IS_ADMIN ? 0 : (MY_PROJECT_ID || 0);
+      api("summary/annual", { year: yr, project_id: p }).then(function (a) {
+        return Promise.all([
+          api("summary/projects", { year: yr }).then(function (pr) { return { a: a, pr: pr }; }),
+          api("summary/payments", { year: yr })
+        ]);
+      }).then(function (res) {
+        var a = res[0].a, pr = res[0].pr, pay = res[1];
+        window.__finSumData = { yr: yr, a: a, pr: pr, pay: pay };
+        renderSummary(yr, a, pr, pay);
+      }).catch(function (e) { toast(e.message, false); });
+    };
+    window.__finSumExport = function () {
+      var yr = document.getElementById("sYear").value;
+      var p = IS_ADMIN ? 0 : (MY_PROJECT_ID || 0);
+      var fname = "财务汇总_" + (yr === "all" ? "全部年度" : yr) + ".xlsx";
+      downloadBlob(BASE + "/export_summary?year=" + encodeURIComponent(yr) + "&project_id=" + p, fname);
+    };
+    window.__finSum();
+  }
+  function renderSummary(yr, a, pr, pay) {
+    var yrLabel = yr === "all" ? "截至目前" : yr + "年";
+    var html = '<div class="fc-sec">' + yrLabel + "应收汇总（月份 × 类别）</div>";
+    var cats = Object.keys(a.categories);
+    html += '<div style="overflow:auto;"><table class="ftbl"><thead><tr><th>月份</th>';
+    cats.forEach(function (k) { html += "<th>" + esc(a.categories[k]) + "</th>"; });
+    html += "<th>合计</th></tr></thead><tbody>";
+    a.months.forEach(function (m) {
+      html += "<tr><td>" + m + "</td>";
+      cats.forEach(function (k) { html += "<td>" + moneyCell(a.grid[m][k]) + "</td>"; });
+      html += "<td style='font-weight:600;'>" + fmtMoney(a.month_total[m]) + "</td></tr>";
+    });
+    html += "<tr style='background:#f0f4fa;font-weight:700;'><td>" + (yr === "all" ? "累计合计" : "年度合计") + "</td>";
+    cats.forEach(function (k) {
+      var s = 0; a.months.forEach(function (m) { s += a.grid[m][k] || 0; });
+      html += "<td>" + fmtMoney(s) + "</td>";
+    });
+    html += "<td>" + fmtMoney(a.grand_total) + "</td></tr></tbody></table></div>";
+
+    html += '<div class="fc-sec" style="margin-top:22px;">' + yrLabel + "项目应收汇总</div>";
+    html += '<div style="overflow:auto;"><table class="ftbl"><thead><tr><th>项目</th>';
+    cats.forEach(function (k) { html += "<th>" + esc(pr.categories[k]) + "</th>"; });
+    html += "<th>应收合计</th><th>减免赠送</th></tr></thead><tbody>";
+    pr.projects.forEach(function (pj) {
+      if (pj.total <= 0) return;
+      html += "<tr><td>" + esc(pj.name) + "</td>";
+      cats.forEach(function (k) { html += "<td>" + moneyCell(pj.categories[k]) + "</td>"; });
+      html += "<td style='font-weight:600;'>" + fmtMoney(pj.total) + "</td><td>" + fmtMoney(pj.discount_total) + "</td></tr>";
+    });
+    html += "</tbody></table></div>";
+
+    html += '<div class="fc-sec" style="margin-top:22px;">' + yrLabel + "付款汇总（项目 × 类型 · 已确认数据口径）</div>";
+    html += '<div style="overflow:auto;"><table class="ftbl"><thead><tr><th>项目</th>';
+    Object.keys(pay.types).forEach(function (k) { html += "<th>" + esc(pay.types[k]) + "</th>"; });
+    html += "<th>合计</th></tr></thead><tbody>";
+    pay.projects.forEach(function (pj) {
+      if (pj.total <= 0) return;
+      html += "<tr><td>" + esc(pj.name) + "</td>";
+      Object.keys(pay.types).forEach(function (k) { html += "<td>" + moneyCell(pj.types[k]) + "</td>"; });
+      html += "<td style='font-weight:600;'>" + fmtMoney(pj.total) + "</td></tr>";
+    });
+    html += "</tbody></table></div>";
+    document.getElementById("sumBody").innerHTML = html;
+  }
+
+  /* ================= 5. 历史数据导入 ================= */
+  function pageImport() {
+    layout("历史数据导入",
+      '<div class="fcard" style="max-width:760px;">' +
+      "<div class='fc-t'>导入说明</div>" +
+      "<div style='font-size:13px;color:#444;line-height:1.8;margin-top:8px;'>" +
+      "① 历史数据（2020—2025 应收 551 条 / 2026 付款 47 条）已通过服务器导入完成，金额单位：元。<br/>" +
+      "② 如需按模板重新导入：先下载模板填写（第一行表头，第二行起为数据），小文件（≤20MB）可直接上传；超大原表（>20MB，含签批图片）请走服务器通道（CLI 导入）。<br/>" +
+      "③ 重新导入会覆盖该范围内的存量数据，请谨慎操作。" +
+      "</div>" +
+      "<div style='margin-top:14px;'><a class='fbtn ghost' href='/finance/template/财务管理导入模板.xlsx' download>📥 下载导入模板</a></div>" +
+      "<div style='margin-top:14px;'><input type='file' id='imFile' accept='.xlsx' /><button class='fbtn' onclick='window.__finImport()'>上传并导入</button> <span id='imMsg'></span></div>" +
+      "<div id='imResult' style='margin-top:12px;'></div></div>"
+    );
+    window.__finImport = function () {
+      var f = document.getElementById("imFile").files[0];
+      if (!f) { toast("请选择 xlsx 文件", false); return; }
+      var msg = document.getElementById("imMsg");
+      msg.textContent = "上传解析中…";
+      var fd2 = new FormData();
+      fd2.append("file", f);
+      fetch(BASE + "/import/parse", { method: "POST", headers: { "X-Token": TK }, body: fd2 })
+        .then(function (r) { return r.json(); }).then(function (d) {
+          if (d.ok === false) throw new Error(d.msg);
+          msg.textContent = "解析完成，请确认预览后执行导入";
+          var html = "<pre style='font-size:12px;max-height:300px;overflow:auto;background:#f8f9fa;padding:10px;border-radius:8px;'>" + esc(JSON.stringify(d.preview || d, null, 2)) + "</pre>";
+          html += "<button class='fbtn' style='margin-top:8px;' onclick=\"window.__finImportRun()\">确认导入</button>";
+          document.getElementById("imResult").innerHTML = html;
+          window.__finImportRun = function () {
+            if (!confirmDlg("确认导入？将覆盖该范围存量数据！")) return;
+            api("import/run", { preview: d.preview }, "POST").then(function (r2) {
+              document.getElementById("imResult").innerHTML = "<pre style='font-size:12px;background:#f0f9f4;padding:10px;border-radius:8px;'>" + esc(JSON.stringify(r2, null, 2)) + "</pre>";
+              toast("导入完成");
+            }).catch(function (e) { toast(e.message, false); });
+          };
+        }).catch(function (e) { toast(e.message, false); });
+    };
+  }
+
+  /* ---------- 初始化 ---------- */
+  function init() {
+    if (!TK) {
+      document.getElementById("app").innerHTML = '<div style="padding:40px;text-align:center;color:#ea6668;">未登录（缺少 token），请从平台进入。</div>';
+      return;
+    }
+    api("meta").then(function (d) {
+      META = d;
+      CATS = d.categories;
+      TYPES = d.payment_types;
+      PROJS = d.projects;
+      IS_ADMIN = d.is_admin;
+      ROLE = d.role;
+      if (d.project_name) MY_PROJECT = d.project_name;
+      if (d.project_id) MY_PROJECT_ID = d.project_id;
+      if (!IS_ADMIN && !MY_PROJECT) { MY_PROJECT = null; }
+      route();
+    }).catch(function (e) {
+      document.getElementById("app").innerHTML = '<div style="padding:40px;text-align:center;color:#ea6668;">加载失败：' + esc(e.message) + "</div>";
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    document.getElementById("app").innerHTML = '<div style="padding:40px;text-align:center;color:#888;">财务管理加载中…</div>';
+    var s = document.createElement("script");
+    s.src = "./assets/echarts.min.js";
+    s.onload = init;
+    s.onerror = function () { init(); };
+    document.head.appendChild(s);
+  });
+})();
+</script>
+<style>
+html, body { margin: 0; padding: 0; height: 100%; }
+body { font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif; background: #f4f3ee; color: #1a1b1c; }
+.fwrap { display: flex; flex-direction: column; height: 100vh; }
+.fhead { background: #fff; border-bottom: 1px solid #e4e3dd; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 8px 20px; gap: 6px 18px; }
+.fmenu { display: flex; flex-wrap: wrap; gap: 6px; }
+.mi { padding: 6px 14px; font-size: 13px; cursor: pointer; color: #444; border-radius: 8px; border: 1px solid transparent; }
+.mi:hover { background: #f0f2f7; }
+.mi.on { background: #6366f1; color: #fff; font-weight: 600; }
+.fmain { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.ftitle { font-size: 16px; font-weight: 700; }
+.fuser { font-size: 12.5px; color: #666; }
+.fbody { flex: 1; overflow: auto; padding: 18px; }
+.fcard { background: #fff; border: 1px solid #e4e3dd; border-radius: 12px; padding: 14px 16px; box-sizing: border-box; }
+.fc-t { font-size: 13px; color: #6b7280; font-weight: 600; margin-bottom: 6px; }
+.fc-v { font-size: 22px; font-weight: 700; }
+.fc-sec { font-size: 14.5px; font-weight: 700; margin: 10px 0 8px; }
+.fbtn { background: #6366f1; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+.fbtn:hover { opacity: .88; }
+.fbtn.sm { padding: 4px 10px; font-size: 12px; }
+.fbtn.ghost { background: #fff; color: #444; border: 1px solid #d9d9d9; }
+.fsel { padding: 7px 10px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 13px; background: #fff; }
+.fnum { padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 13px; width: 100px; box-sizing: border-box; }
+.ftbl { border-collapse: collapse; width: 100%; background: #fff; font-size: 12.5px; }
+.ftbl th, .ftbl td { border: 1px solid #e4e3dd; padding: 6px 8px; text-align: right; white-space: nowrap; }
+.ftbl th { background: #f0f4fa; text-align: center; font-weight: 600; }
+.ftbl td:first-child { text-align: left; }
+.att-tag { display: inline-block; border-radius: 8px; padding: 1px 7px; font-size: 11px; margin-left: 4px; vertical-align: middle; }
+.att-tag.has { color: #2f9e6e; background: rgba(47,158,110,.12); border: 1px solid rgba(47,158,110,.35); cursor: pointer; }
+.att-tag.has:hover { background: rgba(47,158,110,.22); }
+.att-tag.none { color: #bbb; background: #f7f7f5; border: 1px solid #ecebe6; }
+/* —— 数据驾驶舱新样式 —— */
+.dash-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.dash-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin: 16px 0; }
+.dash-card { background: #fff; border-radius: 16px; padding: 16px 18px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.12); border: 1px solid #eceff5; }
+.dash-kpi { position: relative; background: #fff; border-radius: 16px; padding: 16px 18px 14px; box-sizing: border-box; overflow: hidden; border: 1px solid #eceff5; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.12); }
+.dash-kpi-bar { position: absolute; left: 0; top: 0; width: 5px; height: 100%; }
+.dash-kpi-t { font-size: 12px; color: #7c8591; margin-bottom: 6px; }
+.dash-kpi-v { font-size: 20px; font-weight: 800; color: #1e293b; letter-spacing: .5px; }
+.dash-kpi-s { font-size: 12px; color: #94a3b8; font-weight: 400; }
+@media (max-width: 1200px) { .dash-kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: 1fr; } .dash-card { grid-column: span 1 !important; } .dash-kpis { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</body>
+</html>

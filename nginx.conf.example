@@ -1,0 +1,28 @@
+# 宝塔网站 Nginx 配置示例：将 server_name 和 root 改为实际值
+server {
+    listen 80;
+    server_name payroll.example.com;
+    # 必须指向 Laravel 的 public 目录，禁止指向项目根目录
+    root /www/wwwroot/payroll/laravel-app/public;
+    index index.php;
+
+    # Excel/PDF 上传上限
+    client_max_body_size 50m;
+
+    # Laravel 路由统一交给 public/index.php
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        # PHP-FPM 地址按宝塔当前 PHP 版本修改
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param HTTP_AUTHORIZATION $http_authorization;
+        fastcgi_pass 127.0.0.1:9000;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}

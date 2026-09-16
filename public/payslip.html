@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>广盈物业工资查询系统</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .container {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 600px;
+    overflow: hidden;
+  }
+  .header {
+    background: linear-gradient(135deg, #1e3a5f, #2d5a87);
+    padding: 30px 24px 24px;
+    text-align: center;
+    color: #fff;
+  }
+  .header .logo-wrap {
+    display: inline-block;
+    background: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .header img {
+    height: 44px;
+    display: block;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+  .header p {
+    font-size: 13px;
+    opacity: 0.8;
+    margin-top: 6px;
+  }
+  .body { padding: 28px 24px; }
+  .form-group { margin-bottom: 18px; }
+  .form-group label {
+    display: block;
+    font-size: 14px;
+    color: #374151;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1.5px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 15px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .form-group input:focus { border-color: #2d5a87; }
+  .btn {
+    width: 100%;
+    padding: 13px;
+    background: linear-gradient(135deg, #1e3a5f, #2d5a87);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg {
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .msg.err { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; display: block; }
+  .msg.info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; display: block; }
+  .payslip { display: none; }
+  .payslip.show { display: block; }
+  .ps-header {
+    text-align: center;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #1e3a5f;
+    margin-bottom: 16px;
+  }
+  .ps-header h2 { font-size: 18px; color: #1e3a5f; margin-bottom: 4px; }
+  .ps-header .meta { font-size: 13px; color: #6b7280; }
+  .ps-section { margin-bottom: 14px; }
+  .ps-section h3 {
+    font-size: 14px;
+    color: #1e3a5f;
+    padding: 6px 10px;
+    background: #f0f4f8;
+    border-left: 3px solid #2d5a87;
+    margin-bottom: 8px;
+    border-radius: 0 4px 4px 0;
+  }
+  .ps-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .ps-row .label { color: #4b5563; }
+  .ps-row .val { color: #111827; font-weight: 500; }
+  .ps-row.deduct .val { color: #dc2626; }
+  .ps-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 10px;
+    background: #1e3a5f;
+    color: #fff;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 12px;
+  }
+  .ps-footer {
+    text-align: center;
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed #e5e7eb;
+  }
+  .back-btn {
+    display: block;
+    text-align: center;
+    margin-top: 16px;
+    color: #2d5a87;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .loading {
+    text-align: center;
+    padding: 20px;
+    color: #6b7280;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo-wrap"><img src="/static/logo.png" alt="广盈物业"></div>
+    <h1>广盈物业工资查询系统</h1>
+    <p>请输入姓名和身份证后六位查询工资条</p>
+  </div>
+  <div class="body">
+    <div id="queryForm">
+      <div id="msg" class="msg"></div>
+      <div class="form-group">
+        <label>姓名</label>
+        <input type="text" id="qName" placeholder="请输入您的姓名" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>身份证后六位</label>
+        <input type="text" id="qId6" placeholder="请输入身份证号最后六位" maxlength="6" autocomplete="off">
+      </div>
+      <button class="btn" id="qBtn" onclick="doQuery()">查询工资条</button>
+    </div>
+    <div id="payslip" class="payslip"></div>
+  </div>
+</div>
+<script>
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function showMsg(text, type) {
+  const el = document.getElementById("msg");
+  el.textContent = text;
+  el.className = "msg " + type;
+}
+function hideMsg() {
+  document.getElementById("msg").className = "msg";
+}
+async function doQuery() {
+  const name = document.getElementById("qName").value.trim();
+  const id6 = document.getElementById("qId6").value.trim();
+  if (!name) { showMsg("请输入姓名", "err"); return; }
+  if (!id6 || id6.length !== 6) { showMsg("请输入正确的身份证后六位", "err"); return; }
+  const btn = document.getElementById("qBtn");
+  btn.disabled = true;
+  btn.textContent = "查询中...";
+  hideMsg();
+  try {
+    const resp = await fetch("/api/payslip/query?name=" + encodeURIComponent(name) + "&id_last6=" + encodeURIComponent(id6));
+    const data = await resp.json();
+    if (!data.ok) {
+      showMsg(data.error || "查询失败", "err");
+      btn.disabled = false;
+      btn.textContent = "查询工资条";
+      return;
+    }
+    renderPayslip(data);
+  } catch (e) {
+    showMsg("网络错误，请稍后重试", "err");
+    btn.disabled = false;
+    btn.textContent = "查询工资条";
+  }
+}
+function money(v) {
+  if (v === null || v === undefined || isNaN(v)) return "0.00";
+  return Number(v).toFixed(2);
+}
+function renderPayslip(data) {
+  document.getElementById("queryForm").style.display = "none";
+  const r = data.payslip;
+  const s = data.staff;
+  // 通用行
+  function row(label, val, cls) {
+    return `<div class="ps-row ${cls||""}"><span class="label">${label}</span><span class="val">${val}</span></div>`;
+  }
+  // 金额行（0值也显示）
+  function mrow(label, v, cls) {
+    return row(label, money(v), cls);
+  }
+  // 金额行（0值不显示）
+  function mrowNz(label, v, cls) {
+    return (v > 0) ? mrow(label, v, cls) : "";
+  }
+  const html = `
+    <div class="ps-header">
+      <h2>${data.month} 工资条</h2>
+      <div class="meta">${esc(s.name)} | ${esc(s.project)} | ${esc(s.position || "")} | ${esc(r.status || "")}</div>
+    </div>
+
+    <div class="ps-section">
+      <h3>基本信息</h3>
+      ${row("固定月薪", money(r.fixed))}
+      ${row("基本工资", money(r.base))}
+      ${row("应出勤", (r.req_att||0) + " 天")}
+      ${row("实际出勤", (r.act_att||0) + " 天")}
+      ${row("绩效计薪", (r.perf_att||0) + " 天")}
+      ${row("绩效系数", r.coef||0)}
+    </div>
+
+    <div class="ps-section">
+      <h3>应发项目</h3>
+      ${mrow("基本工资（折算）", r.base_pay)}
+      ${mrow("绩效工资", r.perf_pay)}
+      ${r.sick_days > 0 ? row("病假天数", r.sick_days + " 天") : ""}
+      ${mrowNz("病假工资", r.sick_pay)}
+      ${mrowNz("夜班/话费补贴", r.night)}
+      ${mrowNz("餐补", r.meal)}
+      ${mrowNz("其他补贴", r.title_sub)}
+      ${mrowNz("月度奖励", r.reward)}
+      ${mrowNz("已发福利", r.welfare)}
+      <div class="ps-row" style="border-top:1px solid #e5e7eb;padding-top:6px;margin-top:4px"><span class="label" style="font-weight:600">应发合计</span><span class="val" style="font-weight:600;color:#1e3a5f">${money(r.gross)}</span></div>
+    </div>
+
+    <div class="ps-section">
+      <h3>五险一金</h3>
+      ${mrow("养老保险", r.pen, "deduct")}
+      ${mrow("医疗保险", r.med, "deduct")}
+      ${mrow("失业保险", r.une, "deduct")}
+      ${mrow("住房公积金", r.house, "deduct")}
+      ${mrow("大病", r.big, "deduct")}
+      ${mrow("社保合计", r.soc_total, "deduct")}
+    </div>
+
+    <div class="ps-section">
+      <h3>其他扣款</h3>
+      ${mrowNz("月度扣罚", r.punish, "deduct")}
+      ${mrowNz("缺卡扣款", r.miss_d, "deduct")}
+      ${mrowNz("迟到早退扣款", r.late_d, "deduct")}
+      ${mrowNz("其他扣款", r.other_d, "deduct")}
+      ${mrowNz("工装扣款", r.uniform_d, "deduct")}
+      ${mrow("附加扣除", r.spec_total, "deduct")}
+      ${mrow("本月个税", r.actual_tax, "deduct")}
+    </div>
+
+    <div class="ps-total">
+      <span>实发工资</span>
+      <span>¥ ${money(r.net)}</span>
+    </div>
+    <div class="ps-footer">
+      本工资条仅供个人查询，请勿外传。如有疑问请联系财务部。
+    </div>
+    <div class="back-btn" onclick="backToQuery()">返回重新查询</div>
+  `;
+  document.getElementById("payslip").innerHTML = html;
+  document.getElementById("payslip").classList.add("show");
+}
+function backToQuery() {
+  document.getElementById("payslip").classList.remove("show");
+  document.getElementById("payslip").innerHTML = "";
+  document.getElementById("queryForm").style.display = "block";
+  document.getElementById("qName").value = "";
+  document.getElementById("qId6").value = "";
+  document.getElementById("qBtn").disabled = false;
+  document.getElementById("qBtn").textContent = "查询工资条";
+  hideMsg();
+}
+// 回车查询
+document.getElementById("qId6").addEventListener("keydown", e => { if (e.key === "Enter") doQuery(); });
+document.getElementById("qName").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("qId6").focus(); });
+</script>
+</body>
+</html>
