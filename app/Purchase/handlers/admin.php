@@ -318,3 +318,113 @@ function handle_admin_map_custom() {
     }
     return ['ok' => false, 'msg' => '请选择要归入的商品'];
 }
+
+
+// 清单外查重：按名称在标准库检索候选（纯名称双向包含匹配，供"编辑入库"前判断重名）
+function handle_admin_customs_check_duplicate() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $name = trim((string)($in['name'] ?? ''));
+    if ($name === '') return ['ok' => false, 'msg' => '商品名称不能为空'];
+    $like = '%' . $name . '%';
+    $st = db()->prepare(
+        "SELECT id, line, category, name, brand, spec, unit FROM products
+         WHERE status=1 AND (name=? OR name LIKE ? OR ? LIKE CONCAT('%', name, '%'))
+         ORDER BY id LIMIT 20"
+    );
+    $st->execute([$name, $like, $name]);
+    return ['ok' => true, 'data' => $st->fetchAll()];
+}
+
+// 清单外「编辑入库」：mode=create 新建标准商品并归入；mode=merge 归入已有商品。
+// 管理员可修改员工填的所有字段：条线/分类/名称/品牌/规格/单位/数量/现有库存/使用地点/备注；别名可改（默认员工原填名称）。
+function handle_admin_customs_save() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $item_id = (int)($in['item_id'] ?? 0);
+    $mode = trim((string)($in['mode'] ?? ''));
+    if ($item_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    $item = fetch_item($item_id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
+    if ($mode !== 'create' && $mode !== 'merge') return ['ok' => false, 'msg' => 'mode 参数错误（create/merge）'];
+
+    // 可编辑字段（员工填报的全部业务字段，申购原因 reason 按口径不编辑、保留原值）
+    $line = trim((string)($in['line'] ?? $item['line']));
+    $name = trim((string)($in['name'] ?? ''));
+    $category = trim((string)($in['category'] ?? ''));
+    $brand = trim((string)($in['brand'] ?? ''));
+    $spec = norm_spec($in['spec'] ?? '');
+    $unit = trim((string)($in['unit'] ?? ''));
+    $quantity = (float)($in['quantity'] ?? $item['quantity'] ?? 0);
+    $stock = (float)($in['stock'] ?? $item['stock'] ?? 0);
+    $use_location = trim((string)($in['use_location'] ?? $item['use_location'] ?? ''));
+    $remark = trim((string)($in['remark'] ?? $item['remark'] ?? ''));
+
+    // 预校验（不写库）：merge 目标商品存在性 / create 必填与唯一键防重
+    $product_id = 0; $prod = null;
+    if ($mode === 'merge') {
+        $product_id = (int)($in['product_id'] ?? 0);
+        if ($product_id <= 0) return ['ok' => false, 'msg' => '请选择要归入的标准商品'];
+        $pst = db()->prepare('SELECT * FROM products WHERE id=? AND status=1');
+        $pst->execute([$product_id]);
+        $prod = $pst->fetch();
+        if (!$prod) return ['ok' => false, 'msg' => '目标商品不存在'];
+        // 归入已有时以标准商品为准：条线/分类/名称/品牌/规格/单位用商品自带值
+        $line = $prod['line']; $category = $prod['category'];
+        $name = $prod['name']; $brand = $prod['brand']; $spec = $prod['spec']; $unit = $prod['unit'];
+    } else {
+        if ($name === '') return ['ok' => false, 'msg' => '商品名称必填'];
+        if ($line === '') return ['ok' => false, 'msg' => '条线必填'];
+        if ($category === '') return ['ok' => false, 'msg' => '分类必填'];
+        $dup = db()->prepare('SELECT id, name FROM products WHERE status=1 AND line=? AND category=? AND name=? AND brand=? AND spec=? LIMIT 1');
+        $dup->execute([$line, $category, $name, $brand, $spec]);
+        $exist = $dup->fetch();
+        if ($exist) {
+            return ['ok' => false, 'msg' => '标准库已存在相同商品「' . $exist['name'] . '」（条线/分类/名称/品牌/规格完全一致），请选择归入已有'];
+        }
+    }
+    $alias = trim((string)($in['alias'] ?? $item['item_name']));
+    $alias = mb_substr($alias, 0, 100);
+    $by = (int)($in['by'] ?? $in['created_by'] ?? 0);
+
+    // 写库原子性：单请求内开事务；外层已有事务（测试）则不嵌套
+    $tx = !db()->inTransaction();
+    if ($tx) db()->beginTransaction();
+    try {
+        $aliasSaved = 0;
+        if ($mode === 'merge') {
+            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, quantity=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
+                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $quantity, $stock, $use_location, $remark, $item_id]);
+            if ($alias !== '' && $alias !== $name) {
+                $aliasSaved = 1;
+                try {
+                    db()->prepare('INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)')->execute([$product_id, $alias]);
+                } catch (PDOException $e) {}
+            }
+            db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
+                ->execute([$item_id, $product_id, 'map', $aliasSaved, '清单外编辑入库-归入已有商品', $by]);
+            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 归入已有标准商品「{$name}」");
+        } else {
+            db()->prepare('INSERT INTO products (line, category, name, brand, spec, unit, status) VALUES (?,?,?,?,?,?,1)')
+                ->execute([$line, $category, $name, $brand, $spec, $unit]);
+            $product_id = (int) db()->lastInsertId();
+            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, quantity=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
+                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $quantity, $stock, $use_location, $remark, $item_id]);
+            if ($alias !== '' && $alias !== $name) {
+                $aliasSaved = 1;
+                try {
+                    db()->prepare('INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)')->execute([$product_id, $alias]);
+                } catch (PDOException $e) {}
+            }
+            db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
+                ->execute([$item_id, $product_id, 'new', $aliasSaved, '清单外编辑入库-新建标准商品', $by]);
+            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 新建标准商品「{$name}」入库");
+        }
+        if ($tx) db()->commit();
+        return ['ok' => true, 'msg' => $mode === 'merge' ? '已归入标准商品「' . $name . '」' : '已新建标准商品「' . $name . '」并归入'];
+    } catch (\Throwable $e) {
+        if ($tx) db()->rollBack();
+        throw $e;
+    }
+}
