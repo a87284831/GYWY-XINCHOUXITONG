@@ -273,12 +273,15 @@ function handle_admin_customs() {
     // 附带商品库匹配候选
     $db = db();
     foreach ($items as &$it) {
+        $kw = trim(preg_replace('/^验收清单外/', '', (string)($it['item_name'] ?? '')));
+        if ($kw === '') $kw = (string)$it['item_name'];
+        $like = "%" . $kw . "%";
         $cand = $db->prepare(
             "SELECT id, line, category, name, brand, spec, unit FROM products
-             WHERE status=1 AND (name LIKE ? OR spec LIKE ?) ORDER BY id LIMIT 8"
+             WHERE status=1 AND (name LIKE ? OR spec LIKE ? OR ? LIKE CONCAT('%', name, '%'))
+             ORDER BY (line = ?) DESC, id LIMIT 8"
         );
-        $like = "%" . $it['item_name'] . "%";
-        $cand->execute([$like, $like]);
+        $cand->execute([$like, $like, $kw, $it['line'] ?? '']);
         $it['candidates'] = $cand->fetchAll();
     }
     return ['ok' => true, 'data' => $items];
