@@ -46,19 +46,35 @@ class PayrollController extends ApiController
         if ($managerView && $this->isProjectScope($account)) {
             return response()->json(['ok' => false, 'error' => '管理人员工资表仅总部可见'], 403);
         }
+        // 案场人员工资表视图：各项目可查看本项目案场人员（type=case）
+        $caseView = $request->input('type') === 'case';
+        // 总部人员工资表视图：仅总部可查看（type=hq）
+        $hqView = $request->input('type') === 'hq';
+        if ($hqView && $this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '总部人员工资表仅总部可见'], 403);
+        }
         $query = DB::table('payroll_results')->where('year_month', $ym);
         if ($managerView) {
-            $query->where('is_manager_row', true);
+            $query->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($caseView) {
+            $query->where('is_case_row', true)->where('is_hq_row', false);
+        } elseif ($hqView) {
+            $query->where('is_hq_row', true);
         } else {
-            // 项目工资表（含项目账号与总部视图）一律不含管理人员行
-            $query->where('is_manager_row', false);
+            // 项目工资表（含项目账号与总部视图）一律不含管理人员行、案场人员行与总部行
+            $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
         }
         if ($this->isProjectScope($account)) {
-            // 项目账号：仅当总部核定(归档)完成后才可查看本项目薪资（以项目表行归档为准）
-            $archived = DB::table('payroll_results')->where('year_month', $ym)
+            // 项目账号：仅当总部核定(归档)完成后才可查看本项目薪资（员工表看员工行归档；案场表看案场行归档）
+            $archivedQuery = DB::table('payroll_results')->where('year_month', $ym)
                 ->where('project_name', (string) $account->project_name)
-                ->where('is_manager_row', false)->where('archived', true)->exists();
-            if (!$archived) {
+                ->where('archived', true);
+            if ($caseView) {
+                $archivedQuery->where('is_case_row', true);
+            } else {
+                $archivedQuery->where('is_manager_row', false)->where('is_case_row', false);
+            }
+            if (!$archivedQuery->exists()) {
                 return response()->json(['ok' => false, 'error' => '本月薪资总部尚未核定，核定完成后才能查看'], 403);
             }
             $query->where('project_name', (string) $account->project_name);
@@ -77,14 +93,22 @@ class PayrollController extends ApiController
         return response()->json(['ok' => true, 'ym' => $ym, 'rows' => $rows,
             'departments' => $departments,
             // 该月所有项目均已完成归档才视为"已核定锁定"（避免仅部分项目归档时误报已锁定）
-            'archived' => $managerView ? $this->allMgrsArchived($ym) : $this->allArchived($ym)]);
+            'archived' => $managerView ? $this->allMgrsArchived($ym) : ($caseView ? $this->allCaseArchived($ym) : ($hqView ? $this->allHqArchived($ym) : $this->allArchived($ym)))]);
+    }
+
+    /** 该月案场人员工资表是否已全部归档锁定 */
+    private function allCaseArchived(string $ym): bool
+    {
+        $rows = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_case_row', true)->where('is_hq_row', false)->get();
+        return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }
 
     /** 该月管理人员工资表是否已全部归档锁定 */
     private function allMgrsArchived(string $ym): bool
     {
         $rows = DB::table('payroll_results')->where('year_month', $ym)
-            ->where('is_manager_row', true)->get();
+            ->where('is_manager_row', true)->where('is_hq_row', false)->get();
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }
 
@@ -132,11 +156,18 @@ class PayrollController extends ApiController
             'archived' => false]);
     }
 
+    /** 该月总部人员工资表是否已全部归档锁定 */
+    private function allHqArchived(string $ym): bool
+    {
+        $rows = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_hq_row', true)->get();
+        return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
+    }
     /** 该月所有项目是否均已归档（部分归档不算整体锁定；仅按项目表行判定，管理人员表独立锁定） */
     private function allArchived(string $ym): bool
     {
         $rows = DB::table('payroll_results')->where('year_month', $ym)
-            ->where('is_manager_row', false)
+            ->where('is_manager_row', false)->where('is_hq_row', false)
             ->select('project_name', DB::raw('MAX(archived) AS archived'))->groupBy('project_name')->get();
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }

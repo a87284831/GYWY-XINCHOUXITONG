@@ -33,6 +33,24 @@ class PayrollCalculator
     public function __construct(private readonly CalcRules $rules = new CalcRules()) {}
 
     /**
+     * 当月生效人员分类映射：legacy_id => category（staff/manager/case）。
+     * 依据 payroll_staff_category_log 按生效日期取该月最新一条；无记录默认基层员工。
+     */
+    private static function categoryMap(string $ym): array
+    {
+        $end = date('Y-m-t', strtotime($ym . '-01'));
+        $rows = DB::table('payroll_staff_person_type_log as l')
+            ->join('payroll_staff as s', 's.id', '=', 'l.staff_id')
+            ->where('l.effective_date', '<=', $end)
+            ->orderBy('l.effective_date', 'desc')
+            ->orderBy('l.id', 'desc')
+            ->get(['l.staff_id', 'l.person_type', 's.legacy_id']);
+        $map = [];
+        foreach ($rows as $r) { if (!isset($map[$r->legacy_id])) $map[$r->legacy_id] = $r->person_type; }
+        return $map;
+    }
+
+    /**
      * 计算并写库。返回 ['count'=>int,'skipped'=>array,'preserved_archived'=>int]
      */
     public function calculate(string $ym, array $projects): array
@@ -45,9 +63,12 @@ class PayrollCalculator
 
         $symbols   = self::symbols();
         $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
-        // 项目核算不含管理人员（管理人员由 calculateManagers 单独核算，生成独立的管理人员工资表）
+        // 项目核算不含管理人员与案场人员（管理人员/案场人员分别由 calculateManagers / calculateCaseStaff 单独核算）
+        $catMap    = self::categoryMap($ym);
         $staff     = DB::table('payroll_staff')->whereIn('project_name', $projects)
-            ->where('deleted', false)->where('is_manager', false)->get();
+            ->where('project_name', '!=', '物业总部')
+            ->where('deleted', false)->get()
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'staff');
 
         // 预取当年历史核算结果（累计预扣个税用），避免逐员工 N+1 查询
         $historyByStaff = collect();
@@ -80,20 +101,20 @@ class PayrollCalculator
         // 统一按 项目→部门→岗位→姓名 排序后落库，列表与导出顺序一致
         $rows = self::orderRows($rows);
 
-        // 保留归档标记（仅项目表行；管理人员行不受项目核算影响）
+        // 保留归档标记（仅项目表行；管理人员行/案场人员行不受项目核算影响）
         $archivedIds = DB::table('payroll_results')
             ->where('year_month', $ym)->whereIn('project_name', $projects)
-            ->where('is_manager_row', false)
+            ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
             ->where('archived', true)->pluck('staff_legacy_id')->all();
 
         DB::transaction(function () use ($ym, $projects, $rows) {
             DB::table('payroll_results')->where('year_month', $ym)->whereIn('project_name', $projects)
-                ->where('is_manager_row', false)->delete();
+                ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)->delete();
             foreach ($rows as $row) {
                 DB::table('payroll_results')->insert([
                     'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
                     'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 0, 'created_at' => now(), 'updated_at' => now(),
+                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 0, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
                 ]);
             }
         });
@@ -103,7 +124,7 @@ class PayrollCalculator
             $preserved = DB::table('payroll_results')->where('year_month', $ym)
                 ->whereIn('staff_legacy_id', $archivedIds)
                 ->whereIn('project_name', $projects)
-                ->where('is_manager_row', false)
+                ->where('is_manager_row', false)->where('is_case_row', false)
                 ->update(['archived' => true, 'updated_at' => now()]);
         }
 
@@ -122,7 +143,9 @@ class PayrollCalculator
         }
         $symbols   = self::symbols();
         $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
-        $staff     = DB::table('payroll_staff')->where('is_manager', true)->where('deleted', false)->get();
+        $catMap    = self::categoryMap($ym);
+        $staff     = DB::table('payroll_staff')->where('project_name', '!=', '物业总部')->where('deleted', false)->get()
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'manager');
 
         // 预取当年历史核算结果（含项目表与管理层表，同人跨表累计，个税累计口径不变）
         $historyByStaff = collect();
@@ -154,17 +177,17 @@ class PayrollCalculator
 
         // 保留归档标记（管理层行独立归档，与项目表互不干扰）
         $archivedIds = DB::table('payroll_results')
-            ->where('year_month', $ym)->where('is_manager_row', true)
+            ->where('year_month', $ym)->where('is_manager_row', true)->where('is_hq_row', false)
             ->where('archived', true)->pluck('staff_legacy_id')->all();
 
         DB::transaction(function () use ($ym, $rows) {
             DB::table('payroll_results')->where('year_month', $ym)
-                ->where('is_manager_row', true)->delete();
+                ->where('is_manager_row', true)->where('is_hq_row', false)->delete();
             foreach ($rows as $row) {
                 DB::table('payroll_results')->insert([
                     'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
                     'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 1, 'created_at' => now(), 'updated_at' => now(),
+                    'archived' => false, 'is_manager_row' => 1, 'is_case_row' => 0, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
                 ]);
             }
         });
@@ -180,6 +203,148 @@ class PayrollCalculator
         return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
     }
 
+    /**
+     * 案场人员核算：按月份汇总所有项目的案场人员（is_case_field=1），
+     * 生成独立的案场人员工资表（payroll_results.is_case_row=1）。
+     * 考勤仍取自各项目考勤块（案场人员随项目一起上传考勤）。
+     */
+    public function calculateCaseStaff(string $ym): array
+    {
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            throw new RuntimeException('无效月份：' . $ym);
+        }
+        $symbols   = self::symbols();
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
+        $catMap    = self::categoryMap($ym);
+        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'case' && $p->project_name !== '物业总部');
+
+        // 预取当年历史核算结果（含项目表/管理层表/案场表，同人跨表累计，个税累计口径不变）
+        $historyByStaff = collect();
+        if (!$staff->isEmpty()) {
+            $historyByStaff = DB::table('payroll_results')
+                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
+                ->where('year_month', '<', $ym)
+                ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
+                ->get()->groupBy('staff_legacy_id');
+        }
+
+        // 安全护栏：该月没有任何项目考勤就别动已有结果
+        if ($attBlocks->isEmpty()) {
+            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
+        }
+
+        $rows = [];
+        foreach ($staff as $person) {
+            $block = $attBlocks[$person->project_name] ?? null;
+            $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
+            $att = $attRows[$person->name] ?? null;
+            if (!$att) continue;
+            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
+        }
+
+        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
+
+        $rows = self::orderRows($rows);
+
+        // 保留归档标记（案场人员行独立归档，与项目表/管理层表互不干扰）
+        $archivedIds = DB::table('payroll_results')
+            ->where('year_month', $ym)->where('is_case_row', true)->where('is_hq_row', false)
+            ->where('archived', true)->pluck('staff_legacy_id')->all();
+
+        DB::transaction(function () use ($ym, $rows) {
+            DB::table('payroll_results')->where('year_month', $ym)
+                ->where('is_case_row', true)->where('is_hq_row', false)->delete();
+            foreach ($rows as $row) {
+                DB::table('payroll_results')->insert([
+                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
+                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
+                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 1, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+        });
+
+        $preserved = 0;
+        if ($archivedIds) {
+            $preserved = DB::table('payroll_results')->where('year_month', $ym)
+                ->whereIn('staff_legacy_id', $archivedIds)
+                ->where('is_case_row', true)
+                ->update(['archived' => true, 'updated_at' => now()]);
+        }
+
+        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+    }
+
+    /**
+     * 总部人员核算：物业总部所有人员（无论是否管理人员/案场标记）单独核算，
+     * 生成独立的总部人员工资表（payroll_results.is_hq_row=1）。
+     * 考勤取自物业总部考勤块（总部考勤表单独上传）。
+     */
+    public function calculateHq(string $ym): array
+    {
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            throw new RuntimeException('无效月份：' . $ym);
+        }
+        $symbols   = self::symbols();
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
+        // 物业总部全部在职人员（一套标签：不区分是否管理人员/案场人员）
+        $staff = DB::table('payroll_staff')->where('project_name', '物业总部')
+            ->where('deleted', false)->get();
+
+        // 预取当年历史核算结果（含各表，同人跨表累计，个税累计口径不变）
+        $historyByStaff = collect();
+        if (!$staff->isEmpty()) {
+            $historyByStaff = DB::table('payroll_results')
+                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
+                ->where('year_month', '<', $ym)
+                ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
+                ->get()->groupBy('staff_legacy_id');
+        }
+
+        // 安全护栏：该月没有物业总部考勤就别动已有结果
+        if (!isset($attBlocks['物业总部'])) {
+            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
+        }
+
+        $rows = [];
+        $attRows = $this->jsonValue($attBlocks['物业总部']->rows) ?: [];
+        foreach ($staff as $person) {
+            $att = $attRows[$person->name] ?? null;
+            if (!$att) continue;
+            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
+        }
+        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
+
+        $rows = self::orderRows($rows);
+
+        // 保留归档标记（总部人员行独立归档，与项目表/管理层表互不干扰）
+        $archivedIds = DB::table('payroll_results')
+            ->where('year_month', $ym)->where('is_hq_row', true)
+            ->where('archived', true)->pluck('staff_legacy_id')->all();
+
+        DB::transaction(function () use ($ym, $rows) {
+            DB::table('payroll_results')->where('year_month', $ym)
+                ->where('is_hq_row', true)->delete();
+            foreach ($rows as $row) {
+                DB::table('payroll_results')->insert([
+                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
+                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
+                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 0, 'is_hq_row' => 1,
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+        });
+
+        $preserved = 0;
+        if ($archivedIds) {
+            $preserved = DB::table('payroll_results')->where('year_month', $ym)
+                ->whereIn('staff_legacy_id', $archivedIds)
+                ->where('is_hq_row', true)
+                ->update(['archived' => true, 'updated_at' => now()]);
+        }
+
+        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+    }
     /** 单行完整计算 */
     private function computeRow(object $person, array $att, array $symbols, string $ym, $historyByStaff = null): array
     {

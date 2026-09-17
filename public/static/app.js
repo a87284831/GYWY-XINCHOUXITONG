@@ -660,36 +660,112 @@ async function markAllRead() {
 /* ---------------- 汇总展示 ---------------- */
 async function pageSummary() {
   const c = document.getElementById("content");
-  c.innerHTML = `<div class="card">${monthInput()} <button class="btn primary" onclick="pageSummary()">刷新</button><div id="sumArea" style="margin-top:12px">加载中...</div></div>`;
+  c.innerHTML = `<div class="card">${monthInput()}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <b>项目筛选：</b>
+      <div style="position:relative;display:inline-block">
+        <button class="btn" onclick="toggleSumDrop(event)">全部项目</button>
+        <div id="sumDropPanel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:99;background:#fff;border:1px solid #d9d9d9;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:10px 12px;min-width:260px;max-height:320px;overflow:auto">
+          <label style="display:flex;align-items:center;gap:4px;padding:3px 0;cursor:pointer"><input type="checkbox" id="sumProjAll" checked onchange="toggleSumAll(this)"> 全选</label>
+          <div style="border-top:1px solid #eee;margin:4px 0 2px"></div>
+          <div id="sumProjChecks"></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <button class="btn" onclick="exportSummary()">导出表格</button>
+      <button class="btn primary" onclick="pageSummary()">刷新</button>
+    </div>
+    <div id="sumArea" style="margin-top:12px">加载中...</div></div>`;
   try {
     const data = await api(`/api/summary?ym=${state.month}`);
-    const t = data.total;
-    let html = `<div class="stat-cards">
+    window._sumData = data;
+    const box = document.getElementById("sumProjChecks");
+    if (box) {
+      box.innerHTML = data.items.map(it => `<label style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer;white-space:nowrap"><input type="checkbox" value="${esc(it.project)}" checked onchange="renderSummary();syncSumAll()"> ${esc(it.project)}</label>`).join("");
+      syncSumAll();
+      updateSumDropLabel();
+    }
+    renderSummary();
+  } catch (e) { document.getElementById("sumArea").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+function renderSummary() {
+  const area = document.getElementById("sumArea");
+  if (!area || !window._sumData) return;
+  const data = window._sumData;
+  const checks = Array.from(document.querySelectorAll("#sumProjChecks input:checked")).map(cb => cb.value);
+  const items = checks.length ? data.items.filter(it => checks.includes(it.project)) : data.items;
+  const t = { headcount: 0, gross: 0, net: 0, month_budget: 0, annual_budget: 0, ytd_gross: 0 };
+  for (const it of items) {
+    t.headcount += it.headcount; t.gross += it.gross; t.net += it.net;
+    t.month_budget += it.month_budget; t.annual_budget += it.annual_budget; t.ytd_gross += it.ytd_gross;
+  }
+  t.month_rate = t.month_budget > 0 ? t.gross / t.month_budget : 0;
+  t.annual_rate = t.annual_budget > 0 ? t.ytd_gross / t.annual_budget : 0;
+  let html = `<div class="stat-cards">
       <div class="stat"><div class="k">发放人数（有效考勤）</div><div class="v">${t.headcount}</div></div>
       <div class="stat"><div class="k">应发总金额</div><div class="v">${money(t.gross)}</div></div>
       <div class="stat"><div class="k">实发总金额</div><div class="v">${money(t.net)}</div></div>
       <div class="stat"><div class="k">当月预算执行率</div><div class="v">${pct(t.month_rate)}</div></div>
       <div class="stat"><div class="k">年度预算执行率</div><div class="v">${pct(t.annual_rate)}</div></div>
     </div>`;
-    if (data.archived) html += `<div class="msg info">该月已归档锁定，如需修改须超管在"薪资核算"页解锁。</div>`;
-    html += `<div class="table-wrap"><table class="tb"><thead><tr>
+  if (data.archived) html += `<div class="msg info">该月已归档锁定，如需修改须超管在"薪资核算"页解锁。</div>`;
+  html += `<div class="table-wrap"><table class="tb"><thead><tr>
       <th>项目</th><th>发放人数</th><th>应发总金额</th><th>实发总金额</th><th>当月预算</th><th>当月执行率</th>
       <th>年度预算</th><th>年度累计应发</th><th>年度执行率</th><th>核算状态</th></tr></thead><tbody>`;
-    for (const it of data.items) {
-      html += `<tr><td>${esc(it.project)}</td><td class="num">${it.headcount}</td>
+  for (const it of items) {
+    html += `<tr><td>${esc(it.project)}</td><td class="num">${it.headcount}</td>
         <td class="num">${money(it.gross)}</td><td class="num">${money(it.net)}</td>
         <td class="num">${money(it.month_budget)}</td><td class="num">${pct(it.month_rate)}</td>
         <td class="num">${money(it.annual_budget)}</td><td class="num">${money(it.ytd_gross)}</td>
         <td class="num">${pct(it.annual_rate)}</td>
         <td>${it.calculated ? '<span class="tag green">已核算</span>' : '<span class="tag gray">未核算</span>'}</td></tr>`;
-    }
-    html += `<tr style="font-weight:bold;background:#f3f6fb"><td>总计</td><td class="num">${t.headcount}</td>
+  }
+  const label = (checks.length === data.items.length) ? '总计' : (checks.length ? '总计（' + checks.length + '个项目）' : '总计');
+  html += `<tr style="font-weight:bold;background:#f3f6fb"><td>${label}</td><td class="num">${t.headcount}</td>
       <td class="num">${money(t.gross)}</td><td class="num">${money(t.net)}</td><td class="num">${money(t.month_budget)}</td>
       <td class="num">${pct(t.month_rate)}</td><td class="num">${money(t.annual_budget)}</td>
       <td class="num">${money(t.ytd_gross)}</td><td class="num">${pct(t.annual_rate)}</td><td></td></tr>`;
-    html += `</tbody></table></div><div class="hint">发放人数口径：已核算时取实际参与核算的人数，未核算时取当月考勤记录人数。执行率口径：当月执行率=当月应发÷当月预算；年度执行率=年度累计应发÷年度预算；预算为0或无工资时按0显示。</div>`;
-    document.getElementById("sumArea").innerHTML = html;
-  } catch (e) { document.getElementById("sumArea").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  html += `</tbody></table></div><div class="hint">发放人数口径：已核算时取实际参与核算的人数，未核算时取当月考勤记录人数。执行率口径：当月执行率=当月应发÷当月预算；年度执行率=年度累计应发÷年度预算；预算为0或无工资时按0显示。筛选后总计与顶部统计卡随勾选范围联动；全不勾选视为全部。</div>`;
+  area.innerHTML = html;
+  updateSumDropLabel();
+}
+function exportSummary() {
+  const checks = Array.from(document.querySelectorAll("#sumProjChecks input:checked")).map(cb => cb.value);
+  const p = checks.join(",");
+  const label = (checks.length === (window._sumData ? window._sumData.items.length : 0)) ? "" : (checks.length ? "_筛选" : "");
+  download(`/api/summary/export?ym=${state.month}&project=${encodeURIComponent(p)}`, `薪资汇总展示_${state.month}${label}.xlsx`);
+}
+function toggleSumDrop(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  const p = document.getElementById("sumDropPanel");
+  if (!p) return;
+  p.style.display = p.style.display === "none" ? "block" : "none";
+}
+function updateSumDropLabel() {
+  const btn = document.querySelector("#sumDropPanel") ? document.querySelector("#sumDropPanel").previousElementSibling : null;
+  const all = document.getElementById("sumProjAll");
+  if (!btn || !all) return;
+  const total = document.querySelectorAll("#sumProjChecks input").length;
+  const checked = document.querySelectorAll("#sumProjChecks input:checked").length;
+  btn.textContent = (checked === 0 || checked === total) ? `全部项目（${total}项）` : `已选${checked}项`;
+}
+document.addEventListener("click", function (ev) {
+  const p = document.getElementById("sumDropPanel");
+  if (p && p.style.display !== "none") {
+    let el = ev.target;
+    while (el) { if (el.id === "sumDropPanel") return; el = el.parentElement; }
+    p.style.display = "none";
+  }
+});
+function toggleSumAll(el) {
+  document.querySelectorAll("#sumProjChecks input").forEach(cb => { cb.checked = el.checked; });
+  renderSummary();
+}
+function syncSumAll() {
+  const all = document.getElementById("sumProjAll");
+  const cbs = document.querySelectorAll("#sumProjChecks input");
+  if (all && cbs.length) all.checked = Array.from(cbs).every(cb => cb.checked);
 }
 
 /* ---------------- 个税扣除模式设置 ---------------- */
@@ -781,13 +857,20 @@ function switchPayTab(t) {
   payTab = t;
   const e = document.getElementById("empPayBlock");
   const m = document.getElementById("mgrPayBlock");
+  const c = document.getElementById("casePayBlock");
+  const h = document.getElementById("hqPayBlock");
   if (e) e.style.display = t === "emp" ? "" : "none";
   if (m) m.style.display = t === "mgr" ? "" : "none";
+  if (c) c.style.display = t === "case" ? "" : "none";
+  if (h) h.style.display = t === "hq" ? "" : "none";
   document.querySelectorAll("[data-paytab]").forEach(b => {
     if (b.classList.contains("pay-tab")) b.classList.toggle("active", b.dataset.paytab === t);
     else b.classList.toggle("primary", b.dataset.paytab === t);
   });
-  if (t === "mgr") loadMgrs(); else loadPayroll();
+  if (t === "mgr") loadMgrs();
+  else if (t === "case") loadCases();
+  else if (t === "hq") loadHqs();
+  else loadPayroll();
 }
 async function pagePayroll() {
   const c = document.getElementById("content");
@@ -801,6 +884,8 @@ async function pagePayroll() {
       <div class="pay-tabs">
         <button class="pay-tab ${payTab === "emp" ? "active" : ""}" data-paytab="emp" onclick="switchPayTab('emp')">员工核算</button>
         ${isAdmin ? `<button class="pay-tab ${payTab === "mgr" ? "active" : ""}" data-paytab="mgr" onclick="switchPayTab('mgr')">管理人员核算</button>` : ""}
+        ${isAdmin ? `<button class="pay-tab ${payTab === "case" ? "active" : ""}" data-paytab="case" onclick="switchPayTab('case')">案场人员核算</button>` : ""}
+        ${isAdmin ? `<button class="pay-tab ${payTab === "hq" ? "active" : ""}" data-paytab="hq" onclick="switchPayTab('hq')">总部人员核算</button>` : ""}
       </div>
     </div>
     <div id="empPayBlock" style="${payTab === "emp" ? "" : "display:none"}">
@@ -830,11 +915,37 @@ async function pagePayroll() {
         <div id="mgrArea" style="margin-top:10px">加载中...</div>
       </div>
     </div>` : ""}
+    ${isAdmin ? `<div id="casePayBlock" style="${payTab === "case" ? "" : "display:none"}">
+      <div class="card" style="margin-top:10px"><h3>案场人员核算（仅总部 · 所有项目案场人员汇总）</h3>
+        <div class="row">
+          <button class="btn primary" onclick="doCalcCase()">案场人员核算（覆盖旧数据）</button>
+          <button class="btn" onclick="exportGo('caseAll')">导出案场人员工资表（全部项目）</button>
+          <span id="caseArchiveBtns"></span>
+        </div>
+        <div class="hint">案场人员（人员档案中勾选"是否案场人员"）不参与项目工资表核算，由这里按月份汇总所有项目案场人员单独核算生成案场人员工资表；各项目可查看/导出本项目案场人员。</div>
+        <div id="caseMsg"></div>
+        <div id="caseArea" style="margin-top:10px">加载中...</div>
+      </div>
+    </div>` : ""}
+    ${isAdmin ? `<div id="hqPayBlock" style="${payTab === "hq" ? "" : "display:none"}">
+      <div class="card" style="margin-top:10px"><h3>总部人员核算（仅总部 · 物业总部所有人员汇总）</h3>
+        <div class="row">
+          <button class="btn primary" onclick="doCalcHq()">总部人员核算（覆盖旧数据）</button>
+          <button class="btn" onclick="exportGo('hqAll')">导出总部人员工资表</button>
+          <span id="hqArchiveBtns"></span>
+        </div>
+        <div class="hint">物业总部所有人员（不区分是否管理人员/案场人员标记）不参与项目工资表与管理/案场人员核算，由这里单独核算生成总部人员工资表；总部考勤表随项目考勤单独上传（项目=物业总部）。仅总部可查看/导出/锁定。</div>
+        <div id="hqMsg"></div>
+        <div id="hqArea" style="margin-top:10px">加载中...</div>
+      </div>
+    </div>` : ""}
   </div>`;
   if (isAdmin) {
-    document.getElementById("projChecks").innerHTML = state.projects.map(p =>
+    document.getElementById("projChecks").innerHTML = state.projects.filter(p => p !== "物业总部").map(p =>
       `<label><input type="checkbox" ${calcProjects.includes(p) ? "checked" : ""} onchange="toggleCalcProj('${esc(p)}',this.checked)"> ${esc(p)}</label>`).join("");
     if (payTab === "mgr") loadMgrs();
+    if (payTab === "case") loadCases();
+    if (payTab === "hq") loadHqs();
   }
   loadPayroll();
 }
@@ -889,6 +1000,102 @@ async function setArchiveMgrs(locked) {
     await api("/api/payroll/archive", { body: { ym: state.month, locked, type: "manager" } });
     toast(locked ? "已归档锁定" : "已解锁");
     loadMgrs(); loadPayroll();
+  } catch (e) { alert(e.message); }
+}
+async function doCalcCase() {
+  if (!confirm(`确认核算 ${state.month} 案场人员工资表（所有项目案场人员）？同月重复核算将覆盖旧数据。`)) return;
+  try {
+    const r = await api("/api/payroll/calc-case", { body: { ym: state.month } });
+    document.getElementById("caseMsg").innerHTML = `<div class="msg ok">案场人员核算完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? "（" + r.skipped.join("、") + "）" : ""}</div>`;
+    loadCases(); loadPayroll();
+  } catch (e) { document.getElementById("caseMsg").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+async function loadCases() {
+  const area = document.getElementById("caseArea");
+  if (!area) return;
+  try {
+    const data = await api(`/api/payroll?ym=${state.month}&type=case`);
+    const attStatus = await api(`/api/attendance/status?ym=${state.month}`);
+    document.getElementById("caseArchiveBtns") && (document.getElementById("caseArchiveBtns").innerHTML = data.archived
+      ? `<span class="tag red">已归档锁定</span> <button class="btn warn sm" onclick="setArchiveCase(false)">解锁归档</button>`
+      : (data.rows.length ? `<button class="btn success sm" onclick="setArchiveCase(true)">确认归档锁定</button>` : ""));
+    const statusHtml = renderAttStatus(attStatus);
+    if (!data.rows.length) { area.innerHTML = statusHtml + `<div class="msg info">该月暂无案场人员核算数据。点击"案场人员核算"生成。</div>`; return; }
+    let html = statusHtml + `<div class="row" style="margin-bottom:8px"><span class="tag blue">${data.rows.length} 名案场人员</span>
+      <label class="fld">项目筛选 <select id="caseProjFilter" onchange="filterCases()"><option value="">全部项目</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
+      </div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="tb" id="caseTable"><thead><tr>
+      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
+      <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
+      <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
+      <th>社保合计</th><th>附加扣除</th><th>本月个税</th><th>实发工资</th><th>操作</th></tr></thead><tbody>`;
+    window._caseRows = data.rows;
+    html += payRowsHtml(data.rows);
+    html += `</tbody><tfoot>${payTotalHtml(data.rows)}</tfoot></table></div>
+    <div class="hint">案场人员工资表各项目可查看/导出本项目数据；归档锁定后禁止修改、重算，仅超管可解锁。微调操作与项目工资表一致。</div>`;
+    area.innerHTML = html;
+    initStickyCols("caseTable", 4);
+  } catch (e) { area.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+function filterCases() {
+  const p = document.getElementById("caseProjFilter") ? document.getElementById("caseProjFilter").value : "";
+  const rows = (window._caseRows || []).filter(r => !p || r.project === p);
+  const tbody = document.querySelector("#caseTable tbody");
+  const tfoot = document.querySelector("#caseTable tfoot");
+  if (tbody) tbody.innerHTML = payRowsHtml(rows);
+  if (tfoot) tfoot.innerHTML = payTotalHtml(rows);
+  initStickyCols("caseTable", 4);
+}
+async function setArchiveCase(locked) {
+  if (!confirm(locked ? "确认归档锁定案场人员工资表？锁定后禁止修改/重算，仅超管可解锁。" : "确认解锁归档？")) return;
+  try {
+    await api("/api/payroll/archive", { body: { ym: state.month, locked, type: "case" } });
+    toast(locked ? "已归档锁定" : "已解锁");
+    loadCases(); loadPayroll();
+  } catch (e) { alert(e.message); }
+}
+async function doCalcHq() {
+  if (!confirm(`确认核算 ${state.month} 总部人员工资表（物业总部所有人员）？同月重复核算将覆盖旧数据。`)) return;
+  try {
+    const r = await api("/api/payroll/calc-hq", { body: { ym: state.month } });
+    document.getElementById("hqMsg").innerHTML = `<div class="msg ok">总部人员核算完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? "（" + r.skipped.join("、") + "）" : ""}</div>`;
+    loadHqs(); loadPayroll();
+  } catch (e) { document.getElementById("hqMsg").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+async function loadHqs() {
+  const area = document.getElementById("hqArea");
+  if (!area) return;
+  try {
+    const data = await api(`/api/payroll?ym=${state.month}&type=hq`);
+    const attStatus = await api(`/api/attendance/status?ym=${state.month}`);
+    document.getElementById("hqArchiveBtns") && (document.getElementById("hqArchiveBtns").innerHTML = data.archived
+      ? `<span class="tag red">已归档锁定</span> <button class="btn warn sm" onclick="setArchiveHq(false)">解锁归档</button>`
+      : (data.rows.length ? `<button class="btn success sm" onclick="setArchiveHq(true)">确认归档锁定</button>` : ""));
+    const statusHtml = renderAttStatus(attStatus);
+    if (!data.rows.length) { area.innerHTML = statusHtml + `<div class="msg info">该月暂无总部人员核算数据。请先上传物业总部考勤表，再点击"总部人员核算"生成。</div>`; return; }
+    let html = statusHtml + `<div class="row" style="margin-bottom:8px"><span class="tag blue">${data.rows.length} 名总部人员</span>
+      </div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="tb" id="hqTable"><thead><tr>
+      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
+      <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
+      <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
+      <th>社保合计</th><th>附加扣除</th><th>本月个税</th><th>实发工资</th><th>操作</th></tr></thead><tbody>`;
+    window._hqRows = data.rows;
+    html += payRowsHtml(data.rows);
+    html += `</tbody><tfoot>${payTotalHtml(data.rows)}</tfoot></table></div>
+    <div class="hint">总部人员工资表仅总部可见；项目账号无法查看/导出。归档锁定后禁止修改、重算，仅超管可解锁。微调操作与项目工资表一致。</div>`;
+    area.innerHTML = html;
+    initStickyCols("hqTable", 4);
+  } catch (e) { area.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+async function setArchiveHq(locked) {
+  if (!confirm(locked ? "确认归档锁定总部人员工资表？锁定后禁止修改/重算，仅超管可解锁。" : "确认解锁归档？")) return;
+  try {
+    await api("/api/payroll/archive", { body: { ym: state.month, locked, type: "hq" } });
+    toast(locked ? "已归档锁定" : "已解锁");
+    loadHqs(); loadPayroll();
   } catch (e) { alert(e.message); }
 }
 function toggleCalcProj(p, on) {
@@ -1317,7 +1524,7 @@ async function pageStaff() {
       <label class="fld">项目 <select id="stProj" onchange="loadStaff()"><option value="">全部</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
       <label class="fld">部门 <select id="stOrg" onchange="loadStaff()"><option value="">全部部门</option></select></label>
       <label class="fld">状态 <select id="stStatus" onchange="loadStaff()"><option value="">全部</option><option>正式</option><option>试用</option><option>离职</option></select></label>
-      <label class="fld">人员类型 <select id="stIsMgr" onchange="loadStaff()"><option value="">全部</option><option value="1">管理人员</option><option value="0">普通员工</option></select></label>
+      <label class="fld">人员分类 <select id="stPersonType" onchange="loadStaff()"><option value="">全部</option><option value="staff">基层员工</option><option value="manager">管理人员</option><option value="case">案场人员</option></select></label>
       <input type="text" id="stKw" placeholder="姓名/岗位搜索" onkeydown="if(event.key==='Enter')loadStaff()">
       <button class="btn primary" onclick="loadStaff()">查询</button>
       <button class="btn success" onclick="staffEdit(0)">＋ 新增人员</button>
@@ -1375,7 +1582,7 @@ async function loadStaff() {
   try {
     if (!ORG_TREE) await loadOrgTree();
     fillOrgDeptFilter();
-    const q = `cat=${encodeURIComponent(stCat)}&project=${encodeURIComponent(document.getElementById("stProj").value)}&status=${encodeURIComponent(document.getElementById("stStatus").value)}&is_manager=${encodeURIComponent(document.getElementById("stIsMgr").value)}&kw=${encodeURIComponent(document.getElementById("stKw").value)}&org_id=${encodeURIComponent(document.getElementById("stOrg").value)}`;
+    const q = `cat=${encodeURIComponent(stCat)}&project=${encodeURIComponent(document.getElementById("stProj").value)}&status=${encodeURIComponent(document.getElementById("stStatus").value)}&person_type=${encodeURIComponent(document.getElementById("stPersonType").value)}&kw=${encodeURIComponent(document.getElementById("stKw").value)}&org_id=${encodeURIComponent(document.getElementById("stOrg").value)}`;
     const data = await api("/api/staff?" + q);
     window._staff = data.staff;
     renderStCounts(data.counts);
@@ -1392,7 +1599,7 @@ async function loadStaff() {
       html += `<tr><td style="text-align:center"><input type="checkbox" class="stChk" ${window._stSel.has(s.id) ? "checked" : ""} onchange="stToggle(${s.id},this.checked)"></td>
         <td><span class="tag ${CAT_TAG[s.category] || "gray"}">${esc(s.category || "-")}</span></td>
         <td><b>${esc(s.name)}</b></td><td>${esc(s.project)}</td><td>${esc(s.dept_path || "未分配")}</td><td>${esc(s.position)}</td>
-        <td><span class="tag ${Number(s.is_manager) === 1 ? "purple" : "gray"}">${Number(s.is_manager) === 1 ? "管理人员" : "普通员工"}</span></td>
+        <td><span class="tag ${s.person_type === "case" ? "green" : (s.person_type === "manager" ? "purple" : "gray")}">${s.person_type === "case" ? "案场人员" : (s.person_type === "manager" ? "管理人员" : "基层员工")}</span></td>
         <td>${esc(leaderName)}</td>
         <td><span class="tag ${STATUS_TAG[s.status] || "gray"}">${esc(s.status)}</span></td>
         <td>${esc(s.gender || "-")}</td><td>${esc(s.education || "-")}</td><td>${esc(s.hometown || "-")}</td><td>${esc(s.phone || "-")}</td>
@@ -1406,7 +1613,7 @@ async function loadStaff() {
         <button class="btn sm" onclick="staffHistory(${s.id})">薪资历史</button>
         <button class="btn sm" onclick="staffTransfers(${s.id})">调动</button></td></tr>`;
     }
-    html += `</tbody></table></div><div class="hint">顶部卡片点击可按分类筛选（在职/离职/黑名单），可再叠加项目、部门、状态、关键字条件后导出。人员分类按入职/离职日期自动判断：有离职日期（≤今天）→离职，否则→在职；黑名单需在编辑时勾选"加入黑名单"标记。人员分类与"人员状态"（正式/试用/离职，用于核算）相互独立。先选择所属项目，再选择该项目下已设立的部门。勾选多人后可批量删除、批量设置附加扣除；工资标准（固定月薪/基本工资）的变更请到"调薪与记录"模块操作，以留存全量调薪历史。导出文件含全部档案字段（含性别/学历/籍贯/联系方式/民族/婚姻/毕业院校/专业/证书/政治面貌/家庭住址等）。</div>`;
+    html += `</tbody></table></div><div class="hint">顶部卡片点击可按分类筛选（在职/离职/黑名单），可再叠加项目、部门、状态、关键字条件后导出。档案状态按入职/离职日期自动判断：有离职日期（≤今天）→离职，否则→在职；黑名单需在编辑时勾选"加入黑名单"标记。档案状态与"人员状态"（正式/试用/离职，用于核算）相互独立。先选择所属项目，再选择该项目下已设立的部门。勾选多人后可批量删除、批量设置附加扣除；工资标准（固定月薪/基本工资）的变更请到"调薪与记录"模块操作，以留存全量调薪历史。导出文件含全部档案字段（含性别/学历/籍贯/联系方式/民族/婚姻/毕业院校/专业/证书/政治面貌/家庭住址等）。</div>`;
     area.innerHTML = html;
     stUpdCount();
   } catch (e) { area.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
@@ -1520,7 +1727,8 @@ async function staffEdit(id) {
   const isReq = k => required.includes(k);
   const reqMark = k => isReq(k) ? ' <b style="color:#dc2626">*</b>' : "";
   const v = s || { name: "", project: state.projects[0], position: "", fixed_monthly: "", base_salary: "", hire_date: "", regular_date: "", resign_date: "", bank_card: "", id_card: "", category: "在职", org_id: "", leader_id: "",
-    gender: "", phone: "", birth_date: "", nation: "", marital: "", school: "", major: "", education: "", grad_date: "", certificate: "", politics: "", home_addr: "", emergency_contact: "", emergency_phone: "", recruit_channel: "", hometown: "", level: "", contract_start: "", contract_end: "", is_manager: 0 };
+    gender: "", phone: "", birth_date: "", nation: "", marital: "", school: "", major: "", education: "", grad_date: "", certificate: "", politics: "", home_addr: "", emergency_contact: "", emergency_phone: "", recruit_channel: "", hometown: "", level: "", contract_start: "", contract_end: "", person_type: "staff", person_type_since: "" };
+  window._sfOrigType = v.person_type || "staff";
   if (!ORG_TREE) { try { await loadOrgTree(); } catch (e) { ORG_TREE = []; } }
   const leaves = orgLeaves();
   const orgProjects = (ORG_TREE ? orgFlat(ORG_TREE) : []).filter(n => n.type === "project");
@@ -1553,7 +1761,7 @@ async function staffEdit(id) {
     <label>岗位${reqMark("position")}<input type="text" id="sf_position" value="${esc(v.position)}" list="sf_pos_list"><datalist id="sf_pos_list"></datalist></label>
     <label>直属上级${reqMark("leader")}${leaderOptions}</label>
     <label>本人联系方式${reqMark("phone")}<input type="text" id="sf_phone" value="${esc(v.phone || "")}" placeholder="11位手机号"></label>
-    <label>人员分类（按入职/离职自动判断）<input type="text" id="sf_category" readonly style="background:#f5f5f5;font-weight:600"></label>
+    <label>档案状态（自动判定）<input type="text" id="sf_category" readonly style="background:#f5f5f5;font-weight:600"></label>
     <label>加入黑名单<select id="sf_black" onchange="sfStatusUpd()">
       <option value="0" ${v.category === "黑名单" ? "" : "selected"}>否</option>
       <option value="1" ${v.category === "黑名单" ? "selected" : ""}>是</option>
@@ -1580,10 +1788,12 @@ async function staffEdit(id) {
   <h4 style="margin:16px 0 8px;color:#2563eb">职级与劳动合同</h4>
   <div class="form-grid">
     ${sel("level", "层级", enums.level)}
-    <label>是否管理人员<select id="sf_is_manager" title="勾选后该人员不参与项目工资表核算，由总部在「管理人员核算」中单独生成管理人员工资表（仅总部可见）">
-      <option value="0" ${Number(v.is_manager) === 1 ? "" : "selected"}>否（普通员工）</option>
-      <option value="1" ${Number(v.is_manager) === 1 ? "selected" : ""}>是（管理人员）</option>
+    <label>人员分类<select id="sf_person_type" title="决定该人员参与哪套工资核算：基层员工→项目员工核算；管理人员→管理人员核算；案场人员→案场人员核算；所属项目为物业总部的人员一律进总部人员核算">
+      <option value="staff" ${(v.person_type || "staff") === "staff" ? "selected" : ""}>基层员工</option>
+      <option value="manager" ${v.person_type === "manager" ? "selected" : ""}>管理人员</option>
+      <option value="case" ${v.person_type === "case" ? "selected" : ""}>案场人员</option>
     </select></label>
+    <label>分类生效日期<input type="date" id="sf_person_since" value="${esc(v.person_type_since || "")}" title="该分类自所选日期起生效，之前月份按旧分类核算（例：9月改为管理人员并选2026-10-01生效，则9月仍按原分类，10月起按管理人员核算）"></label>
     <label>劳动合同开始日期<input type="date" id="sf_contract_start" value="${esc(v.contract_start || "")}"></label>
     <label>劳动合同结束日期<input type="date" id="sf_contract_end" value="${esc(v.contract_end || "")}"></label>
   </div>
@@ -1605,7 +1815,7 @@ async function staffEdit(id) {
     ${inp("hometown", "籍贯（市）", "如：山东临沂")}
   </div>
   ${isNew ? "" : `<div class="form-grid"><label>调动原因（若调整部门则写入调动记录）<input type="text" id="sf_transfer_reason" placeholder="例：调往客服部"></label></div>`}
-  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。人员分类同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为管理员在「系统设置→人员档案字段设置」中配置的必填项。出生日期留空且已填身份证号时，保存将按身份证号自动推算。</div>
+  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为管理员在「系统设置→人员档案字段设置」中配置的必填项。出生日期留空且已填身份证号时，保存将按身份证号自动推算。</div>
   <div class="row end" style="margin-top:14px"><button class="btn" onclick="closeModal()">取消</button>
   <button class="btn primary" onclick="staffSave(${id})">保存</button></div>`;
   modal(html);
@@ -1694,13 +1904,16 @@ async function staffSave(id) {
     emergency_phone: g("sf_emergency_phone").trim(), recruit_channel: g("sf_recruit_channel"),
     hometown: g("sf_hometown").trim(), level: g("sf_level"), contract_start: g("sf_contract_start"),
     contract_end: g("sf_contract_end"),
-    is_manager: document.getElementById("sf_is_manager") ? (g("sf_is_manager") === "1" ? 1 : 0) : undefined,
+    person_type: document.getElementById("sf_person_type") ? g("sf_person_type") : undefined,
+    person_type_since: document.getElementById("sf_person_since") ? g("sf_person_since") : undefined,
     tax_mode: document.getElementById("sf_taxmode") ? parseInt(g("sf_taxmode") || 0) : undefined,
     transfer_reason: g("sf_transfer_reason") || "",
   };
   if (!staff.name) return toast("姓名必填", false);
   if (!projName) return toast("请选择所属项目", false);
   if (!orgId) return toast("请选择所属部门", false);
+  const sfType = document.getElementById("sf_person_type") ? g("sf_person_type") : "";
+  if (sfType && sfType !== (window._sfOrigType || "staff") && !g("sf_person_since")) return toast("分类变更时请选择生效日期", false);
   try {
     await api("/api/staff/save", { body: { staff } });
     closeModal(); toast("已保存"); loadStaff();
@@ -2941,9 +3154,25 @@ function pageExport() {
       <button class="btn primary" onclick="download('/api/export/projects_all?ym=${state.month}','全部项目工资表_${state.month}.zip')">② 分项目导出（全选，一键多文件打包）</button>
     </div>
     <div class="row" style="margin-top:12px">
-      <label class="fld">分项目导出-选择项目 <select id="expProj">${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
+      <label class="fld">分项目导出-选择项目 <select id="expProj">${state.projects.filter(p => p !== "物业总部").map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
       <button class="btn" onclick="exportGo('project')">导出该项目工资表</button>
       ${isAdmin ? `<button class="btn" onclick="exportGo('projectMgrs')">导出该项目管理人员表</button>` : ""}
+    </div>
+    <div class="card" style="margin-top:12px;padding:10px 14px">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <b>案场人员工资表</b>
+        <label class="fld" style="margin:0">选择项目 <select id="expCaseProj"><option value="">全部项目</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
+        <button class="btn" onclick="exportGo('projectCase')">导出该项目案场人员表</button>
+        ${isAdmin ? `<button class="btn" onclick="exportGo('caseAll')">导出全部案场人员表</button>` : ""}
+        <span class="hint" style="margin:0;display:inline">案场人员由总部单独核算（人员档案中勾选"是否案场人员"），各项目可查看/导出本项目案场人员工资。</span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px;padding:10px 14px">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <b>总部人员工资表</b>
+        ${isAdmin ? `<button class="btn" onclick="exportGo('hqAll')">导出总部人员工资表（物业总部）</button>` : ""}
+        <span class="hint" style="margin:0;display:inline">物业总部所有人员由总部单独核算（总部人员核算），仅总部可导出。</span>
+      </div>
     </div>
     <div class="row" style="margin-top:12px">
       <label class="fld">绩效专项-项目 <select id="expPerfProj"><option value="">全部项目</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
@@ -2967,8 +3196,16 @@ function exportGo(mode) {
   } else if (mode === "projectMgrs") {
     const p = document.getElementById("expProj") ? document.getElementById("expProj").value : state.projects[0];
     download(`/api/export/project-managers?ym=${state.month}&project=${encodeURIComponent(p)}`, `${p}_管理人员工资表_${state.month}.xlsx`);
+  } else if (mode === "hqAll") {
+    download(`/api/export/hq-staff?ym=${state.month}`, `总部人员工资表_${state.month}.xlsx`);
   } else if (mode === "managers") {
     download(`/api/export/managers?ym=${state.month}`, `管理人员工资表_${state.month}.xlsx`);
+  } else if (mode === "projectCase") {
+    const p = document.getElementById("expCaseProj") ? document.getElementById("expCaseProj").value : "";
+    if (!p) return toast("请先选择项目", false);
+    download(`/api/export/project-case?ym=${state.month}&project=${encodeURIComponent(p)}`, `${p}_案场人员工资表_${state.month}.xlsx`);
+  } else if (mode === "caseAll") {
+    download(`/api/export/case-staff?ym=${state.month}`, `案场人员工资表_${state.month}.xlsx`);
   }
 }
 

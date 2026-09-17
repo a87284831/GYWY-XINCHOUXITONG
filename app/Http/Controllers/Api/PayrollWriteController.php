@@ -64,6 +64,55 @@ class PayrollWriteController extends ApiController
         }
     }
 
+    /**
+     * POST /api/payroll/calc-case
+     * 案场人员核算：参数 ym=YYYY-MM，一次汇总核算所有项目案场人员，生成案场人员工资表。
+     * 仅总部可调用（项目账号无核定权限）。
+     */
+    public function calcCaseStaff(Request $request, PayrollCalculator $calc): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '核算月份无效'], 400);
+        }
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '案场人员工资表仅总部可核算，项目账号无权限'], 403);
+        }
+        try {
+            $result = $calc->calculateCaseStaff($ym);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped']]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['ok' => false, 'error' => '案场人员核算失败：' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /api/payroll/calc-hq
+     * 总部人员核算：参数 ym=YYYY-MM，物业总部所有人员单独核算，生成总部人员工资表。
+     * 仅总部可调用（项目账号无核定权限）。
+     */
+    public function calcHq(Request $request, PayrollCalculator $calc): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '核算月份无效'], 400);
+        }
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '总部人员工资表仅总部可核算，项目账号无权限'], 403);
+        }
+        try {
+            $result = $calc->calculateHq($ym);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped']]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['ok' => false, 'error' => '总部人员核算失败：' . $e->getMessage()], 500);
+        }
+    }
     public function archive(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request);
@@ -71,13 +120,17 @@ class PayrollWriteController extends ApiController
         if ($account->role !== 'admin') return response()->json(['ok' => false, 'error' => '仅管理员可归档'], 403);
         $ym = $request->string('ym')->toString();
         $locked = (bool)$request->input('locked');
-        // 分层归档：项目工资表与管理人员工资表各自独立锁定/解锁
-        // type=manager → 仅锁管理人员行；默认 → 仅锁项目员工行
+        // 分层归档：项目工资表/管理人员工资表/案场人员工资表 各自独立锁定/解锁
+        // type=manager → 仅锁管理人员行；type=case → 仅锁案场人员行；默认 → 仅锁项目员工行
         $query = DB::table('payroll_results')->where('year_month', $ym);
         if ($request->input('type') === 'manager') {
-            $query->where('is_manager_row', true);
+            $query->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($request->input('type') === 'case') {
+            $query->where('is_case_row', true);
+        } elseif ($request->input('type') === 'hq') {
+            $query->where('is_hq_row', true);
         } else {
-            $query->where('is_manager_row', false);
+            $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
         }
         $query->update(['archived' => $locked, 'updated_at' => now()]);
         return response()->json(['ok' => true]);

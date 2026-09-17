@@ -66,8 +66,8 @@ class DirectoryController extends ApiController
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
         }
-        if ($request->filled('is_manager')) {
-            $query->where('is_manager', (int) $request->input('is_manager'));
+        if ($request->filled('person_type')) {
+            $query->where('person_type', $request->string('person_type'));
         }
         if ($request->filled('org_id')) {
             $ids = (new \App\Services\OrgService())->descendants((int) $request->input('org_id'));
@@ -92,6 +92,9 @@ class DirectoryController extends ApiController
             $legacy['dept_path'] = $row->dept_path;
             $legacy['leader_id'] = $row->leader_id;
             $legacy['is_manager'] = (int) $row->is_manager;
+            $legacy['is_case_field'] = (int) $row->is_case_field;
+            $legacy['person_type'] = $row->person_type ?: 'staff';
+            $legacy['person_type_since'] = $row->person_type_since;
             $legacy['category'] = \App\Services\StaffCategory::derive((array) $row, $today);
             return $legacy;
         });

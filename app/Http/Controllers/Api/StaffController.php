@@ -399,6 +399,7 @@ class StaffController extends ApiController
         if (empty($input['birth_date']) && !empty($input['id_card'])) {
             $input['birth_date'] = \App\Services\StaffProfile::birthFromIdCard((string) $input['id_card']);
         }
+        // 人员分类单选：staff=基层员工 / manager=管理人员 / case=案场人员（与核算三组对应）
 
         return DB::transaction(function () use ($input, $name, $project, $org, $orgService, $account) {
             $legacyId = isset($input['id']) ? (int) $input['id'] : null;
@@ -415,6 +416,12 @@ class StaffController extends ApiController
             $orgId = $org ? (int) $org->id : ($existing->org_id ?? null);
             $deptPath = $org ? $orgService->path((int) $org->id) : ($existing->dept_path ?? null);
             $leaderId = !empty($input['leader_id']) ? (int) $input['leader_id'] : ($existing->leader_id ?? null);
+            $personType = (string) ($input['person_type'] ?? ($existing->person_type ?? 'staff'));
+            if (!in_array($personType, ['staff', 'manager', 'case'], true)) {
+                return response()->json(['ok' => false, 'error' => '人员分类无效'], 400);
+            }
+            $personSince = (isset($input['person_type_since']) && $input['person_type_since'] !== null && $input['person_type_since'] !== '')
+                ? $this->dateValue($input['person_type_since']) : ($existing->person_type_since ?? date('Y-m-d'));
             $payload = [
                 'name' => $name, 'project_name' => $project,
                 'position' => $input['position'] ?? ($existing->position ?? null),
@@ -425,17 +432,29 @@ class StaffController extends ApiController
                 'regular_date' => $regularDate,
                 'resign_date' => $resignDate,
                 'deleted' => (bool) ($input['deleted'] ?? ($existing->deleted ?? false)),
-                'is_manager' => (int) (bool) ($input['is_manager'] ?? ($existing->is_manager ?? false)),
+                'person_type' => $personType,
+                'person_type_since' => $personSince,
                 'org_id' => $orgId, 'leader_id' => $leaderId, 'dept_path' => $deptPath,
                 'data' => json_encode($data, JSON_UNESCAPED_UNICODE), 'updated_at' => now(), 'created_at' => now(),
             ];
             if ($existing) {
                 DB::table('payroll_staff')->where('legacy_id', $legacyId)->update($payload);
                 $id = $legacyId;
+                $staffPkId = (int) $existing->id;
             } else {
                 $id = (int) (DB::table('payroll_staff')->max('legacy_id') ?? 0) + 1;
                 $payload['legacy_id'] = $id;
                 DB::table('payroll_staff')->insert($payload);
+                $staffPkId = (int) DB::table('payroll_staff')->where('legacy_id', $id)->value('id');
+            }
+            // 人员分类变更留痕（含生效日期；未改分类不写）
+            $typeChanged = !$existing || (string) $existing->person_type !== $personType
+                || (string) ($existing->person_type_since ?? '') !== (string) $personSince;
+            if ($typeChanged) {
+                DB::table('payroll_staff_person_type_log')->insert([
+                    'staff_id' => $staffPkId, 'person_type' => $personType,
+                    'effective_date' => $personSince, 'created_at' => now(),
+                ]);
             }
             // 调动留痕
             $orgChanged = $existing && ((int) ($existing->org_id ?? 0) !== (int) $orgId || ($existing->dept_path ?? '') !== (string) $deptPath);
