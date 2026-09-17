@@ -266,7 +266,7 @@ function handle_admin_customs() {
     $st = db()->prepare(
         "SELECT pi.*, p.name AS project_name FROM purchase_items pi
          JOIN payroll.payroll_projects p ON pi.project_id=p.id
-         WHERE pi.month=? AND pi.is_custom=1 ORDER BY pi.project_id, pi.line, pi.id"
+         WHERE pi.month=? AND pi.is_custom=1 AND pi.status='submitted' ORDER BY pi.project_id, pi.line, pi.id"
     );
     $st->execute([$month]);
     $items = $st->fetchAll();
