@@ -262,13 +262,12 @@ function handle_admin_unarchive() {
 // 清单外列表（is_custom=1 或 秩序条线）
 function handle_admin_customs() {
     require_admin();
-    $month = $_GET['month'] ?? date('Y-m');
     $st = db()->prepare(
         "SELECT pi.*, p.name AS project_name FROM purchase_items pi
          JOIN payroll.payroll_projects p ON pi.project_id=p.id
-         WHERE pi.month=? AND pi.is_custom=1 AND pi.status='submitted' ORDER BY pi.project_id, pi.line, pi.id"
+         WHERE pi.is_custom=1 AND pi.status='submitted' ORDER BY pi.month DESC, pi.project_id, pi.line, pi.id"
     );
-    $st->execute([$month]);
+    $st->execute();
     $items = $st->fetchAll();
     // 附带商品库匹配候选
     $db = db();
