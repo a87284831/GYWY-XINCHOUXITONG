@@ -1,0 +1,1 @@
+import{I as n}from"./index-Dgl_QyYT.js";function e(){const t=new Date;return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")}const i=n("ui",{state:()=>({month:e()})});function u(t){return Number(t||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2})}function a(t){return(Number(t||0)*100).toFixed(2)+"%"}export{u as m,a as p,i as u};

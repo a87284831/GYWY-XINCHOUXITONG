@@ -1,1 +1,0 @@
-import{_ as e,c as t,o as c}from"./index-DbDGgmJC.js";const n={},o={style:{padding:"40px","text-align":"center"}};function s(r,a){return c(),t("div",o,"登录（占位，Task 4 实现）")}const i=e(n,[["render",s]]);export{i as default};

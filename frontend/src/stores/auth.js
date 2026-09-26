@@ -9,6 +9,8 @@ export const useAuthStore = defineStore('auth', {
     // 权限点集合（复刻旧版 bootstrap() 的聚合逻辑，由 hydrate() 填充）
     perms: [],
     appModules: [],
+    // 项目列表（复刻 state.projects，由 /api/init 提供）
+    projects: [],
   }),
   getters: {
     // 复刻 canPerm(mod)：admin 全通过，否则按权限点集合判断；空串=所有人可见
@@ -39,6 +41,7 @@ export const useAuthStore = defineStore('auth', {
     // 复刻旧版 bootstrap() 中权限点聚合（app.js:122-135）
     hydrate(data) {
       this.user = data.user
+      this.projects = data.projects || []
       this.appModules = data.app_modules || []
       const permSet = []
       const add = (p) => {

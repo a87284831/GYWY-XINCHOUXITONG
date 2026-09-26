@@ -289,8 +289,8 @@ onMounted(async () => {
   document.addEventListener('click', onDocClick)
   unreadTimer = setInterval(loadUnread, 120000)
   loadUnread()
-  // 会话恢复：有 token 但 user 为空（如页面刷新）→ /api/init 拉取用户与权限
-  if (auth.token && !auth.user) {
+  // 会话恢复：有 token 但缺用户或项目列表 → /api/init 拉取（登录响应不含 projects）
+  if (auth.token && (!auth.user || !auth.projects.length)) {
     try {
       const data = await api('/api/init')
       auth.hydrate(data)
