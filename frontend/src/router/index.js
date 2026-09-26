@@ -239,6 +239,12 @@ const routes = [
         component: () => import('@/modules/finance/FinanceImport.vue'),
         meta: { perm: 'finance_admin' },
       },
+      {
+        path: 'purchase/dashboard',
+        name: 'purchaseDashboard',
+        component: () => import('@/modules/purchase/Dashboard.vue'),
+        meta: { perm: 'purchase_view' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
