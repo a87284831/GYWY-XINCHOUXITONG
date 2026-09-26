@@ -245,6 +245,18 @@ const routes = [
         component: () => import('@/modules/purchase/Dashboard.vue'),
         meta: { perm: 'purchase_view' },
       },
+      {
+        path: 'purchase/fill',
+        name: 'purchaseFill',
+        component: () => import('@/modules/purchase/FillMonths.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
+        path: 'purchase/fill-form',
+        name: 'purchaseFillForm',
+        component: () => import('@/modules/purchase/FillForm.vue'),
+        meta: { perm: 'purchase_view' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
