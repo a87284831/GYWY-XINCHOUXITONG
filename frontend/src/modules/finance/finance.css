@@ -1,0 +1,30 @@
+/* 财务模块样式（复刻旧财务应用 <style> 块，剔除已被 MainLayout 取代的外壳样式） */
+.fcard { background: #fff; border: 1px solid #e4e3dd; border-radius: 12px; padding: 14px 16px; box-sizing: border-box; }
+.fc-t { font-size: 13px; color: #6b7280; font-weight: 600; margin-bottom: 6px; }
+.fc-v { font-size: 22px; font-weight: 700; }
+.fc-sec { font-size: 14.5px; font-weight: 700; margin: 10px 0 8px; }
+.fbtn { background: #6366f1; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+.fbtn:hover { opacity: .88; }
+.fbtn.sm { padding: 4px 10px; font-size: 12px; }
+.fbtn.ghost { background: #fff; color: #444; border: 1px solid #d9d9d9; }
+.fsel { padding: 7px 10px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 13px; background: #fff; }
+.fnum { padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 13px; width: 100px; box-sizing: border-box; }
+.ftbl { border-collapse: collapse; width: 100%; background: #fff; font-size: 12.5px; }
+.ftbl th, .ftbl td { border: 1px solid #e4e3dd; padding: 6px 8px; text-align: right; white-space: nowrap; }
+.ftbl th { background: #f0f4fa; text-align: center; font-weight: 600; }
+.ftbl td:first-child { text-align: left; }
+.att-tag { display: inline-block; border-radius: 8px; padding: 1px 7px; font-size: 11px; margin-left: 4px; vertical-align: middle; }
+.att-tag.has { color: #2f9e6e; background: rgba(47,158,110,.12); border: 1px solid rgba(47,158,110,.35); cursor: pointer; }
+.att-tag.has:hover { background: rgba(47,158,110,.22); }
+.att-tag.none { color: #bbb; background: #f7f7f5; border: 1px solid #ecebe6; }
+/* —— 数据驾驶舱 —— */
+.dash-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.dash-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin: 16px 0; }
+.dash-card { background: #fff; border-radius: 16px; padding: 16px 18px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.12); border: 1px solid #eceff5; }
+.dash-kpi { position: relative; background: #fff; border-radius: 16px; padding: 16px 18px 14px; box-sizing: border-box; overflow: hidden; border: 1px solid #eceff5; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.12); }
+.dash-kpi-bar { position: absolute; left: 0; top: 0; width: 5px; height: 100%; }
+.dash-kpi-t { font-size: 12px; color: #7c8591; margin-bottom: 6px; }
+.dash-kpi-v { font-size: 20px; font-weight: 800; color: #1e293b; letter-spacing: .5px; }
+.dash-kpi-s { font-size: 12px; color: #94a3b8; font-weight: 400; }
+@media (max-width: 1200px) { .dash-kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: 1fr; } .dash-card { grid-column: span 1 !important; } .dash-kpis { grid-template-columns: repeat(2, 1fr); } }

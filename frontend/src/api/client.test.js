@@ -61,6 +61,11 @@ describe('api()', () => {
     await expect(api('/api/x')).rejects.toThrow('操作失败')
   })
 
+  it('响应只有 msg 字段时回退为 msg 文案（财务接口错误封装）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ok: false, msg: '历史数据导入失败' })))
+    await expect(api('/api/x')).rejects.toThrow('历史数据导入失败')
+  })
+
   it('401 时清除登录态并跳转 /login，抛出 未登录', async () => {
     sessionStorage.setItem('gw_token', 'stale-tok')
     const store = useAuthStore()
