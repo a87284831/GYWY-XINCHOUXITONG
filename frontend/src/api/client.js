@@ -20,6 +20,9 @@ export async function api(path, opts = {}) {
   if (ctype.includes('application/json')) {
     const data = await res.json()
     if (res.status === 401 && path !== '/api/login') {
+      // 会话失效：清除登录态后跳登录页（守卫依据 token 放行，故必须先清）
+      auth.token = ''
+      sessionStorage.removeItem('gw_token')
       router.push('/login')
       throw new Error('未登录')
     }

@@ -61,10 +61,15 @@ describe('api()', () => {
     await expect(api('/api/x')).rejects.toThrow('操作失败')
   })
 
-  it('401 时跳转 /login 并抛出 未登录', async () => {
+  it('401 时清除登录态并跳转 /login，抛出 未登录', async () => {
+    sessionStorage.setItem('gw_token', 'stale-tok')
+    const store = useAuthStore()
+    store.token = 'stale-tok'
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ok: false }, 401)))
     await expect(api('/api/init')).rejects.toThrow('未登录')
     expect(router.push).toHaveBeenCalledWith('/login')
+    expect(store.token).toBe('')
+    expect(sessionStorage.getItem('gw_token')).toBeNull()
   })
 
   it('/api/login 的 401 不触发跳转，按 ok=false 抛错', async () => {
