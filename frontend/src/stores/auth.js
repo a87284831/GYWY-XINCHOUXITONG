@@ -38,6 +38,13 @@ export const useAuthStore = defineStore('auth', {
       const t = sessionStorage.getItem('gw_token')
       if (t) this.token = t
     },
+    // 复刻旧版 refreshProjects（app.js:4541）：项目档案变更后同步全局项目列表
+    async refreshProjects() {
+      try {
+        const data = await api('/api/init')
+        this.projects = data.projects || []
+      } catch (e) { /* 忽略：保留旧列表 */ }
+    },
     // 复刻旧版 bootstrap() 中权限点聚合（app.js:122-135）
     hydrate(data) {
       this.user = data.user
