@@ -17,7 +17,9 @@ class PayslipController extends ApiController
         $start = (int) ($config['open_day_start'] ?? 5); $end = (int) ($config['open_day_end'] ?? 10); $day = now()->day;
         if ($start <= $end ? ($day < $start || $day > $end) : ($day < $start && $day > $end)) return response()->json(['ok' => false, 'error' => '当前不在工资条查询开放时间'], 403);
         $staff = DB::table('payroll_staff')->where('name', $name)->where('deleted', false)->get()->first(function ($row) use ($idLast6) {
-            $data = $this->jsonValue($row->data) ?: []; return substr(strtoupper((string) ($data['id_card'] ?? '')), -6) === $idLast6;
+            $data = $this->jsonValue($row->data) ?: [];
+            $cardTail = substr(strtoupper((string) ($data['id_card'] ?? '')), -6);
+            return hash_equals($idLast6, $cardTail);
         });
         if (!$staff) return response()->json(['ok' => false, 'error' => '员工信息验证失败'], 400);
         $month = now()->subMonth()->format('Y-m'); if (($config['query_month'] ?? 'prev') === 'current') $month = now()->format('Y-m');

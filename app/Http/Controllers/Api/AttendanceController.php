@@ -6,6 +6,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class AttendanceController extends ApiController
 {
@@ -34,9 +37,14 @@ class AttendanceController extends ApiController
         $records = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
         $result = $projects->get()->map(fn ($project) => [
             'project' => $project->name,
-            'uploaded' => isset($records[$project->name]),
+            // 薪资口径：已锁定才算"已上传"
+            'uploaded' => isset($records[$project->name]) && (bool) $records[$project->name]->locked,
+            'has_data' => isset($records[$project->name]),
             'count' => isset($records[$project->name]) ? count($this->jsonValue($records[$project->name]->rows) ?: []) : 0,
             'uploaded_at' => isset($records[$project->name]) ? $records[$project->name]->updated_at : '',
+            'locked' => isset($records[$project->name]) ? (bool) $records[$project->name]->locked : false,
+            'locked_at' => isset($records[$project->name]) && $records[$project->name]->locked_at ? (string) $records[$project->name]->locked_at : '',
+            'locked_by' => isset($records[$project->name]) ? (string) ($records[$project->name]->locked_by ?? '') : '',
         ])->values();
         return response()->json(['ok' => true, 'ym' => $ym, 'projects' => $result]);
     }
@@ -56,6 +64,9 @@ class AttendanceController extends ApiController
         }
         if ($this->isArchived($ym, $project)) {
             return response()->json(['ok' => false, 'error' => '该月工资已归档，不能重传考勤'], 400);
+        }
+        if ($this->isLocked($ym, $project)) {
+            return response()->json(['ok' => false, 'error' => '该项目考勤已锁定为最终版本，如需修改请先解锁'], 400);
         }
         [$rows, $errors] = $this->parseWorkbook($request->file('file')->getPathname());
         if ($errors) {
@@ -95,6 +106,9 @@ class AttendanceController extends ApiController
         if ($this->isArchived($ym, $project)) {
             return response()->json(['ok' => false, 'error' => '已归档月份不能删除考勤'], 400);
         }
+        if ($this->isLocked($ym, $project)) {
+            return response()->json(['ok' => false, 'error' => '该项目考勤已锁定，如需删除请先解锁'], 400);
+        }
         DB::table('payroll_attendance')->where('record_key', $ym . '|' . $project)->delete();
         return response()->json(['ok' => true]);
     }
@@ -102,6 +116,189 @@ class AttendanceController extends ApiController
     private function isArchived(string $ym, string $project): bool
     {
         return DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)->where('archived', true)->exists();
+    }
+
+    private function isLocked(string $ym, string $project): bool
+    {
+        return DB::table('payroll_attendance')->where('record_key', $ym . '|' . $project)->where('locked', true)->exists();
+    }
+
+    /**
+     * POST /api/attendance/lock
+     * body: { ym, project, locked: true|false }
+     */
+    public function lock(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份格式错误'], 400);
+        }
+        $locked = (bool) $request->input('locked', true);
+        $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $project)->first();
+        if (!$row) {
+            return response()->json(['ok' => false, 'error' => '该项目本月尚无考勤数据，无法锁定'], 400);
+        }
+        if (!$locked && $this->isArchived($ym, $project)) {
+            return response()->json(['ok' => false, 'error' => '工资已归档，不能解锁考勤'], 400);
+        }
+        DB::table('payroll_attendance')->where('id', $row->id)->update([
+            'locked' => $locked,
+            'locked_at' => $locked ? now() : null,
+            'locked_by' => $locked ? ($account->name ?? $account->username ?? 'admin') : null,
+            'updated_at' => now(),
+        ]);
+        return response()->json(['ok' => true, 'locked' => $locked]);
+    }
+
+    /**
+     * GET /api/attendance/export?ym=2026-09&project=XX&staff_type=XX
+     * 导出已锁定考勤为 Excel。员工类型从 staff.data.position_level 读取。
+     */
+    public function export(Request $request, \App\Services\PayrollCalculator $calc)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份格式错误'], 400);
+        }
+        $staffType = $request->string('staff_type')->toString();
+        $daysInMonth = (int) date('t', strtotime($ym . '-01'));
+
+        if ($this->isProjectScope($account)) {
+            $projects = [(string) $account->project_name];
+        } else {
+            $proj = trim((string) $request->string('project')->toString());
+            $projects = $proj !== '' ? [$proj] :
+                DB::table('payroll_projects')->where('status', '启用')->pluck('name')->all();
+        }
+
+        // 必须已锁定
+        $notLocked = [];
+        foreach ($projects as $p) {
+            $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
+            if (!$row || !(bool) $row->locked) $notLocked[] = $p;
+        }
+        if ($notLocked) {
+            return response()->json(['ok' => false, 'error' => '以下项目考勤尚未锁定，不能导出：' . implode('、', $notLocked)], 400);
+        }
+
+        // 收集考勤数据
+        $attByProject = [];
+        foreach ($projects as $p) {
+            $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
+            $attByProject[$p] = $this->jsonValue($row->rows) ?: [];
+        }
+
+        // 查员工档案，按 position_level 筛选
+        $staff = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false)
+            ->orderBy('project_name')->orderBy('position')->orderBy('name')->get();
+        $filtered = [];
+        foreach ($staff as $person) {
+            $data = $this->jsonValue($person->data) ?: [];
+            $pl = (string)($data['position_level'] ?? '');
+            if ($staffType !== '' && $pl !== $staffType) continue;
+            $att = $attByProject[$person->project_name][$person->name] ?? null;
+            if (!$att) continue;
+            $person->_att = $att;
+            $filtered[] = $person;
+        }
+        if (!$filtered) {
+            return response()->json(['ok' => false, 'error' => '没有符合条件的考勤数据'], 404);
+        }
+
+        // 生成 Excel
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet();
+        $sheet->setTitle('考勤表');
+        $baseCols = ['序号', '姓名', '人员状态', '岗位'];
+        $dateCols = [];
+        for ($d = 1; $d <= $daysInMonth; $d++) $dateCols[] = (string) $d;
+        $statCols = ['应出勤(天)', '实际出勤(天)', '绩效系数', '事假(天)', '病假(天)', '产假(天)',
+            '带薪假(天)', '缺卡(次)', '旷工(天)', '迟到(次)', '早退(次)'];
+        $moneyCols = ['月度奖励', '月度扣罚', '餐补', '夜班/话费补贴', '职称/证书补贴',
+            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病', '其他扣款', '工装扣款'];
+        $tailCols = ['备注'];
+        $headers = array_merge($baseCols, $dateCols, $statCols, $moneyCols, $tailCols);
+        $lastCol = count($headers);
+        $lastLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastCol);
+        $dateStart = count($baseCols) + 1;
+        $dateEnd = count($baseCols) + count($dateCols);
+        $statStart = $dateEnd + 1;
+        $moneyStart = $statEnd = $dateEnd + count($statCols) + 1;
+        $tailStart = $moneyStart + count($moneyCols);
+
+        $projLabel = count($projects) > 1 ? '全部项目' : $projects[0];
+        $typeLabel = $staffType !== '' ? $staffType : '全部人员';
+        $sheet->mergeCells("A1:{$lastLetter}1");
+        $sheet->setCellValue('A1', "【{$projLabel}】" . substr($ym,0,4) . '年' . (int)substr($ym,5,2) . "月考勤表（{$typeLabel}）");
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(13);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+        $sheet->getRowDimension(1)->setRowHeight(26);
+        $sheet->fromArray($headers, null, 'A2');
+        $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setBold(true)->setSize(10);
+        $sheet->getStyle("A2:{$lastLetter}2")->getAlignment()->setHorizontal('center')->setWrapText(true);
+        $sheet->getStyle("A2:{$lastLetter}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
+        $sheet->getStyle("A2:{$lastLetter}2")->getFont()->getColor()->setRGB('FFFFFF');
+
+        $symbols = \App\Services\PayrollCalculator::symbols();
+        $row = 3;
+        foreach ($filtered as $i => $person) {
+            $att = $person->_att;
+            $stats = \App\Services\PayrollCalculator::attendanceStats($att['days'] ?? [], $symbols);
+            $sheet->setCellValue("A{$row}", $i + 1);
+            $sheet->setCellValue("B{$row}", $person->name);
+            $sheet->setCellValue("C{$row}", $person->status ?: '正式');
+            $sheet->setCellValue("D{$row}", $person->position ?: '');
+            foreach (($att['days'] ?? []) as $dayIdx => $sym) {
+                $col = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $dayIdx);
+                $sheet->setCellValue("{$col}{$row}", $sym);
+            }
+            $c = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $off);
+            $sheet->setCellValue("{$c(0)}{$row}", $att['req_attend'] ?? $stats['required'] ?? 0);
+            $sheet->setCellValue("{$c(1)}{$row}", $att['act_attend'] ?? $stats['attend'] ?? 0);
+            $sheet->setCellValue("{$c(2)}{$row}", $att['coef'] ?? 1);
+            $sheet->setCellValue("{$c(3)}{$row}", $stats['personal']);
+            $sheet->setCellValue("{$c(4)}{$row}", $stats['sick']);
+            $sheet->setCellValue("{$c(5)}{$row}", $stats['maternity']);
+            $sheet->setCellValue("{$c(6)}{$row}", $stats['paid']);
+            $sheet->setCellValue("{$c(7)}{$row}", $stats['miss']);
+            $sheet->setCellValue("{$c(8)}{$row}", $stats['absent']);
+            $sheet->setCellValue("{$c(9)}{$row}", $stats['late']);
+            $sheet->setCellValue("{$c(10)}{$row}", $stats['early']);
+            $m = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $off);
+            $sheet->setCellValue("{$m(0)}{$row}", (float)($att['reward'] ?? 0));
+            $sheet->setCellValue("{$m(1)}{$row}", (float)($att['punish'] ?? 0));
+            $sheet->setCellValue("{$m(2)}{$row}", (float)($att['meal_sub'] ?? 0));
+            $sheet->setCellValue("{$m(3)}{$row}", (float)($att['night_sub'] ?? 0));
+            $sheet->setCellValue("{$m(4)}{$row}", (float)($att['title_sub'] ?? 0));
+            $sheet->setCellValue("{$m(5)}{$row}", (float)($att['pen'] ?? 0));
+            $sheet->setCellValue("{$m(6)}{$row}", (float)($att['med'] ?? 0));
+            $sheet->setCellValue("{$m(7)}{$row}", (float)($att['une'] ?? 0));
+            $sheet->setCellValue("{$m(8)}{$row}", (float)($att['house'] ?? 0));
+            $sheet->setCellValue("{$m(9)}{$row}", (float)($att['big'] ?? 0));
+            $sheet->setCellValue("{$m(10)}{$row}", (float)($att['other_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(11)}{$row}", (float)($att['uniform_deduct'] ?? 0));
+            $sheet->setCellValue("{$tailStart}{$row}", (string)($att['remark'] ?? ''));
+            $row++;
+        }
+        $sheet->getStyle("A2:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->freezePane('E3');
+        for ($d = 1; $d <= $daysInMonth; $d++) {
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $d - 1))->setWidth(3.4);
+        }
+
+        $filename = "考勤导出_{$projLabel}_{$ym}_{$typeLabel}.xlsx";
+        $stream = fopen('php://memory', 'w+b');
+        (new Xlsx($book))->save($stream);
+        rewind($stream);
+        return response()->streamDownload(fn() => fpassthru($stream), $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     private function parseWorkbook(string $path): array
@@ -117,10 +314,15 @@ class AttendanceController extends ApiController
             }
         }
         if (!$headerRow) return [[], ['未找到“姓名”表头']];
+        $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
+        $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
+        $__cfFields = $__cfPayload['rules']['custom_fields'] ?? [];
+        $dynamicMap = self::FIELD_MAP;
+        foreach ($__cfFields as $__cf) { if (!empty($__cf['enabled'])) $dynamicMap[$__cf['name']] = 'cf_' . $__cf['name']; }
         for ($col = 1; $col <= $highestColumn; $col++) {
             $value = str_replace(["\n", "\r"], '', trim((string) $this->cellValue($sheet, $col, $headerRow)));
             if (preg_match('/^\d{1,2}$/', $value) && (int) $value >= 1 && (int) $value <= 31) $days[(int) $value] = $col;
-            if (isset(self::FIELD_MAP[$value])) $columns[self::FIELD_MAP[$value]] = $col;
+            if (isset($dynamicMap[$value])) $columns[$dynamicMap[$value]] = $col;
         }
         if (!isset($columns['name']) || count($days) < 28) return [[], ['模板列结构不完整']];
         $symbols = \App\Services\PayrollCalculator::symbols(); $rows = []; $errors = [];
@@ -137,7 +339,7 @@ class AttendanceController extends ApiController
                 $daysData[] = $symbol;
             }
             $record = ['days' => $daysData];
-            foreach (self::FIELD_MAP as $key) {
+            foreach ($dynamicMap as $key) {
                 if (!isset($columns[$key]) || $key === 'name') continue;
                 $value = $this->cellValue($sheet, $columns[$key], $row);
                 if ($key === 'coef' && ($value === null || trim((string) $value) === '')) {

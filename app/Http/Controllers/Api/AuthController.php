@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends ApiController
 {
@@ -15,11 +16,34 @@ class AuthController extends ApiController
             'password' => ['required', 'string', 'max:200'],
         ]);
         $account = DB::table('payroll_accounts')->where('username', $credentials['username'])->first();
-        $expected = hash('sha256', 'gwxy_' . $credentials['password']);
-        if (!$account || !hash_equals((string) $account->password_hash, $expected)) {
+        
+        if (!$account) {
             $this->purchaseLog(0, $credentials['username'], '-', '登录失败', '账号或密码错误');
             return response()->json(['ok' => false, 'error' => '用户名或密码错误'], 400);
         }
+
+        // 密码验证：支持旧版 SHA-256 和新版 bcrypt 两种格式
+        $passwordValid = false;
+        $needsRehash = false;
+        $storedHash = (string) $account->password_hash;
+
+        if (str_starts_with($storedHash, '$2y$') || str_starts_with($storedHash, '$2b$')) {
+            // bcrypt 格式：使用 password_verify
+            $passwordValid = Hash::check($credentials['password'], $storedHash);
+        } else {
+            // 旧版 SHA-256 格式（64位十六进制）
+            $expected = hash('sha256', 'gwxy_' . $credentials['password']);
+            $passwordValid = hash_equals($storedHash, $expected);
+            if ($passwordValid) {
+                $needsRehash = true; // 登录成功后需要迁移到 bcrypt
+            }
+        }
+
+        if (!$passwordValid) {
+            $this->purchaseLog(0, $credentials['username'], '-', '登录失败', '账号或密码错误');
+            return response()->json(['ok' => false, 'error' => '用户名或密码错误'], 400);
+        }
+
         // 账号启停 + 绑定人员状态联动：停用/离职/黑名单禁止登录
         if (array_key_exists('enabled', (array) $account) && !(bool) $account->enabled) {
             $this->purchaseLog((int) $account->id, $account->username, (string) $account->role, '登录失败', '账号已停用');
@@ -35,6 +59,15 @@ class AuthController extends ApiController
                 }
             }
         }
+
+        // 如果使用的是旧版哈希，登录成功后迁移到 bcrypt
+        if ($needsRehash) {
+            $newHash = Hash::make($credentials['password']);
+            DB::table('payroll_accounts')
+                ->where('id', $account->id)
+                ->update(['password_hash' => $newHash, 'updated_at' => now()]);
+        }
+
         $role = DB::table('payroll_roles')->where('role_key', $account->role)->first();
         $projects = DB::table('payroll_projects')->where('status', '启用')->pluck('name')->values()->all();
         $token = $this->tokenFor($account);
@@ -56,8 +89,9 @@ class AuthController extends ApiController
     {
         $token = trim((string) $request->header('X-Token'));
         if ($token !== '') {
-            $accountId = \Illuminate\Support\Facades\Cache::get('payroll_api_token:' . $token);
-            DB::table('cache')->where('key', 'payroll_api_token:' . $token)->delete();
+            $cacheKey = 'payroll_api_token:' . $token;
+            $accountId = \Illuminate\Support\Facades\Cache::get($cacheKey);
+            \Illuminate\Support\Facades\Cache::forget($cacheKey);
             if ($accountId) {
                 $account = DB::table('payroll_accounts')->where('id', $accountId)->first();
                 if ($account) {
@@ -66,6 +100,51 @@ class AuthController extends ApiController
             }
         }
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * 修改密码（使用 bcrypt 哈希）
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'old_password' => ['required', 'string'],
+            'new_password' => ['required', 'string', 'min:6', 'max:200'],
+        ]);
+
+        $token = trim((string) $request->header('X-Token'));
+        $accountId = \Illuminate\Support\Facades\Cache::get('payroll_api_token:' . $token);
+        if (!$accountId) {
+            return response()->json(['ok' => false, 'error' => '未登录'], 401);
+        }
+
+        $account = DB::table('payroll_accounts')->where('id', $accountId)->first();
+        if (!$account) {
+            return response()->json(['ok' => false, 'error' => '账号不存在'], 404);
+        }
+
+        // 验证旧密码（支持旧版和新版格式）
+        $storedHash = (string) $account->password_hash;
+        $oldPasswordValid = false;
+
+        if (str_starts_with($storedHash, '$2y$') || str_starts_with($storedHash, '$2b$')) {
+            $oldPasswordValid = Hash::check($request->input('old_password'), $storedHash);
+        } else {
+            $expected = hash('sha256', 'gwxy_' . $request->input('old_password'));
+            $oldPasswordValid = hash_equals($storedHash, $expected);
+        }
+
+        if (!$oldPasswordValid) {
+            return response()->json(['ok' => false, 'error' => '原密码错误'], 400);
+        }
+
+        // 使用 bcrypt 保存新密码
+        $newHash = Hash::make($request->input('new_password'));
+        DB::table('payroll_accounts')
+            ->where('id', $accountId)
+            ->update(['password_hash' => $newHash, 'updated_at' => now()]);
+
+        return response()->json(['ok' => true, 'message' => '密码已修改']);
     }
 
     /**

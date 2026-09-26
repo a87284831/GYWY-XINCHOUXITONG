@@ -13,6 +13,7 @@ return new class extends Migration
             $table->string('file_name', 120)->unique();
             $table->json('payload');
             $table->timestamp('imported_at')->useCurrent();
+            $table->timestamps();
         });
     }
 

@@ -438,3 +438,52 @@ function handle_dashboard_custom_ratio() {
         'amount_ratio' => $totalAmount > 0 ? round($customAmount / $totalAmount * 100, 1) : 0,
     ]];
 }
+
+
+// ========== 合并接口：一次返回所有 Dashboard 数据 ==========
+function handle_dashboard_all() {
+    $month = $_GET['month'] ?? date('Y-m');
+    $year = trim($_GET['year'] ?? substr($month, 0, 4));
+
+    // 复用各子接口的逻辑（直接调用已有函数，它们内部读 $_GET）
+    // 临时设置 $_GET 参数供子函数使用
+    $origGet = $_GET;
+
+    $_GET['month'] = $month;
+    $_GET['year'] = $year;
+
+    $monthly   = handle_dashboard_monthly();
+    $compare   = handle_dashboard_compare();
+    $yoy       = handle_dashboard_yoy();
+    $ytd       = handle_dashboard_ytd();
+    $annual    = handle_dashboard_annual();
+    $annLines  = handle_dashboard_annual_lines();
+    $annProj   = handle_dashboard_annual_projects();
+    $top       = handle_dashboard_top();
+    $fillProg  = handle_dashboard_fill_progress();
+    $budgetEx  = handle_dashboard_budget_exec();
+    $customR   = handle_dashboard_custom_ratio();
+    $priceAnom = handle_dashboard_price_anomalies();
+
+    // price_trend 需要具体商品名，合并接口不包含（由用户交互触发）
+
+    // 恢复原始 $_GET
+    $_GET = $origGet;
+
+    return ['ok' => true, 'data' => [
+        'month' => $month,
+        'year'  => $year,
+        'monthly'         => $monthly['data']  ?? null,
+        'compare'         => $compare['data']  ?? null,
+        'yoy'             => $yoy['data']      ?? null,
+        'ytd'             => $ytd['data']      ?? null,
+        'annual'          => $annual['data']   ?? null,
+        'annual_lines'    => $annLines['data'] ?? null,
+        'annual_projects' => $annProj['data']  ?? null,
+        'top'             => $top['data']      ?? null,
+        'fill_progress'   => $fillProg['data'] ?? null,
+        'budget_exec'     => $budgetEx['data'] ?? null,
+        'custom_ratio'    => $customR['data']  ?? null,
+        'price_anomalies' => $priceAnom['data'] ?? null,
+    ]];
+}

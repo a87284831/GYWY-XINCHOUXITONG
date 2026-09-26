@@ -95,6 +95,9 @@ class DirectoryController extends ApiController
             $legacy['is_case_field'] = (int) $row->is_case_field;
             $legacy['person_type'] = $row->person_type ?: 'staff';
             $legacy['person_type_since'] = $row->person_type_since;
+            $legacy['hire_date'] = $row->hire_date ?: ($legacy['hire_date'] ?? null);
+            $legacy['regular_date'] = $row->regular_date ?: ($legacy['regular_date'] ?? null);
+            $legacy['resign_date'] = $row->resign_date ?: ($legacy['resign_date'] ?? null);
             $legacy['category'] = \App\Services\StaffCategory::derive((array) $row, $today);
             return $legacy;
         });

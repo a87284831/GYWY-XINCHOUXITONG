@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * 从 legacy_json_snapshots.calc_rules.json 加载"系统设置→工资计算规则"，
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 class CalcRules
 {
     private array $rules;
+    private array $lastError = [];
 
     public function __construct()
     {
@@ -73,7 +75,7 @@ class CalcRules
         return (bool)$v;
     }
 
-    /** 求值一个公式；空串或解析失败时用 $fallback 表达式，两者都失败返回 0。 */
+    /** 求值一个公式；空串或解析失败时用 $fallback 表达式，两者都失败返回 0 并记录错误。 */
     public function evaluate(string $expr, array $vars, ?string $fallback = null): float
     {
         $e = trim($expr);
@@ -83,10 +85,51 @@ class CalcRules
             return Expr::evaluate($e, $vars);
         } catch (\Throwable $ex) {
             if ($fallback !== null && trim($fallback) !== '' && $e !== trim($fallback)) {
-                try { return Expr::evaluate($fallback, $vars); } catch (\Throwable) { /* noop */ }
+                try {
+                    $result = Expr::evaluate($fallback, $vars);
+                    // 主公式失败但备用公式成功，记录警告
+                    $this->lastError = [
+                        'expr' => $expr,
+                        'fallback' => $fallback,
+                        'error' => $ex->getMessage(),
+                        'vars' => array_keys($vars),
+                    ];
+                    Log::warning("工资公式主表达式失败，已使用备用公式", [
+                        'expr' => $expr,
+                        'fallback' => $fallback,
+                        'error' => $ex->getMessage(),
+                    ]);
+                    return $result;
+                } catch (\Throwable $ex2) {
+                    // 两个公式都失败
+                }
             }
-            report($ex);
+            // 记录详细错误信息
+            $this->lastError = [
+                'expr' => $expr,
+                'fallback' => $fallback,
+                'error' => $ex->getMessage(),
+                'vars' => array_keys($vars),
+            ];
+            Log::warning("工资公式计算失败，返回 0", [
+                'expr' => $expr,
+                'fallback' => $fallback,
+                'error' => $ex->getMessage(),
+                'vars' => array_keys($vars),
+            ]);
             return 0.0;
         }
+    }
+
+    /** 获取最后一次公式计算的错误信息（如果有） */
+    public function getLastError(): array
+    {
+        return $this->lastError;
+    }
+
+    /** 清除错误记录 */
+    public function clearError(): void
+    {
+        $this->lastError = [];
     }
 }

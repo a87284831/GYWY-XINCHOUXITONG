@@ -7,6 +7,7 @@ use App\Purchase\Support;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -63,7 +64,7 @@ class PurchaseController extends ApiController
             $method = $request->method();
 
             $this->loadHandlers();
-            $this->syncProjects();
+            $this->syncProjectsThrottled();
 
             $result = $this->dispatch($uri, $method);
             $out = ob_get_clean();
@@ -112,6 +113,19 @@ class PurchaseController extends ApiController
      * 匹配策略：按名称匹配已有项目（避免同名重复）；组织架构中已不存在的旧项目一律删除（防止旧数据残留/复活）。
      * 业务项目 id 仍为平台 payroll_projects.id（由 handle_projects_list 映射），本表仅作兼容/展示层。
      */
+    /**
+     * 同步节流：gy_procurement.projects 仅为兼容/展示层，允许最多 5 分钟滞后。
+     * 用原子 Cache::add 保证全局每 5 分钟最多执行一次完整同步，
+     * 避免每个采购 API 请求都跑几十条 prepared statement（模块响应慢的主因之一）。
+     */
+    private function syncProjectsThrottled(): void
+    {
+        if (!Cache::add('purchase_sync_projects_tick', 1, 300)) {
+            return;
+        }
+        $this->syncProjects();
+    }
+
     private function syncProjects(): void
     {
         try {
@@ -234,6 +248,7 @@ class PurchaseController extends ApiController
         if ($uri === 'summary/month' && $method === 'GET') return handle_summary_month();
 
         // 驾驶舱
+        if ($uri === 'dashboard/all' && $method === 'GET') return handle_dashboard_all();
         if ($uri === 'dashboard/monthly' && $method === 'GET') return handle_dashboard_monthly();
         if ($uri === 'dashboard/compare' && $method === 'GET') return handle_dashboard_compare();
         if ($uri === 'dashboard/annual' && $method === 'GET') return handle_dashboard_annual();

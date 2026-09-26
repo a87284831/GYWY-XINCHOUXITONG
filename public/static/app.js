@@ -420,7 +420,7 @@ function refreshPage() {
     financeSummary: () => openFinance("#/summary"),
     financeImport: () => openFinance("#/import"),
     approvalCenter: pageApprovalCenter,
-    rules: pageRules, symbols: pageSymbols,
+    salarySettings: pageSalarySettings,
     users: () => pageSettings("perm"), logs: () => pageSettings("logs"),
     backup: () => pageSettings("backup"), settings: () => pageSettings("perm") }[state.page];
   if (fn) fn();
@@ -777,7 +777,7 @@ async function pageTaxMode() {
   <div class="msg info">普通模式：每月按 5000 元累计减除费用（常规预扣）。<br>6万扣除模式：年初一次性按全年 6 万元减除费用扣除，累计收入不超过 6 万元的月份不预扣个税（适用于上年度全年收入≤6万且在同一单位的人员；最终以汇算清缴为准）。切换后，当月及后续月份个税按新模式重算。</div>
   <div class="row">
     <label class="fld">项目 <select id="tmProj" onchange="tmLoad()"><option value="">全部</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
-    <input type="text" id="tmKw" placeholder="姓名/岗位搜索" onkeydown="if(event.key==='Enter')tmLoad()">
+    <input type="text" id="tmKw" placeholder="姓名/职位搜索" onkeydown="if(event.key==='Enter')tmLoad()">
     <button class="btn primary" onclick="tmLoad()">查询</button>
     <label class="fld" style="display:inline-flex;align-items:center;width:auto"><input type="checkbox" id="tmAll" onchange="tmToggleAll(this.checked)" style="width:auto;margin-right:6px"> 全选</label>
     <span class="tag blue" id="tmSelCount">已选 0 人</span>
@@ -797,7 +797,7 @@ async function tmLoad() {
     const data = await api("/api/staff?" + q);
     window._tmStaff = data.staff;
     let html = `<div class="table-wrap" style="overflow-x:auto"><table class="tb" style="min-width:960px"><thead><tr>
-      <th>选择</th><th>姓名</th><th>项目</th><th>部门</th><th>岗位</th><th>当前模式</th><th>切换为</th></tr></thead><tbody>`;
+      <th>选择</th><th>姓名</th><th>项目</th><th>部门</th><th>职位</th><th>当前模式</th><th>切换为</th></tr></thead><tbody>`;
     for (const s of data.staff) {
       const mode = Number(s.tax_mode ?? 0);
       html += `<tr>
@@ -972,7 +972,7 @@ async function loadMgrs() {
       <label class="fld">项目筛选 <select id="mgrProjFilter" onchange="filterMgrs()"><option value="">全部项目</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
       </div>
     <div class="table-wrap" style="overflow-x:auto"><table class="tb" id="mgrTable"><thead><tr>
-      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>项目</th><th>部门</th><th>职位</th><th>姓名</th><th>员工状态</th><th>固定月薪</th><th>基本工资</th>
       <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
       <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
       <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
@@ -1025,7 +1025,7 @@ async function loadCases() {
       <label class="fld">项目筛选 <select id="caseProjFilter" onchange="filterCases()"><option value="">全部项目</option>${state.projects.map(p => `<option>${esc(p)}</option>`).join("")}</select></label>
       </div>
     <div class="table-wrap" style="overflow-x:auto"><table class="tb" id="caseTable"><thead><tr>
-      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>项目</th><th>部门</th><th>职位</th><th>姓名</th><th>员工状态</th><th>固定月薪</th><th>基本工资</th>
       <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
       <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
       <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
@@ -1077,7 +1077,7 @@ async function loadHqs() {
     let html = statusHtml + `<div class="row" style="margin-bottom:8px"><span class="tag blue">${data.rows.length} 名总部人员</span>
       </div>
     <div class="table-wrap" style="overflow-x:auto"><table class="tb" id="hqTable"><thead><tr>
-      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>项目</th><th>部门</th><th>职位</th><th>姓名</th><th>员工状态</th><th>固定月薪</th><th>基本工资</th>
       <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
       <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
       <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
@@ -1135,7 +1135,7 @@ async function loadPayroll() {
       <button class="btn sm" onclick="exportGo('project')">导出当前项目表</button>
     </div>
     <div class="table-wrap"><table class="tb" id="payTable"><thead><tr>
-      <th>项目</th><th>部门</th><th>岗位</th><th>姓名</th><th>状态</th><th>固定月薪</th><th>基本工资</th>
+      <th>项目</th><th>部门</th><th>职位</th><th>姓名</th><th>员工状态</th><th>固定月薪</th><th>基本工资</th>
       <th>应出勤</th><th>出勤</th><th>绩效计薪</th><th>系数</th><th>基本工资(折算)</th><th>绩效工资</th>
       <th>病假天数</th><th>病假工资</th><th>夜班/话费</th><th>餐补</th><th>其他补贴</th><th>奖励</th><th>福利</th>
       <th>扣罚</th><th>迟早扣</th><th>缺卡扣</th><th>其他扣</th><th>工装扣</th><th>应发合计</th>
@@ -1348,6 +1348,8 @@ async function pageAttendance() {
       <input type="file" id="attFile" accept=".xlsx" style="display:none" onchange="attUpload()">
       <button class="btn primary" onclick="document.getElementById('attFile').click()">② 上传考勤表</button>
       <button class="btn" onclick="attView()">查看已上传数据</button>
+      <button class="btn" id="attLockBtn" onclick="attLock()">锁定考勤</button>
+      <button class="btn success" onclick="attExport()">导出考勤</button>
       ${isProj ? "" : `<button class="btn danger sm" onclick="attDelete()">删除本项目本月考勤</button>`}
     </div>
     <div id="attMsg"></div>
@@ -1421,9 +1423,10 @@ async function attView() {
     if (!names.length) { area.innerHTML = `<div class="msg info">${p} ${state.month} 暂无考勤数据。</div>`; return; }
     let html = `<div class="row" style="margin-bottom:8px"><span class="tag blue">${esc(p)} ${state.month}</span>
       <span class="tag green">${names.length} 人</span>
-      <span class="tag gray">上传：${esc(data.meta.uploaded_by || "")} ${esc(data.meta.uploaded_at || "")}</span></div>
+      <span class="tag gray">上传：${esc(data.meta.uploaded_by || "")} ${esc(data.meta.uploaded_at || "")}</span>
+      ${data.locked ? `<span class="tag" style="background:#fef2f2;color:#dc2626;border-color:#fecaca">🔒 已锁定</span>` : `<span class="tag">未锁定</span>`}</div>
     <div class="table-wrap"><table class="tb"><thead><tr>
-      <th>姓名</th><th>岗位</th><th>人员状态</th><th>应出勤</th><th>实出勤</th><th>应出勤(符号统计)</th><th>事假</th><th>病假</th><th>产假</th><th>带薪假</th>
+      <th>姓名</th><th>职位</th><th>人员状态</th><th>应出勤</th><th>实出勤</th><th>应出勤(符号统计)</th><th>事假</th><th>病假</th><th>产假</th><th>带薪假</th>
       <th>缺卡</th><th>旷工</th><th>迟到</th><th>早退</th><th>绩效系数</th><th>餐补</th><th>奖励</th><th>扣罚</th>
       <th>养老</th><th>医疗</th><th>失业</th><th>公积金</th><th>大病</th><th>缺卡扣款</th><th>迟早扣款</th><th>其他扣款</th><th>工装扣款</th></tr></thead><tbody>`;
     for (const n of names) {
@@ -1440,6 +1443,8 @@ async function attView() {
     }
     html += `</tbody></table></div>`;
     area.innerHTML = html;
+    const lb = document.getElementById("attLockBtn");
+    if (lb) { lb.textContent = data.locked ? "🔓 解锁考勤" : "🔒 锁定考勤"; lb.dataset.locked = data.locked ? "1" : "0"; }
   } catch (e) { area.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
 }
 async function attDelete() {
@@ -1448,6 +1453,37 @@ async function attDelete() {
   try {
     await api("/api/attendance/delete", { body: { ym: state.month, project: p } });
     toast("已删除"); attView();
+  } catch (e) { alert(e.message); }
+}
+async function attLock() {
+  const btn = document.getElementById("attLockBtn");
+  const p = attProjSel();
+  const willLock = !(btn && btn.dataset.locked === "1");
+  if (willLock) {
+    if (!confirm(`确认锁定 ${p} ${state.month} 考勤为最终版本？\n锁定后不能重传或删除。`)) return;
+  } else {
+    if (!confirm(`确认解锁 ${p} ${state.month} 考勤？`)) return;
+  }
+  try {
+    await api("/api/attendance/lock", { body: { ym: state.month, project: p, locked: willLock } });
+    toast(willLock ? "已锁定为最终版本" : "已解锁");
+    attView();
+  } catch (e) { alert(e.message); }
+}
+async function attExport() {
+  const p = attProjSel();
+  const types = [["", "全部人员"], ["管理人员", "管理人员"], ["基层人员", "基层人员"], ["案场人员", "案场人员"], ["总部人员", "总部人员"]];
+  const sel = prompt("导出哪种人员？\n" + types.map((t,i)=>`${i}=${t[1]}`).join("  "), "0");
+  if (sel === null) return;
+  const t = types[parseInt(sel)] || types[0];
+  const params = new URLSearchParams({ ym: state.month, project: p, staff_type: t[0] });
+  try {
+    const resp = await fetch("/api/attendance/export?" + params.toString(), { headers: { "X-Token": state.token || "" } });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({error:"导出失败"})); alert(e.error||"导出失败"); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `考勤导出_${p}_${state.month}_${t[1]}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
   } catch (e) { alert(e.message); }
 }
 
@@ -1525,16 +1561,12 @@ async function pageStaff() {
       <label class="fld">部门 <select id="stOrg" onchange="loadStaff()"><option value="">全部部门</option></select></label>
       <label class="fld">状态 <select id="stStatus" onchange="loadStaff()"><option value="">全部</option><option>正式</option><option>试用</option><option>离职</option></select></label>
       <label class="fld">人员分类 <select id="stPersonType" onchange="loadStaff()"><option value="">全部</option><option value="staff">基层员工</option><option value="manager">管理人员</option><option value="case">案场人员</option></select></label>
-      <input type="text" id="stKw" placeholder="姓名/岗位搜索" onkeydown="if(event.key==='Enter')loadStaff()">
+      <input type="text" id="stKw" placeholder="姓名/职位搜索" onkeydown="if(event.key==='Enter')loadStaff()">
       <button class="btn primary" onclick="loadStaff()">查询</button>
-      <button class="btn success" onclick="staffEdit(0)">＋ 新增人员</button>
-      <button class="btn" onclick="download('/api/staff/template','人员批量导入模板.xlsx')">下载批量导入模板</button>
-      <input type="file" id="stFile" accept=".xlsx" style="display:none" onchange="staffBulkUpload()">
-      <button class="btn primary" onclick="document.getElementById('stFile').click()">批量上传人员</button>
+      <button class="btn success" onclick="dingtalkSyncNow()">🔄 立即钉钉同步</button>
     </div>
     <div class="row" style="margin-top:8px">
       <span class="tag blue" id="stSelCount">已选 0 人</span>
-      <button class="btn danger" onclick="staffBulkDelete()">批量删除</button>
       <button class="btn warn" onclick="staffBulkDeduct()">批量附加扣除设置</button>
       <button class="btn warn" onclick="staffBulkTaxMode()">批量个税模式</button>
       <button class="btn" onclick="staffExport()">📤 导出当前筛选</button>
@@ -1589,10 +1621,10 @@ async function loadStaff() {
     let html = `<div class="row" style="margin-bottom:8px"><span class="tag gray">${data.staff.length} 人</span></div>
     <div class="table-wrap" style="overflow-x:auto"><table class="tb" style="min-width:1500px"><thead><tr>
       <th><input type="checkbox" onchange="stToggleAll(this.checked)"></th>
-      <th>分类</th><th>姓名</th><th>项目</th><th>部门</th><th>岗位</th><th>人员类型</th><th>直属上级</th><th>状态</th>
+      <th>分类</th><th>姓名</th><th>项目</th><th>部门</th><th>职位</th><th>岗位职级</th><th>直属上级</th><th>员工状态</th>
       <th>性别</th><th>学历</th><th>籍贯</th><th>联系方式</th>
       <th>固定月薪</th><th>基本工资</th><th>个税模式</th>
-      <th>入职日期</th><th>转正日期</th><th>离职日期</th><th>银行卡号</th><th>身份证号</th><th>操作</th></tr></thead><tbody>`;
+      <th>入职时间</th><th>实际转正日期</th><th>离职日期</th><th>银行卡号</th><th>证件号码</th><th>操作</th></tr></thead><tbody>`;
     const leaders = new Map(window._staff.filter(x => x.id).map(x => [x.id, x.name]));
     for (const s of data.staff) {
       const leaderName = s.leader_id ? (leaders.get(s.leader_id) || "—") : "—";
@@ -1608,8 +1640,7 @@ async function loadStaff() {
         <td>${esc(s.hire_date || "-")}</td><td>${esc(s.regular_date || "-")}</td><td>${esc(s.resign_date || "-")}</td>
         <td>${esc((s.bank_card || "").replace(/^(\d{4})\d+(\d{4})$/, "$1****$2"))}</td>
         <td>${esc((s.id_card || "").replace(/^(.{4}).+(.{4})$/, "$1**********$2") || "-")}</td>
-        <td><button class="btn sm" onclick="staffEdit(${s.id})">编辑</button>
-        <button class="btn sm" onclick="staffDeduct(${s.id})">附加扣除</button>
+        <td><button class="btn sm" onclick="staffDeduct(${s.id})">附加扣除</button>
         <button class="btn sm" onclick="staffHistory(${s.id})">薪资历史</button>
         <button class="btn sm" onclick="staffTransfers(${s.id})">调动</button></td></tr>`;
     }
@@ -1758,7 +1789,7 @@ async function staffEdit(id) {
     ${sel("gender", "性别", enums.gender)}
     <label>所属项目${reqMark("project")}${projOptions}</label>
     <label>所属部门（末级）${reqMark("dept")}${deptOptions}</label>
-    <label>岗位${reqMark("position")}<input type="text" id="sf_position" value="${esc(v.position)}" list="sf_pos_list"><datalist id="sf_pos_list"></datalist></label>
+    <label>职位${reqMark("position")}<input type="text" id="sf_position" value="${esc(v.position)}" list="sf_pos_list"><datalist id="sf_pos_list"></datalist></label>
     <label>直属上级${reqMark("leader")}${leaderOptions}</label>
     <label>本人联系方式${reqMark("phone")}<input type="text" id="sf_phone" value="${esc(v.phone || "")}" placeholder="11位手机号"></label>
     <label>档案状态（自动判定）<input type="text" id="sf_category" readonly style="background:#f5f5f5;font-weight:600"></label>
@@ -1776,10 +1807,10 @@ async function staffEdit(id) {
   </div>
   <h4 style="margin:16px 0 8px;color:#2563eb">入职与身份信息</h4>
   <div class="form-grid">
-    <label>入职日期${reqMark("hire_date")}<input type="date" id="sf_hire" value="${esc(v.hire_date)}" onchange="sfStatusUpd()"></label>
-    <label>转正日期<input type="date" id="sf_regular" value="${esc(v.regular_date)}" onchange="sfStatusUpd()"></label>
+    <label>入职时间${reqMark("hire_date")}<input type="date" id="sf_hire" value="${esc(v.hire_date)}" onchange="sfStatusUpd()"></label>
+    <label>实际转正日期<input type="date" id="sf_regular" value="${esc(v.regular_date)}" onchange="sfStatusUpd()"></label>
     <label>离职日期<input type="date" id="sf_resign" value="${esc(v.resign_date)}" onchange="sfStatusUpd()"></label>
-    <label>身份证号${reqMark("id_card")}<input type="text" id="sf_idcard" value="${esc(v.id_card || "")}" placeholder="18位，用于自助查询工资条" maxlength="18"></label>
+    <label>证件号码${reqMark("id_card")}<input type="text" id="sf_idcard" value="${esc(v.id_card || "")}" placeholder="18位，用于自助查询工资条" maxlength="18"></label>
     <label>出生日期${reqMark("birth_date")}<input type="date" id="sf_birth" value="${esc(v.birth_date || "")}"></label>
     ${sel("nation", "民族", enums.nation)}
     ${sel("marital", "婚姻状况", enums.marital)}
@@ -1815,7 +1846,7 @@ async function staffEdit(id) {
     ${inp("hometown", "籍贯（市）", "如：山东临沂")}
   </div>
   ${isNew ? "" : `<div class="form-grid"><label>调动原因（若调整部门则写入调动记录）<input type="text" id="sf_transfer_reason" placeholder="例：调往客服部"></label></div>`}
-  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为管理员在「系统设置→人员档案字段设置」中配置的必填项。出生日期留空且已填身份证号时，保存将按身份证号自动推算。</div>
+  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为管理员在「系统设置→人员档案字段设置」中配置的必填项。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
   <div class="row end" style="margin-top:14px"><button class="btn" onclick="closeModal()">取消</button>
   <button class="btn primary" onclick="staffSave(${id})">保存</button></div>`;
   modal(html);
@@ -2569,7 +2600,7 @@ function maintReportRender(d) {
   </div>`;
 
   // 风险清单
-  let riskTbl = `<div class="table-wrap"><table class="tb"><thead><tr><th>项目名称</th><th>签约方</th><th>签约金额</th><th>到期日期</th><th>剩余天数</th><th>状态</th></tr></thead><tbody>`;
+  let riskTbl = `<div class="table-wrap"><table class="tb"><thead><tr><th>项目名称</th><th>签约方</th><th>签约金额</th><th>到期日期</th><th>剩余天数</th><th>员工状态</th></tr></thead><tbody>`;
   if (!d.risk_list.length) riskTbl += `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">✅ 本年度无临期/已过期合同</td></tr>`;
   for (const r of d.risk_list) {
     const diff = Math.ceil((new Date(r.end_date + "T00:00:00") - new Date()) / 86400000);
@@ -2673,7 +2704,7 @@ function maintRenderDash(d) {
 
   // 风险列表
   html += `<div class="card" style="margin-top:16px"><h3>⚡ 风险项目高亮列表</h3><div class="table-wrap"><table class="tb">
-    <thead><tr><th>类型</th><th>项目名称</th><th>签约方</th><th>签约金额</th><th>到期日期</th><th>剩余天数</th><th>状态</th></tr></thead><tbody>`;
+    <thead><tr><th>类型</th><th>项目名称</th><th>签约方</th><th>签约金额</th><th>到期日期</th><th>剩余天数</th><th>员工状态</th></tr></thead><tbody>`;
   if (d.riskList.length === 0) {
     html += `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:20px">✅ 该年度无即将到期 / 已过期合同</td></tr>`;
   } else {
@@ -2833,7 +2864,7 @@ async function pageMaintLedger(type) {
     <div class="table-wrap" style="margin-top:10px"><table class="tb">
       <thead><tr><th>项目名称</th><th>签约方</th><th>签约金额</th><th>签订日期</th><th>生效开始</th><th>到期日期</th>
       ${isElev ? "<th>电梯台数</th><th>每台单价</th>" : "<th>建筑面积(㎡)</th><th>每㎡单价</th>"}
-      <th>状态</th><th>备注</th><th>PDF扫描件</th><th>操作</th></tr></thead>
+      <th>员工状态</th><th>备注</th><th>PDF扫描件</th><th>操作</th></tr></thead>
       <tbody id="maintTbody_${type}">加载中...</tbody></table></div></div>`;
   try {
     if (!MAINT.data[type].length) {
@@ -3210,122 +3241,330 @@ function exportGo(mode) {
 }
 
 /* ---------------- 计算规则设置 ---------------- */
-async function pageRules(container) {
+/* ---------------- 薪酬设置（统一入口） ---------------- */
+/* ---------------- 薪酬设置（重构版） ---------------- */
+async function pageSalarySettings(container) {
   const c = container || document.getElementById("content");
-  c.innerHTML = `<div class="card"><h3>工资计算规则设置（每项计算逻辑可修改，保存后下次核算生效）</h3><div id="rulesArea">加载中...</div></div>`;
+  c.innerHTML = `<div class="card"><h3>💰 薪酬设置</h3>
+    <div id="salarySettingsArea"><div class="hint">加载中...</div></div></div>`;
   try {
-    const data = await api("/api/calc_rules");
-    const R = data.rules;
-    window._rules = R;
-    let html = "";
-    const sec = (title, inner, formula) => `<div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:12px">
-      <div style="font-weight:bold;margin-bottom:6px">${title}</div>
-      <div class="hint" style="margin:0 0 8px">公式：${formula}</div>${inner}</div>`;
-    html += sec("① 应发基本工资",
-      `<div class="row"><label class="fld"><input type="checkbox" id="rl_seg" ${R.base_salary.segment_by_date ? "checked" : ""}> 月中调薪/转正按实际生效日期拆分折算（生效日前按原薪、当日起按新薪）</label>
-      <label class="fld">折算基数 <select id="rl_prorate">
-        <option value="required" ${R.base_salary.prorate_base !== "calendar" ? "selected" : ""}>按应出勤天数</option>
-        <option value="calendar" ${R.base_salary.prorate_base === "calendar" ? "selected" : ""}>按当月自然天数</option></select></label></div>`,
-      esc(R.base_salary.formula_text));
-    html += sec("② 应发绩效工资",
-      `<div class="row"><label class="fld"><input type="checkbox" id="rl_perf_on" ${R.performance.enabled ? "checked" : ""}> 启用绩效工资</label>
-      <label class="fld"><input type="checkbox" id="rl_perf_prob" ${R.performance.probation_excluded ? "checked" : ""}> 试用期/新聘不参与绩效</label></div>`,
-      esc(R.performance.formula_text));
-    html += sec("③ 病假工资",
-      `<div class="row"><label class="fld"><input type="checkbox" id="rl_sick_on" ${R.sick_pay.enabled ? "checked" : ""}> 启用病假工资</label>
-      <label class="fld">第一计发系数 <input type="number" step="0.01" id="rl_sick_a" value="${R.sick_pay.params.factor_a}" style="width:80px"></label>
-      <label class="fld">第二计发系数 <input type="number" step="0.01" id="rl_sick_b" value="${R.sick_pay.params.factor_b}" style="width:80px"></label>
-      <label class="fld">计算基数 <select id="rl_sick_base">
-        <option value="base" ${R.sick_pay.params.sick_base !== "fixed" ? "selected" : ""}>基本工资</option>
-        <option value="fixed" ${R.sick_pay.params.sick_base === "fixed" ? "selected" : ""}>固定月薪</option></select></label></div>
-      <div class="hint" style="margin:6px 0 0">病假工资 = 计算基数 × 第一计发系数 × 第二计发系数 ÷ 当月应出勤 × 病假天数；两个系数相乘即最终计发比例（当前 ${(Number(R.sick_pay.params.factor_a) * Number(R.sick_pay.params.factor_b) * 100).toFixed(0)}%，例如按日基数的 ${(Number(R.sick_pay.params.factor_a) * Number(R.sick_pay.params.factor_b) * 100).toFixed(0)}% 计发）。</div>`,
-      esc(R.sick_pay.formula_text));
-    html += sec("④ 餐补发放方式",
-      `<select id="rl_meal_mode"><option value="full" ${R.meal_subsidy.mode === "full" ? "selected" : ""}>全额发放（不按出勤折算）</option>
-      <option value="prorate" ${R.meal_subsidy.mode === "prorate" ? "selected" : ""}>按出勤天数折算</option></select>`,
-      esc(R.meal_subsidy.formula_text));
-    html += sec("⑤ 夜班/话费、职称等其他补贴发放方式",
-      `<select id="rl_allow_mode"><option value="full" ${R.allowances.mode === "full" ? "selected" : ""}>全额发放</option>
-      <option value="prorate" ${R.allowances.mode === "prorate" ? "selected" : ""}>按出勤天数折算</option></select>`,
-      esc(R.allowances.formula_text));
-    html += sec("⑥ 月度奖励/扣罚",
-      `<label class="fld"><input type="checkbox" id="rl_rp" ${R.reward_punish.full_in_gross ? "checked" : ""}> 全额计入税前应发工资（奖励+、扣罚−）</label>`,
-      esc(R.reward_punish.formula_text));
-    html += sec("⑦ 个人所得税（年度累计预扣预缴）",
-      `<div class="row"><label class="fld">每月基本减除费用 <input type="number" id="rl_tax_basic" value="${R.tax.basic_deduction}" style="width:100px"></label>
-      <label class="fld">入职日期未知时累计起算 <select id="rl_cum_start">
-        <option value="jan" ${R.tax.cum_start !== "month" ? "selected" : ""}>当年1月</option>
-        <option value="month" ${R.tax.cum_start === "month" ? "selected" : ""}>核算当月</option></select></label></div>
-      <table class="tb" style="margin-top:8px;max-width:520px"><thead><tr><th>级数</th><th>累计应纳税所得额上限</th><th>税率</th><th>速算扣除数</th></tr></thead><tbody id="rl_brackets"></tbody></table>`,
-      esc(R.tax.formula_text));
-    const dr = R.deduction_rules || {miss_punch:{enabled:true,first_3:30,after_3:50}, absent:{enabled:true,multiplier:3}, late_early:{enabled:true,per_time:10}};
-    const le = dr.late_early || {enabled:true, per_time:10};
-    html += sec("⑧ 考勤自动扣款",
-      `<div class="row"><label class="fld"><input type="checkbox" id="rl_miss_on" ${dr.miss_punch.enabled ? "checked" : ""}> 缺卡自动扣款</label>
-      <label class="fld">前3次每次 <input type="number" id="rl_miss_f3" value="${dr.miss_punch.first_3}" style="width:70px"> 元</label>
-      <label class="fld">第4次起每次 <input type="number" id="rl_miss_a3" value="${dr.miss_punch.after_3}" style="width:70px"> 元</label></div>
-      <div class="row" style="margin-top:6px"><label class="fld"><input type="checkbox" id="rl_abs_on" ${dr.absent.enabled ? "checked" : ""}> 旷工自动扣款</label>
-      <label class="fld">旷工1天扣 <input type="number" step="0.5" id="rl_abs_mult" value="${dr.absent.multiplier}" style="width:70px"> 倍标准日薪（当天不计薪+额外罚款）</label></div>
-      <div class="row" style="margin-top:6px"><label class="fld"><input type="checkbox" id="rl_late_on" ${le.enabled ? "checked" : ""}> 迟到/早退自动扣款</label>
-      <label class="fld">每次扣 <input type="number" step="0.5" id="rl_late_per" value="${le.per_time}" style="width:70px"> 元（按考勤表迟到/早退次数自动核算）</label></div>`,
-      "缺卡扣款 = 取较小值(次数,3)×前3次标准 + 取较大值(0,次数-3)×第4次起标准；旷工扣款 = 日基本工资 × (倍数-1) × 旷工天数（当天本身不计薪）；迟到早退扣款 = (迟到次数+早退次数) × 每次标准");
-    html += sec("⑨ 五险一金 / 专项附加扣除 / 已发福利 / 实发工资",
-      `<div class="hint" style="margin:0">五险一金：${esc(R.social.formula_text)}<br>专项附加扣除：${esc(R.special_deduction.formula_text)}（6项：${R.special_deduction.items.join("、")}）<br>已发福利：计入应发合计用于个税计算，但实发时扣除（已以实物/购物卡等形式发放，不发现金）</div>`, "");
-
-    // ⑩ 完整核算公式（可编辑）
-    const fm = R.formula || {};
-    // 代码变量名→中文映射（旧公式自动翻译）
-    const VAR_CN = {base_pay:"应发基本工资",perf_pay:"应发绩效工资",sick_pay:"病假工资",night:"夜班话费补贴",meal:"餐补",title_sub:"其他补贴",reward:"月度奖励",welfare:"已发福利",punish:"月度扣罚",miss_d:"缺卡扣款",late_d:"迟到早退扣款",other_d:"其他扣款",uniform_d:"工装扣款",gross:"应发合计",soc_total:"五险一金合计",actual_tax:"本月个税",pen:"养老保险",med:"医疗保险",une:"失业保险",house:"住房公积金",big:"大病",spec_total:"附加扣除合计"};
-    const cnFormula = f => String(f||"").replace(/[a-zA-Z_]\w*/g, m => VAR_CN[m] || m);
-    const grossF = cnFormula(fm.gross) || "应发基本工资 + 应发绩效工资 + 病假工资 + 夜班话费补贴 + 餐补 + 其他补贴 + 月度奖励 + 已发福利 - 月度扣罚 - 缺卡扣款 - 迟到早退扣款 - 其他扣款 - 工装扣款";
-    const netF = cnFormula(fm.net) || "应发合计 - 五险一金合计 - 本月个税 - 已发福利";
-    const varList = [
-      "应发基本工资","应发绩效工资","病假工资","夜班话费补贴","餐补","其他补贴",
-      "月度奖励","已发福利","月度扣罚","缺卡扣款","迟到早退扣款","其他扣款","工装扣款",
-      "应发合计（仅实发公式可用）","五险一金合计","本月个税",
-      "养老保险","医疗保险","失业保险","住房公积金","大病","附加扣除合计",
-    ];
-    html += `<div style="border:2px solid #6366f1;border-radius:8px;padding:14px;margin-bottom:12px;background:#f8f9ff">
-      <div style="font-weight:bold;font-size:15px;margin-bottom:8px">⑩ 完整核算公式（可直接编辑，保存后下次核算生效）</div>
-      <div class="hint" style="margin:0 0 10px;color:#4338ca">
-        <b>计算流程：</b>① 应发基本工资 = 基本工资 × 实际出勤 ÷ 应出勤（月中调薪自动分段）→
-        ② 应发绩效工资 = (固定月薪−基本工资) × 绩效系数 × 绩效计薪出勤 ÷ 应出勤 →
-        ③ 病假工资 = 基本工资 × 第一计发系数 × 第二计发系数 ÷ 应出勤 × 病假天数 →
-        ④ 考勤自动扣款（缺卡/旷工）→ ⑤ <b>应发合计</b>（下方公式一）→
-        ⑥ 个税累计预扣 → ⑦ <b>实发工资</b>（下方公式二）<br>
-        <span style="color:#dc2626">注意：公式修改仅对保存后新核算的月份生效，历史已核算月份不受影响（需手动重新核算才会按新公式计算）。</span>
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="font-weight:600;display:block;margin-bottom:4px">公式一：应发合计</label>
-        <input type="text" id="rl_formula_gross" value="${esc(grossF)}" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #c7d2fe;border-radius:4px">
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="font-weight:600;display:block;margin-bottom:4px">公式二：实发工资</label>
-        <input type="text" id="rl_formula_net" value="${esc(netF)}" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #c7d2fe;border-radius:4px">
-      </div>
-      <div style="margin-bottom:8px">
-        <button type="button" class="btn sm" onclick="formulaTest()">验证公式</button>
-        <button type="button" class="btn sm" onclick="formulaReset()">恢复默认公式</button>
-        <span id="formulaTestResult" style="margin-left:10px;font-size:13px"></span>
-      </div>
-      <details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;color:#6b7280">查看可用项目名称（点击展开）</summary>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px 16px;margin-top:6px;font-size:12px">
-        ${varList.map(v => `<div><span style="background:#eef2ff;padding:1px 6px;border-radius:3px">${esc(v.replace("（仅实发公式可用）",""))}</span></div>`).join("")}
-        </div>
-        <div class="hint" style="margin:6px 0 0">公式中直接使用上面的中文名称，用 + − × ÷ 和括号 () 连接即可。</div>
-      </details>
-    </div>`;
-    html += `<div class="row"><button class="btn primary" onclick="rulesSave()">保存计算规则</button></div>`;
-    document.getElementById("rulesArea").innerHTML = html;
-    const tb = document.getElementById("rl_brackets");
-    R.tax.brackets.forEach((b, i) => {
-      tb.insertAdjacentHTML("beforeend", `<tr><td>${i + 1}</td>
-        <td><input type="number" style="width:140px" id="rb_l_${i}" value="${b[0] >= 99999999999 ? "" : b[0]}" ${b[0] >= 99999999999 ? 'placeholder="不限"' : ""}></td>
-        <td><input type="number" step="0.001" style="width:90px" id="rb_r_${i}" value="${b[1]}"></td>
-        <td><input type="number" style="width:110px" id="rb_q_${i}" value="${b[2]}"></td></tr>`);
-    });
-  } catch (e) { document.getElementById("rulesArea").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+    const [rulesData, cfData] = await Promise.all([api("/api/calc_rules"), api("/api/custom_fields")]);
+    window._rules = rulesData.rules;
+    window._customFields = cfData.fields || [];
+    renderSalarySettingsUI();
+  } catch (e) { document.getElementById("salarySettingsArea").innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
 }
+
+function renderSalarySettingsUI() {
+  const R = window._rules;
+  const fields = window._customFields || [];
+  const area = document.getElementById("salarySettingsArea");
+  const fm = R.formula || {};
+  const grossF = fm.gross || "";
+  const netF = fm.net || "";
+
+  let html = "";
+
+  // ========== 1. 自定义薪酬项（顶部醒目区域） ==========
+  html += '<div style="border:2px solid #10b981;border-radius:8px;padding:16px;margin-bottom:20px;background:#f0fdf4">';
+  html += '<div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#059669">📋 自定义薪酬项</div>';
+  html += '<div class="hint" style="margin-bottom:12px;color:#047857">在此定义的字段会出现在考勤模板和工资表中，字段名可直接在下方核算公式中引用。</div>';
+  html += '<div id="cfTableWrap"></div>';
+  html += '<div style="margin-top:12px;display:flex;gap:8px">';
+  html += '<button class="btn primary" onclick="cfAdd()">＋ 添加薪酬项</button>';
+  html += '<button class="btn success" onclick="cfSave()">💾 保存薪酬项</button>';
+  html += '</div></div>';
+
+  // ========== 2. 基础计算参数 ==========
+  html += '<details style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;padding:14px" open>';
+  html += '<summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:12px;color:#1e40af">📐 基础计算参数</summary>';
+  html += '<div id="basicParamsWrap"></div>';
+  html += '</details>';
+
+  // ========== 3. 核算公式 ==========
+  const VAR_CN = {base_pay:"应发基本工资",perf_pay:"应发绩效工资",sick_pay:"病假工资",night:"夜班话费补贴",meal:"餐补",title_sub:"其他补贴",reward:"月度奖励",welfare:"已发福利",punish:"月度扣罚",miss_d:"缺卡扣款",late_d:"迟到早退扣款",other_d:"其他扣款",uniform_d:"工装扣款",gross:"应发合计",soc_total:"五险一金合计",actual_tax:"本月个税",pen:"养老保险",med:"医疗保险",une:"失业保险",house:"住房公积金",big:"大病",spec_total:"附加扣除合计"};
+  const cnF = f => String(f||"").replace(/[a-zA-Z_]\w*/g, m => VAR_CN[m] || m);
+  const grossDefault = "应发基本工资 + 应发绩效工资 + 病假工资 + 夜班话费补贴 + 餐补 + 其他补贴 + 月度奖励 + 已发福利 - 月度扣罚 - 缺卡扣款 - 迟到早退扣款 - 其他扣款 - 工装扣款";
+  const netDefault = "应发合计 - 五险一金合计 - 本月个税 - 已发福利";
+  const grossExpr = cnF(fm.gross) || grossDefault;
+  const netExpr = cnF(fm.net) || netDefault;
+
+  const builtinVars = ["应发基本工资","应发绩效工资","病假工资","夜班话费补贴","餐补","其他补贴","月度奖励","已发福利","月度扣罚","缺卡扣款","迟到早退扣款","其他扣款","工装扣款","应发合计","五险一金合计","本月个税","养老保险","医疗保险","失业保险","住房公积金","大病","附加扣除合计"];
+  const customVars = fields.filter(f => f.enabled).map(f => f.name);
+
+  html += '<div style="border:2px solid #6366f1;border-radius:8px;padding:16px;margin-bottom:16px;background:#f8f9ff">';
+  html += '<div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#4f46e5">🧮 核算公式</div>';
+  html += '<div class="hint" style="margin-bottom:12px;color:#4338ca">计算流程：基本工资 → 绩效 → 病假 → 补贴 → 奖惩 → <b>应发合计</b> → 五险一金 → 个税 → <b>实发工资</b></div>';
+  html += '<div style="margin-bottom:12px"><label style="font-weight:600;display:block;margin-bottom:4px">公式一：应发合计</label>';
+  html += '<input type="text" id="rl_formula_gross" value="' + esc(grossExpr) + '" style="width:100%;font-size:13px;padding:8px;border:1px solid #c7d2fe;border-radius:4px"></div>';
+  html += '<div style="margin-bottom:12px"><label style="font-weight:600;display:block;margin-bottom:4px">公式二：实发工资</label>';
+  html += '<input type="text" id="rl_formula_net" value="' + esc(netExpr) + '" style="width:100%;font-size:13px;padding:8px;border:1px solid #c7d2fe;border-radius:4px"></div>';
+  html += '<div style="margin-bottom:12px"><button class="btn sm" onclick="formulaTest()">✓ 验证公式</button> ';
+  html += '<button class="btn sm" onclick="formulaReset()">↺ 恢复默认</button> ';
+  html += '<span id="formulaTestResult" style="margin-left:10px;font-size:13px"></span></div>';
+  html += '<div style="padding:10px;background:#f0f0ff;border-radius:6px">';
+  html += '<div style="font-weight:600;margin-bottom:6px;font-size:13px">可用变量（点击可插入到光标位置）：</div>';
+  html += '<div style="margin-bottom:6px"><span style="font-size:11px;color:#6b7280">内置：</span>';
+  html += builtinVars.map(v => '<span onclick="insertVarAtCursor(\'rl_formula_gross\',\'' + esc(v) + '\')" style="display:inline-block;background:#e0e7ff;padding:2px 7px;margin:2px;border-radius:3px;font-size:12px;cursor:pointer">' + esc(v) + '</span>').join("");
+  html += '</div>';
+  if (customVars.length) {
+    html += '<div><span style="font-size:11px;color:#059669">自定义：</span>';
+    html += customVars.map(v => '<span onclick="insertVarAtCursor(\'rl_formula_gross\',\'' + esc(v) + '\')" style="display:inline-block;background:#d1fae5;padding:2px 7px;margin:2px;border-radius:3px;font-size:12px;cursor:pointer;border:1px solid #6ee7b7">' + esc(v) + '</span>').join("");
+    html += '</div>';
+  }
+  html += '</div></div>';
+
+  // ========== 4. 符号库 ==========
+  html += '<details style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;padding:14px">';
+  html += '<summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:10px;color:#7c3aed">🔣 符号库（考勤符号定义）</summary>';
+  html += '<div id="symSubArea">加载中...</div>';
+  html += '</details>';
+
+  // ========== 5. 保存按钮 ==========
+  html += '<div class="row" style="margin-top:20px"><button class="btn primary lg" onclick="saveAllSalarySettings()">💾 保存所有设置</button></div>';
+
+  area.innerHTML = html;
+
+  // Render sub-sections
+  renderCfTable();
+  renderBasicParams();
+  loadSymbols();
+}
+
+/* ---- 自定义薪酬项表格 ---- */
+function renderCfTable() {
+  const fields = window._customFields || [];
+  const wrap = document.getElementById("cfTableWrap");
+  const fm = (window._rules.formula || {});
+  const gF = fm.gross || "", nF = fm.net || "";
+  if (!fields.length) {
+    wrap.innerHTML = '<div class="hint" style="padding:16px;text-align:center;background:#f9fafb;border-radius:6px">暂无自定义薪酬项，点击"添加薪酬项"创建。</div>';
+    return;
+  }
+  let html = '<table class="tb"><thead><tr>';
+  html += '<th>字段名称</th><th>类型</th><th>金额来源</th><th>默认值</th><th>参与公式</th><th>启用</th><th>操作</th>';
+  html += '</tr></thead><tbody>';
+  fields.forEach((f, i) => {
+    const inG = gF.includes(f.name), inN = nF.includes(f.name);
+    html += '<tr>';
+    html += '<td><input type="text" style="width:120px" value="' + esc(f.name) + '" onchange="window._customFields[' + i + '].name=this.value"></td>';
+    html += '<td><select style="width:80px" onchange="window._customFields[' + i + '].type=this.value">';
+    html += '<option value="subsidy"' + (f.type==='subsidy'?' selected':'') + '>补贴</option>';
+    html += '<option value="deduction"' + (f.type==='deduction'?' selected':'') + '>扣款</option></select></td>';
+    html += '<td><select style="width:100px" onchange="window._customFields[' + i + '].source=this.value">';
+    html += '<option value="attendance"' + (f.source==='attendance'?' selected':'') + '>考勤表导入</option>';
+    html += '<option value="fixed"' + (!f.source||f.source==='fixed'?' selected':'') + '>固定金额</option></select></td>';
+    html += '<td><input type="number" step="0.01" style="width:70px" value="' + (f.default||0) + '" onchange="window._customFields[' + i + '].default=parseFloat(this.value)"></td>';
+    html += '<td style="font-size:12px">';
+    html += '<span style="display:inline-block;padding:1px 6px;border-radius:3px;margin:1px;' + (inG?'background:#dbeafe;color:#1e40af':'background:#f3f4f6;color:#9ca3af') + '">应发' + (inG?' ✓':'') + '</span> ';
+    html += '<span style="display:inline-block;padding:1px 6px;border-radius:3px;margin:1px;' + (inN?'background:#dbeafe;color:#1e40af':'background:#f3f4f6;color:#9ca3af') + '">实发' + (inN?' ✓':'') + '</span>';
+    html += '</td>';
+    html += '<td style="text-align:center"><input type="checkbox"' + (f.enabled?' checked':'') + ' onchange="window._customFields[' + i + '].enabled=this.checked"></td>';
+    html += '<td><button class="btn sm danger" onclick="cfDel(' + i + ')">删除</button></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+function cfAdd() {
+  if (!window._customFields) window._customFields = [];
+  window._customFields.push({name:"新薪酬项", type:"subsidy", source:"fixed", enabled:true, default:0});
+  renderCfTable();
+}
+function cfDel(i) {
+  const f = window._customFields[i];
+  const fm = window._rules.formula || {};
+  const inF = (fm.gross||"").includes(f.name) || (fm.net||"").includes(f.name);
+  let msg = "确认删除「" + f.name + "」？";
+  if (inF) msg += "\n\n⚠ 该字段正在核算公式中使用，删除后请手动修改公式。";
+  if (!confirm(msg)) return;
+  window._customFields.splice(i, 1);
+  renderCfTable();
+}
+async function cfSave() {
+  try {
+    const fields = (window._customFields||[]).filter(f => f.name && f.name.trim()).map(f => ({
+      name: f.name.trim(), type: f.type||'subsidy', source: f.source||'fixed',
+      enabled: !!f.enabled, default: parseFloat(f.default)||0
+    }));
+    const r = await api("/api/custom_fields/save", {body:{fields}});
+    window._customFields = r.fields || fields;
+    toast("✓ 薪酬项已保存");
+    renderCfTable();
+  } catch(e) { alert("保存失败：" + e.message); }
+}
+
+/* ---- 基础计算参数 ---- */
+function renderBasicParams() {
+  const R = window._rules;
+  const wrap = document.getElementById("basicParamsWrap");
+  const sec = (t, inner) => '<div style="margin-bottom:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px"><div style="font-weight:600;margin-bottom:6px">' + t + '</div>' + inner + '</div>';
+  let h = "";
+  h += sec("① 应发基本工资",
+    '<div class="row"><label class="fld"><input type="checkbox" id="rl_seg" ' + (R.base_salary.segment_by_date?"checked":"") + '> 月中调薪按生效日期分段折算</label>' +
+    '<label class="fld" style="margin-left:16px">折算基数 <select id="rl_prorate" style="width:120px">' +
+    '<option value="required" ' + (R.base_salary.prorate_base!=="calendar"?"selected":"") + '>按应出勤天数</option>' +
+    '<option value="calendar" ' + (R.base_salary.prorate_base==="calendar"?"selected":"") + '>按自然天数</option></select></label></div>');
+  h += sec("② 绩效工资",
+    '<div class="row"><label class="fld"><input type="checkbox" id="rl_perf_on" ' + (R.performance.enabled?"checked":"") + '> 启用绩效工资</label>' +
+    '<label class="fld" style="margin-left:16px"><input type="checkbox" id="rl_perf_prob" ' + (R.performance.probation_excluded?"checked":"") + '> 试用期不参与</label></div>');
+  h += sec("③ 病假工资",
+    '<div class="row"><label class="fld"><input type="checkbox" id="rl_sick_on" ' + (R.sick_pay.enabled?"checked":"") + '> 启用</label>' +
+    '<label class="fld" style="margin-left:12px">系数 <input type="number" step="0.01" id="rl_sick_a" value="' + R.sick_pay.params.factor_a + '" style="width:55px"> × <input type="number" step="0.01" id="rl_sick_b" value="' + R.sick_pay.params.factor_b + '" style="width:55px"></label>' +
+    '<label class="fld" style="margin-left:12px">基数 <select id="rl_sick_base" style="width:90px">' +
+    '<option value="base" ' + (R.sick_pay.params.sick_base!=="fixed"?"selected":"") + '>基本工资</option>' +
+    '<option value="fixed" ' + (R.sick_pay.params.sick_base==="fixed"?"selected":"") + '>固定月薪</option></select></label></div>' +
+    '<div class="hint" style="margin:4px 0 0">最终计发比例 = 系数A × 系数B = ' + (Number(R.sick_pay.params.factor_a)*Number(R.sick_pay.params.factor_b)*100).toFixed(0) + '%</div>');
+  h += sec("④ 补贴发放",
+    '<div class="row"><label class="fld">餐补 <select id="rl_meal_mode" style="width:110px"><option value="full" ' + (R.meal_subsidy.mode==="full"?"selected":"") + '>全额</option><option value="prorate" ' + (R.meal_subsidy.mode==="prorate"?"selected":"") + '>按出勤折算</option></select></label>' +
+    '<label class="fld" style="margin-left:16px">其他补贴 <select id="rl_allow_mode" style="width:110px"><option value="full" ' + (R.allowances.mode==="full"?"selected":"") + '>全额</option><option value="prorate" ' + (R.allowances.mode==="prorate"?"selected":"") + '>按出勤折算</option></select></label></div>');
+  h += sec("⑤ 奖惩",
+    '<label class="fld"><input type="checkbox" id="rl_rp" ' + (R.reward_punish.full_in_gross?"checked":"") + '> 月度奖励/扣罚全额计入税前应发</label>');
+  const dr = R.deduction_rules || {miss_punch:{enabled:true,first_3:30,after_3:50},absent:{enabled:true,multiplier:3}};
+  const le = dr.late_early || {enabled:true,per_time:10};
+  h += sec("⑥ 考勤扣款",
+    '<div class="row"><label class="fld"><input type="checkbox" id="rl_miss_on" ' + (dr.miss_punch.enabled?"checked":"") + '> 缺卡扣款</label>' +
+    '<label class="fld" style="margin-left:8px">前3次 <input type="number" id="rl_miss_f3" value="' + dr.miss_punch.first_3 + '" style="width:50px"> 元/次</label>' +
+    '<label class="fld" style="margin-left:8px">第4次起 <input type="number" id="rl_miss_a3" value="' + dr.miss_punch.after_3 + '" style="width:50px"> 元/次</label></div>' +
+    '<div class="row" style="margin-top:6px"><label class="fld"><input type="checkbox" id="rl_abs_on" ' + (dr.absent.enabled?"checked":"") + '> 旷工扣款</label>' +
+    '<label class="fld" style="margin-left:8px">扣 <input type="number" step="0.5" id="rl_abs_mult" value="' + dr.absent.multiplier + '" style="width:50px"> 倍日薪</label></div>' +
+    '<div class="row" style="margin-top:6px"><label class="fld"><input type="checkbox" id="rl_late_on" ' + (le.enabled?"checked":"") + '> 迟到/早退扣款</label>' +
+    '<label class="fld" style="margin-left:8px">每次 <input type="number" step="0.5" id="rl_late_per" value="' + le.per_time + '" style="width:50px"> 元</label></div>');
+  h += sec("⑦ 个人所得税",
+    '<div class="row"><label class="fld">基本减除 <input type="number" id="rl_tax_basic" value="' + R.tax.basic_deduction + '" style="width:70px"> 元/月</label>' +
+    '<label class="fld" style="margin-left:16px">累计起算 <select id="rl_cum_start" style="width:100px">' +
+    '<option value="jan" ' + (R.tax.cum_start!=="month"?"selected":"") + '>当年1月</option>' +
+    '<option value="month" ' + (R.tax.cum_start==="month"?"selected":"") + '>核算当月</option></select></label></div>' +
+    '<div class="hint" style="margin:8px 0 4px">个人所得税税率级距表（累计预扣法）— 累计应纳税所得额落入哪一档即按该档税率计税并减去速算扣除数；最后一级为最高档，不设上限。修改后点下方「保存全部设置」即与薪资核算联动。</div>' +
+    '<div id="taxBracketBox"></div>' +
+    '<div class="row" style="margin-top:6px"><button type="button" class="btn sm" onclick="taxAddBracket()">+ 增加一级</button>' +
+    '<button type="button" class="btn sm" style="margin-left:8px" onclick="taxRestoreStd()">恢复标准 7 级</button></div>');
+  h += sec("⑧ 五险一金 / 专项附加",
+    '<div class="hint" style="margin:0">五险一金：' + esc(R.social.formula_text) + '<br>专项附加扣除：' + esc(R.special_deduction.formula_text) + '（' + R.special_deduction.items.join("、") + '）</div>');
+  wrap.innerHTML = h;
+  taxResetDraft(); taxRenderBrackets();
+}
+
+/* ---- 公式变量插入 ---- */
+function insertVarAtCursor(inputId, varName) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const start = input.selectionStart || 0;
+  const end = input.selectionEnd || 0;
+  const val = input.value;
+  input.value = val.substring(0, start) + varName + val.substring(end);
+  const newPos = start + varName.length;
+  input.setSelectionRange(newPos, newPos);
+  input.focus();
+}
+
+/* ---- 统一保存 ---- */
+/* ---------------- 个税税率级距表（联动 calc_rules.tax.brackets） ---------------- */
+const STD_TAX_BRACKETS = [
+  [36000, 0.03, 0], [144000, 0.10, 2520], [300000, 0.20, 16920],
+  [420000, 0.25, 31920], [660000, 0.30, 52920], [960000, 0.35, 85920],
+  [99999999999, 0.45, 181920]
+];
+function taxDraft() {
+  if (!window._taxDraft) {
+    const src = (window._rules && window._rules.tax && Array.isArray(window._rules.tax.brackets) && window._rules.tax.brackets.length)
+      ? window._rules.tax.brackets : STD_TAX_BRACKETS;
+    window._taxDraft = src.map(b => [Number(b[0]), Number(b[1]), Number(b[2])]);
+  }
+  return window._taxDraft;
+}
+function taxResetDraft() { window._taxDraft = null; return taxDraft(); }
+function taxSync() {
+  const arr = taxDraft();
+  document.querySelectorAll('#taxBracketBox [data-brl]').forEach(el => { const i = +el.dataset.brl; if (arr[i]) arr[i][0] = (el.value === "" ) ? 99999999999 : parseFloat(el.value); });
+  document.querySelectorAll('#taxBracketBox [data-brr]').forEach(el => { const i = +el.dataset.brr; if (arr[i]) arr[i][1] = (parseFloat(el.value) || 0) / 100; });
+  document.querySelectorAll('#taxBracketBox [data-brq]').forEach(el => { const i = +el.dataset.brq; if (arr[i]) arr[i][2] = parseFloat(el.value) || 0; });
+  return arr;
+}
+function taxRenderBrackets() {
+  const box = document.getElementById('taxBracketBox'); if (!box) return;
+  const arr = taxDraft();
+  const rows = arr.map((b, i) => {
+    const isLast = i === arr.length - 1;
+    const ratePct = Math.round(Number(b[1]) * 10000) / 100;
+    return '<tr>' +
+      '<td style="text-align:center">' + (i + 1) + '</td>' +
+      '<td>' + (isLast ? '<span style="color:#94a3b8">最高档 · 不设上限</span>' : '<input type="number" step="1000" min="1" data-brl="' + i + '" value="' + b[0] + '" style="width:130px"> 元') + '</td>' +
+      '<td><input type="number" step="0.1" min="0" max="100" data-brr="' + i + '" value="' + ratePct + '" style="width:70px"> %</td>' +
+      '<td><input type="number" step="10" data-brq="' + i + '" value="' + b[2] + '" style="width:110px"></td>' +
+      '<td style="text-align:center">' + (isLast ? '—' : '<button type="button" class="btn sm warn" onclick="taxDelBracket(' + i + ')">删除</button>') + '</td>' +
+      '</tr>';
+  }).join('');
+  box.innerHTML = '<div class="table-wrap" style="overflow-x:auto"><table class="tb" style="min-width:560px"><thead><tr>' +
+    '<th>级</th><th>累计应纳税所得额上限(元)</th><th>税率</th><th>速算扣除数</th><th>操作</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div>';
+}
+function taxAddBracket() {
+  taxSync();
+  const arr = taxDraft();
+  const n = arr.length;
+  const prevCap = n >= 2 ? arr[n - 2][0] : 36000;
+  const newCap = Math.max(Math.round(prevCap * 2), prevCap + 36000);
+  const prevRate = n >= 1 ? arr[n - 1][1] : 0.03;
+  arr.splice(Math.max(n - 1, 0), 0, [newCap, Math.min(Number(prevRate) + 0.05, 0.45), 0]);
+  taxRenderBrackets();
+}
+function taxDelBracket(i) {
+  taxSync();
+  const arr = taxDraft();
+  if (arr.length <= 1) { alert('至少保留一级'); return; }
+  arr.splice(i, 1);
+  taxRenderBrackets();
+}
+function taxRestoreStd() { window._taxDraft = STD_TAX_BRACKETS.map(b => [Number(b[0]), Number(b[1]), Number(b[2])]); taxRenderBrackets(); }
+async function saveAllSalarySettings() {
+  try {
+    // 1. Save custom fields
+    const cfFields = (window._customFields||[]).filter(f => f.name && f.name.trim()).map(f => ({
+      name: f.name.trim(), type: f.type||'subsidy', source: f.source||'fixed',
+      enabled: !!f.enabled, default: parseFloat(f.default)||0
+    }));
+    await api("/api/custom_fields/save", {body:{fields: cfFields}});
+
+    // 2. Save calc rules
+    const R = JSON.parse(JSON.stringify(window._rules));
+    const gv = id => (document.getElementById(id)||{}).value || "";
+    const gc = id => (document.getElementById(id)||{}).checked || false;
+    R.base_salary.segment_by_date = gc("rl_seg");
+    R.base_salary.prorate_base = gv("rl_prorate");
+    R.performance.enabled = gc("rl_perf_on");
+    R.performance.probation_excluded = gc("rl_perf_prob");
+    R.sick_pay.enabled = gc("rl_sick_on");
+    R.sick_pay.params.factor_a = parseFloat(gv("rl_sick_a")) || 0;
+    R.sick_pay.params.factor_b = parseFloat(gv("rl_sick_b")) || 0;
+    R.sick_pay.params.sick_base = gv("rl_sick_base");
+    R.meal_subsidy.mode = gv("rl_meal_mode");
+    R.allowances.mode = gv("rl_allow_mode");
+    R.reward_punish.full_in_gross = gc("rl_rp");
+    R.tax.basic_deduction = parseFloat(gv("rl_tax_basic")) || 5000;
+    R.tax.cum_start = gv("rl_cum_start");
+    let _br = taxSync().map(x => [Number(x[0]), Number(x[1]), Number(x[2])]);
+    _br = _br.filter(x => x[1] > 0 && x[1] <= 1);
+    _br.sort((a, b) => a[0] - b[0]);
+    if (_br.length === 0) { alert('请至少填写一级有效税率（税率需在 0~100% 之间）'); return; }
+    _br[_br.length - 1][0] = 99999999999;
+    R.tax.brackets = _br;
+    R.deduction_rules = R.deduction_rules || {};
+    R.deduction_rules.miss_punch = {enabled: gc("rl_miss_on"), first_3: parseFloat(gv("rl_miss_f3"))||30, after_3: parseFloat(gv("rl_miss_a3"))||50};
+    R.deduction_rules.absent = {enabled: gc("rl_abs_on"), multiplier: parseFloat(gv("rl_abs_mult"))||2};
+    R.deduction_rules.late_early = {enabled: gc("rl_late_on"), per_time: parseFloat(gv("rl_late_per"))||10};
+    R.formula = R.formula || {};
+    R.formula.gross = gv("rl_formula_gross").trim();
+    R.formula.net = gv("rl_formula_net").trim();
+    if (!R.formula.gross || !R.formula.net) { alert("应发合计和实发工资公式不能为空"); return; }
+    await api("/api/calc_rules/save", {body:{rules: R}});
+    window._rules = R;
+    window._customFields = cfFields;
+    toast("✓ 所有薪酬设置已保存，下次核算生效");
+    renderSalarySettingsUI();
+  } catch(e) { alert("保存失败：" + e.message); }
+}
+
 async function rulesSave() {
   const R = JSON.parse(JSON.stringify(window._rules));
   const gv = id => document.getElementById(id).value;
@@ -3374,6 +3613,8 @@ function formulaTest() {
   const sample = {"应发基本工资":5000, "应发绩效工资":1000, "病假工资":0, "夜班话费补贴":0, "餐补":0, "其他补贴":0,
     "月度奖励":0, "已发福利":0, "月度扣罚":0, "缺卡扣款":0, "迟到早退扣款":0, "其他扣款":0, "工装扣款":0,
     "应发合计":0, "五险一金合计":500, "本月个税":30, "养老保险":300, "医疗保险":100, "失业保险":20, "住房公积金":80, "大病":0, "附加扣除合计":0};
+  const _cfS = (window._rules?.custom_fields || []).filter(f => f.enabled);
+  _cfS.forEach(f => { sample[f.name] = 0; });
   try {
     sample["应发合计"] = evalFormulaSafe(grossExpr, sample);
     const net = evalFormulaSafe(netExpr, sample);
@@ -3409,7 +3650,8 @@ function formulaReset() {
 
 /* ---------------- 符号库设置 ---------------- */
 const SYM_CATEGORIES = ["正常", "事假", "病假", "产假", "年假调休", "缺卡", "旷工", "迟到", "早退", "值班", "公休", "其他"];
-async function pageSymbols(container) {
+async function pageSymbols(container, subMode) {
+  if (subMode) { container.innerHTML = '<div id="symSubArea">加载中...</div>'; loadSymbols(); return; }
   const c = container || document.getElementById("content");
   c.innerHTML = `<div class="card"><h3>考勤符号库设置（符号应用计算逻辑）</h3>
   <div class="msg info">每个符号的「计入实际出勤 / 折算出勤天数 / 归类统计」即为该符号的计算逻辑。应出勤天数已改为手动填写，不再由符号统计。修改后新上传考勤立即按新口径统计；历史月份需重新上传考勤或重算才会更新。考勤表统计公式由符号库自动生成并同步（见下方"考勤表公式预览"），也可导出/导入配置。</div>
@@ -3442,10 +3684,10 @@ async function loadSymbols() {
     renderSymTable();
     const fd = await api("/api/symbols/formulas");
     const F = fd.formulas;
-    document.getElementById("symFormula").innerHTML =
-      `<b>实际出勤</b> = ${esc(F.attend)}<br>` +
+    const _symFEl = document.getElementById("symFormula") || document.getElementById("symFormulaSub");
+    if (_symFEl) _symFEl.innerHTML = 
       Object.entries(F.categories).map(([k, v]) => `<b>${esc({personal:"事假",sick:"病假",maternity:"产假",paid:"带薪假",miss:"缺卡",absent:"旷工",late:"迟到",early:"早退"}[k])}</b> = ${v === "0" ? "0" : esc("=" + v)}`).join("<br>");
-  } catch (e) { document.getElementById("symArea").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  } catch (e) { const _t = document.getElementById("symSubArea") || document.getElementById("symArea"); if (_t) _t.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
 }
 function renderSymTable() {
   let html = `<div class="table-wrap"><table class="tb"><thead><tr>
@@ -3461,7 +3703,7 @@ function renderSymTable() {
       <td><button class="btn sm primary" onclick="symSave()">保存</button> <button class="btn sm danger" onclick="symDel(${i})">删除</button></td></tr>`;
   });
   html += `</tbody></table></div>`;
-  document.getElementById("symArea").innerHTML = html;
+  const _target = document.getElementById("symSubArea") || document.getElementById("symArea"); if(_target) _target.innerHTML = html;
 }
 function symAdd() {
   const g = id => document.getElementById(id);
@@ -3539,8 +3781,7 @@ const SETTINGS_TABS = [
   { key: "perm", label: "👤 权限管理", perm: "users" },
   { key: "approvalFlow", label: "✅ 审批权责设置", perm: "users" },
   { key: "staffField", label: "👥 人员档案字段设置", perm: "users" },
-  { key: "rules", label: "🧮 工资计算规则", perm: "rules" },
-  { key: "symbols", label: "🔣 考勤符号库", perm: "symbols" },
+  { key: "salarySettings", label: "💰 薪酬设置", perm: "rules" },
   { key: "company", label: "🏢 公司信息", perm: "settings" },
   { key: "security", label: "🔒 登录安全", perm: "settings" },
   { key: "backup", label: "💾 数据备份", perm: "backup" },
@@ -3573,8 +3814,7 @@ async function loadSettingsTab(tab) {
   const el = document.getElementById("setContent");
   if (!el) return;
   el.innerHTML = "加载中...";
-  if (tab === "rules") return pageRules(el);
-  if (tab === "symbols") return pageSymbols(el);
+  if (tab === "salarySettings") return pageSalarySettings(el);
   const fn = { perm: settingsPerm, staffField: settingsStaffField, company: settingsCompany, security: settingsSecurity, backup: settingsBackup, logs: settingsLogs, approvalFlow: settingsApprovalFlow }[tab];
   if (fn) { try { await fn(el); } catch (e) { el.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; } }
 }
@@ -3708,7 +3948,7 @@ function renderMembers(roleId) {
       <span class="hint" style="margin:0">该角色下的账号（${users.length}）—— 审批入职办理开通的账号也会出现在这里</span>
       <button class="btn success sm" onclick="userEdit(0)">＋ 新增账号</button>
     </div>
-    ${users.length ? `<div class="table-wrap"><table class="tb"><thead><tr><th>用户名</th><th>姓名</th><th>绑定人员</th><th>账号类型</th><th>绑定项目</th><th>状态</th><th>操作</th></tr></thead><tbody>${html}</tbody></table></div>` : '<div class="hint" style="padding:22px;text-align:center;color:#9ca3af">该角色下暂无账号，点击右上角"新增账号"创建</div>'}`;
+    ${users.length ? `<div class="table-wrap"><table class="tb"><thead><tr><th>用户名</th><th>姓名</th><th>绑定人员</th><th>账号类型</th><th>绑定项目</th><th>员工状态</th><th>操作</th></tr></thead><tbody>${html}</tbody></table></div>` : '<div class="hint" style="padding:22px;text-align:center;color:#9ca3af">该角色下暂无账号，点击右上角"新增账号"创建</div>'}`;
 }
 function toggleModTree(head) { head.parentElement.classList.toggle("open"); }
 function toggleModAll(cb) {
@@ -4325,7 +4565,7 @@ async function pageOrg() {
       <div class="org-main" id="orgDetailPanel"><div class="msg info">← 在左侧选择节点查看详情；也可以在节点上执行「＋子节点 / 编辑 / 停用 / 删除」。</div></div>
     </div>
     <div id="orgMigrateMsg" style="margin-top:10px"></div>
-    <div style="margin-top:10px"><button class="btn sm" onclick="orgRunMigrate()">⚙ 老数据自动迁移（生成默认树）</button><span class="hint" style="margin:0 0 0 10px">首次使用或树为空时执行；已初始化会提示。</span></div>
+    <div style="margin-top:10px"><button class="btn success" onclick="dingtalkSyncNow()">🔄 立即从钉钉同步</button><span class="hint" style="margin:0 0 0 10px">组织架构由钉钉自动同步，请勿手动修改。</span></div>
   </div>`;
   orgLoad(true);
 }
@@ -4376,12 +4616,6 @@ function orgTreeNodesHtml(nodes, depth) {
         <span class="tree-ico">${orgNodeIco(n.type, 15)}</span>
         <span class="tree-nm">${esc(n.name)}${n.enabled ? "" : ' <span style="font-size:10px;color:#f53f3f">停用</span>'}</span>
         <span class="tree-cnt">${n.count_in || 0}</span>
-        <span class="tree-ops" onclick="event.stopPropagation()">
-          ${n.type === "company" ? "" : (n.type === "project" ? `<span class="tree-op" title="添加部门" onclick="orgAddChild(${n.id})">${svgIco("plus", 12, "#1f2329", 2.2)}</span>` : "")}
-          <span class="tree-op" title="编辑" onclick="orgEditNode(${n.id})">${svgIco("pencil", 11, "#1f2329", 2)}</span>
-          ${n.type !== "company" ? `<span class="tree-op" title="${n.enabled ? "停用" : "启用"}" onclick="orgToggleStatus(${n.id})">${svgIco(n.enabled ? "pause" : "play", 11, n.enabled ? "#f53f3f" : "#00b42a", 2)}</span>
-          <span class="tree-op" title="删除" onclick="orgDeleteNode(${n.id})">${svgIco("trash", 11, "#f53f3f", 2)}</span>` : ""}
-        </span>
       </div>
       ${hasKids ? `<div>` + orgTreeNodesHtml(n.children, depth + 1) + `</div>` : ""}
     </div>`;
@@ -4464,7 +4698,7 @@ async function orgRenderDetail(id) {
     const listEl = document.getElementById("orgStaffList_" + n.id);
     if (!listEl) return;
     if (!d.staff.length) { listEl.innerHTML = `<div style="color:#86909c;font-size:13px;padding:8px 0">暂无在职人员（成员需在【人员档案】中维护，此处仅展示）</div>`; return; }
-    listEl.innerHTML = `<div class="table-wrap"><table class="tb"><thead><tr><th>姓名</th><th>岗位</th><th>状态</th><th>项目</th><th>操作</th></tr></thead><tbody>` +
+    listEl.innerHTML = `<div class="table-wrap"><table class="tb"><thead><tr><th>姓名</th><th>职位</th><th>员工状态</th><th>项目</th><th>操作</th></tr></thead><tbody>` +
       d.staff.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.position || "-")}</td>
         <td><span class="tag ${s.deleted ? "gray" : "green"}">${s.deleted ? "离职" : "在职"}</span></td>
         <td>${esc(s.project || "-")}</td>
@@ -4711,7 +4945,7 @@ async function pageProjects() {
 async function loadProjects() {
   try {
     const data = await api("/api/projects");
-    let html = `<div class="table-wrap"><table class="tb"><thead><tr><th>项目名称</th><th>别名</th><th>负责人</th><th>联系电话</th><th>地址</th><th>状态</th><th>操作</th></tr></thead><tbody>`;
+    let html = `<div class="table-wrap"><table class="tb"><thead><tr><th>项目名称</th><th>别名</th><th>负责人</th><th>联系电话</th><th>地址</th><th>员工状态</th><th>操作</th></tr></thead><tbody>`;
     for (const p of data.projects) {
       const on = (p.status || "启用") === "启用";
       html += `<tr><td>${esc(p.name)}</td><td>${esc((p.aliases || []).join("、"))}</td><td>${esc(p.contact || "")}</td>
@@ -5097,7 +5331,7 @@ function perfRenderList(plans,scope){
       <td style="white-space:nowrap">${ops}</td></tr>`;
   });
   area.innerHTML=`<div class="table-wrap" style="max-height:calc(100vh - 230px)"><table class="tb">
-    <thead><tr><th>单号</th><th>被考核人</th><th>考核周期</th><th>状态</th><th>权重</th><th>自评总分</th><th>考核人评分</th><th>最终总分</th><th>等级</th><th>当前审批人</th><th>发起人</th><th>操作</th></tr></thead>
+    <thead><tr><th>单号</th><th>被考核人</th><th>考核周期</th><th>员工状态</th><th>权重</th><th>自评总分</th><th>考核人评分</th><th>最终总分</th><th>等级</th><th>当前审批人</th><th>发起人</th><th>操作</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -5184,7 +5418,7 @@ function perfRenderAdmin(){
       <td style="white-space:nowrap">${ops}</td></tr>`;
   }).join("");
   document.getElementById("pfAdminList").innerHTML=`<div class="table-wrap" style="max-height:calc(100vh - 330px)"><table class="tb">
-    <thead><tr><th>单号</th><th>被考核人</th><th>考核周期</th><th>状态</th><th>权重</th><th>自评总分</th><th>考核人评分</th><th>最终总分</th><th>等级</th><th>审批链</th><th>发起人</th><th>操作</th></tr></thead>
+    <thead><tr><th>单号</th><th>被考核人</th><th>考核周期</th><th>员工状态</th><th>权重</th><th>自评总分</th><th>考核人评分</th><th>最终总分</th><th>等级</th><th>审批链</th><th>发起人</th><th>操作</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="hint" style="margin-top:6px">共 ${list.length} 条记录</div></div>`;
 }
@@ -5719,7 +5953,7 @@ async function appDoQuery() {
     if (!d.items.length) { el.innerHTML = '<div class="msg info">未查询到符合条件的流程</div>'; return; }
     const stMap = { pending: ["审批中", "#f59e0b"], approved: ["已通过", "#16a34a"], rejected: ["已驳回", "#dc2626"], withdrawn: ["已撤回", "#6b7280"], voided: ["已作废", "#9ca3af"] };
     el.innerHTML = `<div class="table-wrap"><table class="tb"><thead><tr>
-      <th>流程号</th><th>流程</th><th>标题</th><th>状态</th><th>进度</th><th>发起人</th><th>时间</th><th>操作</th></tr></thead><tbody>
+      <th>流程号</th><th>流程</th><th>标题</th><th>员工状态</th><th>进度</th><th>发起人</th><th>时间</th><th>操作</th></tr></thead><tbody>
       ${d.items.map(it => { const st = stMap[it.status] || ["未知", "#6b7280"];
         return `<tr><td><b style="color:#2563eb;font-size:12.5px">${esc(it.flow_no || "-")}</b></td>
         <td>${esc(it.flow_name)}</td><td>${esc(it.title)}</td>
@@ -6100,7 +6334,7 @@ function appInstTable(items, mode) {
   const stMap = { pending: ["审批中", "#f59e0b"], approved: ["已通过", "#16a34a"], rejected: ["已驳回", "#dc2626"], withdrawn: ["已撤回", "#6b7280"], voided: ["已作废", "#9ca3af"] };
   const canSend = it => mode === "flowmgt" && (it.status === "approved" || it.status === "rejected");
   return `<div class="table-wrap"><table class="tb"><thead><tr>
-    <th>流程号</th><th>流程</th><th>标题</th><th>状态</th><th>进度</th><th>发起人</th><th>时间</th><th>操作</th></tr></thead><tbody>
+    <th>流程号</th><th>流程</th><th>标题</th><th>员工状态</th><th>进度</th><th>发起人</th><th>时间</th><th>操作</th></tr></thead><tbody>
     ${items.map(it => {
       const st = stMap[it.status] || ["未知", "#6b7280"];
       const op = `<button class="btn sm primary" onclick="appOpenDetail(${it.id})">详情</button>` +
@@ -6361,7 +6595,7 @@ async function appOnboardModal(id) {
     <div class="app-sec-title" style="margin-top:14px">📝 补录资料（建档到人事档案，与工资条/查询联动）</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <label style="font-size:12.5px">部门<select id="onb_dept" style="width:150px">${deptOptsHtml}</select></label>
-      <label style="font-size:12.5px">身份证号<input type="text" id="onb_id_card" value="${esc((o.extra && o.extra.id_card) || fd.id_card || "")}" style="width:180px"></label>
+      <label style="font-size:12.5px">证件号码<input type="text" id="onb_id_card" value="${esc((o.extra && o.extra.id_card) || fd.id_card || "")}" style="width:180px"></label>
       <label style="font-size:12.5px">银行卡号<input type="text" id="onb_bank" value="${esc((o.extra && o.extra.bank_card) || "")}" style="width:180px"></label>
       <label style="font-size:12.5px">试用期至<input type="date" id="onb_regular" value="${esc((o.extra && o.extra.regular_date) || "")}"></label>
       <label style="font-size:12.5px">劳动合同开始日期<input type="date" id="onb_contract_start" value="${esc((o.extra && o.extra.contract_start) || "")}"></label>
@@ -6974,6 +7208,102 @@ async function appFlowDelete() {
  * 刷新/重开页面时若本地仍保留有效会话令牌则自动恢复登录态，避免每次刷新都要重新登录；
  * 令牌缺失或已失效时停留在登录页（bootstrap 内部失败会清除令牌并显示登录页）。 */
 (function autoBoot() {
-  if (TOKEN) { bootstrap(); }
+  async function dingtalkSyncNow() {
+  if (!confirm("立即从钉钉全量同步组织架构和人员？")) return;
+
+  // 进度弹窗
+  const overlay = document.createElement("div");
+  overlay.id = "syncOverlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center";
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:32px 40px;min-width:340px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+      <div style="font-size:16px;font-weight:600;color:#333;margin-bottom:18px">钉钉数据同步中</div>
+      <div class="sync-spinner" style="width:44px;height:44px;border:4px solid #e8e8e8;border-top-color:#1890ff;border-radius:50%;animation:syncSpin .8s linear infinite;margin:0 auto 18px"></div>
+      <div id="syncStage" style="font-size:14px;color:#888;margin-bottom:6px">正在连接钉钉...</div>
+      <div id="syncTimer" style="font-size:13px;color:#bbb">已用时 0s</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // 注入动画
+  if (!document.getElementById('syncSpinStyle')) {
+    const style = document.createElement('style');
+    style.id = 'syncSpinStyle';
+    style.textContent = '@keyframes syncSpin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+
+  // 阶段提示轮播
+  const stages = ['正在连接钉钉...', '正在拉取部门树...', '正在同步组织架构...', '正在拉取在职人员...', '正在同步人员数据...', '正在拉取离职名单...', '正在同步花名册...', '即将完成...'];
+  let stageIdx = 0;
+  const stageEl = () => document.getElementById('syncStage');
+  const timerEl = () => document.getElementById('syncTimer');
+  const startTs = Date.now();
+  const stageTimer = setInterval(() => {
+    if (stageEl()) stageEl().textContent = stages[stageIdx % stages.length];
+    stageIdx++;
+    if (timerEl()) timerEl().textContent = '已用时 ' + Math.round((Date.now() - startTs) / 1000) + 's';
+  }, 4000);
+
+  try {
+    const r = await api("/api/dingtalk/sync-now", { method: "POST" });
+    clearInterval(stageTimer);
+    overlay.remove();
+    const rep = r.report || {};
+    const elapsed = r.elapsed || rep.elapsed || 0;
+    showSyncResult(rep, elapsed);
+  } catch (e) {
+    clearInterval(stageTimer);
+    overlay.remove();
+    showSyncError(e.message);
+  }
+}
+
+function showSyncResult(rep, elapsed) {
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center";
+  const rows = [
+    ['钉钉部门数', rep.dingtalk_depts ?? 0],
+    ['钉钉在职人员', rep.dingtalk_users ?? 0],
+    ['钉钉离职人员', rep.dingtalk_dismissed ?? 0],
+    ['新增人员', rep.new ?? 0],
+    ['更新人员', rep.updated ?? 0],
+    ['标记离职', rep.offboard ?? 0],
+    ['新增离职', rep.offboard_new ?? 0],
+    ['花名册同步', rep.roster ?? 0],
+  ];
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px 36px;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:20px;font-weight:700;color:#52c41a">同步完成</div>
+        <div style="font-size:13px;color:#999;margin-top:4px">耗时 ${elapsed} 秒</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        ${rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#666">${k}</td><td style="padding:6px 0;text-align:right;font-weight:600;color:#333">${v}</td></tr>`).join('')}
+      </table>
+      <div style="text-align:center;margin-top:22px">
+        <button id="syncOkBtn" class="btn success" style="padding:8px 36px;font-size:15px;border-radius:8px;border:none;background:#1890ff;color:#fff;cursor:pointer">确定</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('syncOkBtn').onclick = () => { overlay.remove(); refreshPage(); };
+}
+
+function showSyncError(msg) {
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center";
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px 36px;min-width:320px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+      <div style="font-size:20px;font-weight:700;color:#ff4d4f;margin-bottom:12px">同步失败</div>
+      <div style="font-size:14px;color:#666;margin-bottom:22px;word-break:break-all">${msg}</div>
+      <button onclick="this.closest('div[style]').parentElement.remove()" class="btn" style="padding:8px 36px;font-size:15px;border-radius:8px;border:1px solid #d9d9d9;background:#fff;cursor:pointer">关闭</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+window.dingtalkSyncNow = dingtalkSyncNow;
+
+if (TOKEN) { bootstrap(); }
   else { try { showLogin(); } catch (e) {} }
 })();

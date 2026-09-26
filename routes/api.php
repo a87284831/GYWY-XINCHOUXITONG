@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/payslip/query', [PayslipController::class, 'query']);
 Route::post('/logout', [AuthController::class, 'logout']);
+Route::post('/change-password', [AuthController::class, 'changePassword']);
 Route::get('/init', [DirectoryController::class, 'init']);
 Route::get('/projects', [DirectoryController::class, 'projects']);
 Route::get('/staff', [DirectoryController::class, 'staff']);
@@ -32,6 +33,8 @@ Route::get('/attendance', [PayrollController::class, 'attendance']);
 Route::get('/attendance/status', [AttendanceController::class, 'status']);
 Route::post('/attendance/upload', [AttendanceController::class, 'upload']);
 Route::post('/attendance/delete', [AttendanceController::class, 'delete']);
+Route::post('/attendance/lock', [AttendanceController::class, 'lock']);
+Route::get('/attendance/export', [AttendanceController::class, 'export']);
 Route::get('/payroll', [PayrollController::class, 'payroll']);
 Route::get('/summary', [PayrollController::class, 'summary']);
 Route::post('/payroll/calc', [PayrollWriteController::class, 'calculate']);
@@ -119,6 +122,8 @@ Route::post('/symbols/reset', [ConfigController::class, 'resetSymbols']);
 Route::post('/symbols/import', [ConfigController::class, 'importSymbols']);
 Route::post('/payslip/config/save', [ConfigController::class, 'savePayslip']);
 Route::post('/settings/save', [ConfigController::class, 'saveSettings']);
+Route::get('/custom_fields', [\App\Http\Controllers\Api\CustomFieldController::class, 'index']);
+Route::post('/custom_fields/save', [\App\Http\Controllers\Api\CustomFieldController::class, 'save']);
 Route::get('/op_logs', [AdminController::class, 'logs']);
 Route::post('/backup', [AdminController::class, 'backup']);
 Route::post('/admin/clear-data', [AdminController::class, 'clearData']);
@@ -186,3 +191,10 @@ Route::any('/purchase/{path?}', [App\Http\Controllers\Api\PurchaseController::cl
 
 // ---- 财务管理 ----
 Route::any('/finance/{action?}', [App\Http\Controllers\Api\FinanceController::class, 'handle'])->where('action', '[a-zA-Z0-9_/\-]*');
+
+// 钉钉集成
+Route::post("/dingtalk/callback", [\App\Http\Controllers\Api\DingtalkCallbackController::class, "handle"]);
+Route::get("/dingtalk/status", [\App\Http\Controllers\Api\DingtalkCallbackController::class, "status"]);
+Route::get("/dingtalk/config", [\App\Http\Controllers\Api\DingtalkCallbackController::class, "getConfig"]);
+Route::post("/dingtalk/config", [\App\Http\Controllers\Api\DingtalkCallbackController::class, "saveConfig"]);
+Route::post("/dingtalk/sync-now", [\App\Http\Controllers\Api\DingtalkCallbackController::class, "syncNow"]);

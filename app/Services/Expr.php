@@ -8,6 +8,7 @@ use RuntimeException;
  * 安全算术表达式求值器（不使用 eval），支持：
  *   + - * / % ( ) 数字 变量 白名单函数 min/max/abs/round/floor/ceil/if
  * 未定义变量按 0 处理，避免用户新加变量导致整链断掉。
+ * if() 支持短路求值：只计算被选中的分支，避免除零等运行时错误。
  */
 class Expr
 {
@@ -104,17 +105,71 @@ class Expr
             $this->i++;
             $name = (string)$t[1];
             if (($n = $this->peek()) && $n[0] === '(') {
-                if (!in_array(strtolower($name), self::FUNCTIONS, true)) {
+                $fnName = strtolower($name);
+                if (!in_array($fnName, self::FUNCTIONS, true)) {
                     throw new RuntimeException("未授权函数：{$name}");
                 }
                 $this->i++;
+
+                // if() 短路求值：只计算被选中的分支，避免除零等错误
+                if ($fnName === 'if') {
+                    $cond = $this->parseExpr();
+                    $this->expect(',');
+                    if (!empty($cond)) {
+                        $thenVal = $this->parseExpr();
+                        // 跳过 else 分支（如果存在）
+                        $tk = $this->peek();
+                        if ($tk && $tk[0] === ',') {
+                            $this->i++;
+                            $depth = 1;
+                            while ($depth > 0) {
+                                $tk = $this->peek();
+                                if (!$tk) break;
+                                if ($tk[0] === '(') $depth++;
+                                elseif ($tk[0] === ')') {
+                                    if ($depth === 1) break;
+                                    $depth--;
+                                }
+                                $this->i++;
+                            }
+                        }
+                    } else {
+                        // 跳过 then 分支，找到分隔逗号或结束括号
+                        $depth = 1;
+                        $foundComma = false;
+                        while ($depth > 0) {
+                            $tk = $this->peek();
+                            if (!$tk) break;
+                            if ($tk[0] === '(') $depth++;
+                            elseif ($tk[0] === ')') {
+                                if ($depth === 1) break;
+                                $depth--;
+                            }
+                            elseif ($tk[0] === ',' && $depth === 1) {
+                                $foundComma = true;
+                                break;
+                            }
+                            $this->i++;
+                        }
+                        if ($foundComma) {
+                            $this->i++; // 跳过逗号
+                            $thenVal = $this->parseExpr();
+                        } else {
+                            $thenVal = 0.0;
+                        }
+                    }
+                    $this->expect(')');
+                    return (float)$thenVal;
+                }
+
+                // 其他函数正常求值所有参数
                 $args = [];
                 if (($p = $this->peek()) && $p[0] !== ')') {
                     $args[] = $this->parseExpr();
                     while (($c = $this->peek()) && $c[0] === ',') { $this->i++; $args[] = $this->parseExpr(); }
                 }
                 $this->expect(')');
-                return self::callFn(strtolower($name), $args);
+                return self::callFn($fnName, $args);
             }
             if (array_key_exists($name, $this->vars)) return (float)$this->vars[$name];
             return 0.0;
@@ -131,7 +186,6 @@ class Expr
             'round' => (float)round((float)($a[0] ?? 0), (int)($a[1] ?? 0)),
             'floor' => (float)floor($a[0] ?? 0),
             'ceil'  => (float)ceil($a[0] ?? 0),
-            'if'    => !empty($a[0]) ? (float)($a[1] ?? 0) : (float)($a[2] ?? 0),
             default => 0.0,
         };
     }

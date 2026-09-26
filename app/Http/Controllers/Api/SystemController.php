@@ -30,7 +30,22 @@ class SystemController extends ApiController
             if (!empty($item['in_required'])) $required[] = 'COUNTIF({rng},"' . $symbol . '")';
             if (!empty($item['in_actual'])) $attend[] = ((float) ($item['value'] ?? 1) === 1.0 ? '' : (float) ($item['value'] ?? 1) . '*') . 'COUNTIF({rng},"' . $symbol . '")';
         }
-        return response()->json(['ok' => true, 'formulas' => ['required' => '=' . implode('+', $required), 'attend' => '=' . implode('+', $attend), 'categories' => []]]);
+        $CAT_MAP = ['事假'=>'personal','病假'=>'sick','产假'=>'maternity','年假调休'=>'paid','缺卡'=>'miss','旷工'=>'absent','迟到'=>'late','早退'=>'early'];
+        $byCat = [];
+        foreach ($items as $item) {
+            $sym = $item['symbol'] ?? '';
+            if ($sym === '') continue;
+            $cat = (string)($item['category'] ?? '');
+            if ($cat !== '') $byCat[$cat][] = $sym;
+        }
+        $categories = [];
+        foreach ($CAT_MAP as $cnCat => $enKey) {
+            if (empty($byCat[$cnCat])) { $categories[$enKey] = '0'; continue; }
+            $f = [];
+            foreach ($byCat[$cnCat] as $s) { $f[] = 'COUNTIF({rng},"' . $s . '")'; }
+            $categories[$enKey] = implode('+', $f);
+        }
+        return response()->json(['ok' => true, 'formulas' => ['required' => '=' . implode('+', $required), 'attend' => '=' . implode('+', $attend), 'categories' => $categories]]);
     }
 
     public function symbolExport(Request $request)

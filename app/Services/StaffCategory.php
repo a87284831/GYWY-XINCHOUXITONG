@@ -24,6 +24,8 @@ class StaffCategory
             }
         }
         if (!empty($row['deleted'])) return '离职';
+        // status 列为离职（来自钉钉离职名单，权威），即使未取到离职日期也应归为离职
+        if (trim((string)($row['status'] ?? '')) === '离职') return '离职';
         $resign = trim((string)($row['resign_date'] ?? ''));
         if ($resign !== '' && $resign !== '0000-00-00' && substr($resign, 0, 10) <= substr($refDate, 0, 10)) {
             return '离职';

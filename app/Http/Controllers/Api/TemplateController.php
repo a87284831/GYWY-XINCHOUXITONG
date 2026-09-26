@@ -162,9 +162,14 @@ class TemplateController extends ApiController
             '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
             '其他扣款', '工装扣款'];
         $tailCols = ['备注'];
-        $headers = array_merge($baseCols, $dateCols, $statCols, $moneyCols, $tailCols);
-        $lastCol = count($headers);
+        $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
+        $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
+        $__cfFields = $__cfPayload['rules']['custom_fields'] ?? [];
+        $__cfCols = [];
+        foreach ($__cfFields as $__cf) { if (!empty($__cf['enabled'])) $__cfCols[] = $__cf['name']; }
+        $lastCol = count($baseCols) + count($dateCols) + count($statCols) + count($moneyCols) + count($__cfCols) + count($tailCols);
         $lastLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastCol);
+        $headers = array_merge($baseCols, $dateCols, $statCols, $moneyCols, $__cfCols, $tailCols);
 
         // ---- 列区间（与用户模板分区一一对应）----
         $dateStart = count($baseCols) + 1;               // 每日出勤首列
@@ -172,7 +177,7 @@ class TemplateController extends ApiController
         $statStart = $dateEnd + 1;                        // 出勤统计首列
         $statEnd = $dateEnd + count($statCols);
         $moneyStart = $statEnd + 1;                       // 奖惩/补贴/五险一金/扣款首列
-        $moneyEnd = $statEnd + count($moneyCols);
+        $moneyEnd = $statEnd + count($moneyCols) + count($__cfCols);
         $tailStart = $moneyEnd + 1;                       // 绩效/其他（备注）
         $tailEnd = $lastCol;
 
@@ -206,7 +211,7 @@ class TemplateController extends ApiController
         $sheet->mergeCells("{$s1}2:{$s2}2");
         $sheet->setCellValue("{$s1}2", '出勤统计（系统自动核算，无需填写）');
         $sheet->mergeCells("{$m1}2:{$m2}2");
-        $sheet->setCellValue("{$m1}2", '奖惩/补贴/五险一金/扣款（人力填写）');
+        $sheet->setCellValue("{$m1}2", '奖惩/补贴/五险一金/扣款/自定义项（人力填写）');
         $sheet->mergeCells("{$t1}2:{$t2}2");
         $sheet->setCellValue("{$t1}2", '绩效/其他');
         $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
@@ -257,32 +262,46 @@ class TemplateController extends ApiController
         $staff = \Illuminate\Support\Facades\DB::table('payroll_staff')
             ->where('project_name', $project)->where('deleted', false)
             ->where(function ($q) use ($ym) {
-                $q->whereNull('resign_date')->orWhere('resign_date', '>=', $ym . '-01');
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })->orWhere('resign_date', '>=', $ym . '-01');
             })
             ->orderBy('name')->get();
         $row = 5;
         // 统计列公式（第2行标注"系统自动核算"，此处写入 Excel 公式让模板打开即自动统计；应出勤列保持手填不带公式）
         $dStartLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart); // 日期首列
         $dEndLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);   // 日期末列
-        $reqLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);   // 应出勤(手填) 列
-        $actLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 1); // 实际出勤(天) 列
-        $formulaRows = max($staff->count(), 1); // 至少给第5行预留公式行，便于增行复制
+        $reqLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);
+        $actLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 1);
+        // 从符号库动态生成 COUNTIF 公式
+        $symItems = \App\Services\PayrollCalculator::symbols();
+        $byCat = []; $actualParts = [];
+        foreach ($symItems as $sym => $meta) {
+            $cat = (string)($meta['category'] ?? '');
+            $w = (float)($meta['value'] ?? 1);
+            if ($cat !== '') $byCat[$cat][] = $sym;
+            if (!empty($meta['in_actual'])) {
+                $actualParts[] = ($w == 1.0 ? '' : $w . '*') . 'COUNTIF({rng},"' . $sym . '")';
+            }
+        }
+        $catF = function(string $cat) use ($byCat) {
+            if (empty($byCat[$cat])) return '0';
+            return implode('+', array_map(fn($s) => 'COUNTIF({rng},"' . $s . '")', $byCat[$cat]));
+        };
+        $actF = $actualParts ? implode('+', $actualParts) : '0';
+        $formulaRows = max($staff->count(), 1);
         for ($i = 0; $i < $formulaRows; $i++) {
             $r = $row + $i;
             $range = "\${$dStartLetter}{$r}:\${$dEndLetter}{$r}";
-            $sheet->setCellValue("{$actLetter}{$r}", '=COUNTIF(' . $range . ',"√")+0.5*COUNTIF(' . $range . ',"半")'
-                . '+COUNTIF(' . $range . ',"值")+COUNTIF(' . $range . ',"假")+COUNTIF(' . $range . ',"缺")'
-                . '+COUNTIF(' . $range . ',"迟")+COUNTIF(' . $range . ',"早")');
+            $sheet->setCellValue("{$actLetter}{$r}", '=' . str_replace('{rng}', $range, $actF));
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 3) . $r,
                 '=IF(' . $reqLetter . $r . '="","",IF(' . $actLetter . $r . '>=' . $reqLetter . $r . ',"是","否"))');
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 4) . $r, '=COUNTIF(' . $range . ',"事")'); // 事假
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 5) . $r, '=COUNTIF(' . $range . ',"病")'); // 病假
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 6) . $r, '=COUNTIF(' . $range . ',"产")'); // 产假
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 7) . $r, '=COUNTIF(' . $range . ',"假")'); // 带薪假
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 8) . $r, '=COUNTIF(' . $range . ',"缺")'); // 缺卡
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 9) . $r, '=COUNTIF(' . $range . ',"旷")'); // 旷工
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 10) . $r, '=COUNTIF(' . $range . ',"迟")'); // 迟到
-            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 11) . $r, '=COUNTIF(' . $range . ',"早")'); // 早退
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 4) . $r, '=' . str_replace('{rng}', $range, $catF('事假')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 5) . $r, '=' . str_replace('{rng}', $range, $catF('病假')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 6) . $r, '=' . str_replace('{rng}', $range, $catF('产假')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 7) . $r, '=' . str_replace('{rng}', $range, $catF('年假调休')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 8) . $r, '=' . str_replace('{rng}', $range, $catF('缺卡')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 9) . $r, '=' . str_replace('{rng}', $range, $catF('旷工')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 10) . $r, '=' . str_replace('{rng}', $range, $catF('迟到')));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 11) . $r, '=' . str_replace('{rng}', $range, $catF('早退')));
         }
         foreach ($staff as $index => $person) {
             $sheet->setCellValue("A{$row}", $index + 1); $sheet->setCellValue("B{$row}", $person->name);
@@ -338,6 +357,23 @@ class TemplateController extends ApiController
         // 备注列
         $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart))->setWidth(18);
         $sheet->freezePane('E5');
+        // 工作表保护：统计列锁定，填写列可编辑
+        $unlock = \PhpOffice\PhpSpreadsheet\Style\Protection::PROTECTION_UNPROTECTED;
+        $maxRow = max(4 + $formulaRows + 30, 50);
+        $dL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart);
+        $dR = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);
+        $reqL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);
+        $coefL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 2);
+        $mL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart);
+        $mR = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyEnd);
+        $tL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart);
+        $sheet->getStyle("{$dL}5:{$dR}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$reqL}5:{$reqL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$coefL}5:{$coefL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$mL}5:{$mR}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$tL}5:{$tL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getProtection()->setSheet(true);
+        $sheet->getProtection()->setPassword('');
         return $this->xlsxResponse($book, '考勤表模板_' . $project . '_' . $ym . '.xlsx');
     }
 

@@ -52,7 +52,6 @@ class PayrollAdjustParityTest extends TestCase
         }
         DB::table('legacy_json_snapshots')->updateOrInsert(['file_name' => 'symbols.json'],
             ['payload' => json_encode(['items' => $items], JSON_UNESCAPED_UNICODE)]);
-        CalcRules::forget();
 
         // 员工：月薪15000(基本10000+绩效5000)，2026-07入职
         $special = [];
@@ -65,7 +64,7 @@ class PayrollAdjustParityTest extends TestCase
         DB::table('payroll_staff')->insert([
             'legacy_id' => 1, 'name' => '测试员工', 'project_name' => '测试项目', 'position' => '工程师',
             'status' => '正式', 'fixed_monthly' => 15000, 'base_salary' => 10000, 'hire_date' => '2026-07-01',
-            'regular_date' => null, 'resign_date' => null, 'deleted' => false,
+            'regular_date' => null, 'resign_date' => null, 'deleted' => false, 'person_type' => 'staff',
             'data' => json_encode($data, JSON_UNESCAPED_UNICODE),
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -80,7 +79,7 @@ class PayrollAdjustParityTest extends TestCase
         DB::table('payroll_attendance')->updateOrInsert(
             ['record_key' => self::YM . '|测试项目'],
             ['year_month' => self::YM, 'project_name' => '测试项目',
-             'rows' => json_encode(['测试员工' => $att], JSON_UNESCAPED_UNICODE),
+             'rows' => json_encode(['测试员工' => $att], JSON_UNESCAPED_UNICODE), 'locked' => true,
              'created_at' => now(), 'updated_at' => now()]
         );
     }

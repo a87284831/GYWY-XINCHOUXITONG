@@ -14,6 +14,9 @@ return new class extends Migration
             $table->string('year_month', 7)->index();
             $table->string('project_name', 120)->index();
             $table->json('rows');
+            $table->boolean('locked')->default(false);
+            $table->timestamp('locked_at')->nullable();
+            $table->string('locked_by', 120)->nullable();
             $table->json('data')->nullable();
             $table->timestamps();
         });
@@ -25,6 +28,9 @@ return new class extends Migration
             $table->string('project_name', 120)->index();
             $table->json('row_data');
             $table->boolean('archived')->default(false);
+            $table->boolean('is_manager_row')->default(false);
+            $table->boolean('is_case_row')->default(false);
+            $table->boolean('is_hq_row')->default(false);
             $table->timestamps();
             $table->unique(['year_month', 'staff_legacy_id']);
         });

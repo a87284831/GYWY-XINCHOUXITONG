@@ -28,6 +28,13 @@ class PayrollCalculator
     ];
 
     private const DEFAULT_GROSS = 'base_pay + perf_pay + sick_pay + night + meal + title_sub + reward + welfare - punish - miss_d - late_d - other_d - uniform_d';
+
+    /** 国家综合所得年度累计预扣率表（7 级），存储级距不全时的兜底 */
+    public const DEFAULT_TAX_BRACKETS = [
+        [36000, 0.03, 0], [144000, 0.10, 2520], [300000, 0.20, 16920],
+        [420000, 0.25, 31920], [660000, 0.30, 52920], [960000, 0.35, 85920],
+        [99999999999, 0.45, 181920],
+    ];
     private const DEFAULT_NET   = 'gross - soc_total - actual_tax - welfare';
 
     public function __construct(private readonly CalcRules $rules = new CalcRules()) {}
@@ -38,15 +45,12 @@ class PayrollCalculator
      */
     private static function categoryMap(string $ym): array
     {
-        $end = date('Y-m-t', strtotime($ym . '-01'));
-        $rows = DB::table('payroll_staff_person_type_log as l')
-            ->join('payroll_staff as s', 's.id', '=', 'l.staff_id')
-            ->where('l.effective_date', '<=', $end)
-            ->orderBy('l.effective_date', 'desc')
-            ->orderBy('l.id', 'desc')
-            ->get(['l.staff_id', 'l.person_type', 's.legacy_id']);
+        // 直接从人员档案的 person_type 字段判断（来自钉钉岗位职级同步）
+        $rows = DB::table('payroll_staff')
+            ->where('deleted', false)
+            ->get(['legacy_id', 'person_type']);
         $map = [];
-        foreach ($rows as $r) { if (!isset($map[$r->legacy_id])) $map[$r->legacy_id] = $r->person_type; }
+        foreach ($rows as $r) { $map[$r->legacy_id] = $r->person_type ?: 'staff'; }
         return $map;
     }
 
@@ -62,11 +66,10 @@ class PayrollCalculator
         if (!$projects) throw new RuntimeException('未指定项目');
 
         $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
         // 项目核算不含管理人员与案场人员（管理人员/案场人员分别由 calculateManagers / calculateCaseStaff 单独核算）
         $catMap    = self::categoryMap($ym);
         $staff     = DB::table('payroll_staff')->whereIn('project_name', $projects)
-            ->where('project_name', '!=', '物业总部')
             ->where('deleted', false)->get()
             ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'staff');
 
@@ -142,9 +145,9 @@ class PayrollCalculator
             throw new RuntimeException('无效月份：' . $ym);
         }
         $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
         $catMap    = self::categoryMap($ym);
-        $staff     = DB::table('payroll_staff')->where('project_name', '!=', '物业总部')->where('deleted', false)->get()
+        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
             ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'manager');
 
         // 预取当年历史核算结果（含项目表与管理层表，同人跨表累计，个税累计口径不变）
@@ -214,10 +217,10 @@ class PayrollCalculator
             throw new RuntimeException('无效月份：' . $ym);
         }
         $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
         $catMap    = self::categoryMap($ym);
         $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
-            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'case' && $p->project_name !== '物业总部');
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'case');
 
         // 预取当年历史核算结果（含项目表/管理层表/案场表，同人跨表累计，个税累计口径不变）
         $historyByStaff = collect();
@@ -286,10 +289,11 @@ class PayrollCalculator
             throw new RuntimeException('无效月份：' . $ym);
         }
         $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->get()->keyBy('project_name');
-        // 物业总部全部在职人员（一套标签：不区分是否管理人员/案场人员）
-        $staff = DB::table('payroll_staff')->where('project_name', '物业总部')
-            ->where('deleted', false)->get();
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
+        // 总部人员：按岗位职级=总部人员筛选
+        $catMap    = self::categoryMap($ym);
+        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'hq');
 
         // 预取当年历史核算结果（含各表，同人跨表累计，个税累计口径不变）
         $historyByStaff = collect();
@@ -362,7 +366,7 @@ class PayrollCalculator
         if ($h <= 0) $h = $actual > 0 ? (int)date('t', strtotime($ym . '-01')) : 1;
 
         $coef = array_key_exists('coef', $att) && $att['coef'] !== null && $att['coef'] !== ''
-            ? (float)$att['coef'] : 0.0;
+            ? (float)$att['coef'] : 1.0;
 
         // 分母统一为应出勤 H（旧版/设计文档：基本工资=Σ段基本×段出勤/H），
         // 与 prorate_base=calendar 联动；不再使用旧版未定义的 actual 分支。
@@ -532,6 +536,8 @@ class PayrollCalculator
             'coef' => $coef, 'req_att' => $h, 'act_att' => $actual,
             'h' => $h, 'actual' => $actual,
         ];
+        $__cfVars = $this->rules->raw('custom_fields', []);
+        if (is_array($__cfVars)) { foreach ($__cfVars as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = (float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0); } }
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS
         ), 2);
@@ -585,7 +591,10 @@ class PayrollCalculator
             $this->rules->str('formula.net', ''), $vars, self::DEFAULT_NET
         ), 2);
 
-        return [
+        $__cfResult = [];
+        $__cfList = $this->rules->raw('custom_fields', []);
+        if (is_array($__cfList)) { foreach ($__cfList as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $__cfResult[$__cn] = round((float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0), 2); } }
+        return array_merge([
             'staff_id' => $person->legacy_id, 'project' => $person->project_name,
             'department' => $this->deptName($person->dept_path ?? null, $person->project_name),
             'position' => $person->position ?: '', 'name' => $person->name,
@@ -615,7 +624,7 @@ class PayrollCalculator
             'withhold' => $tax, 'actual_tax' => $tax, 'tax_diff' => 0,
             'net' => $net, 'remark' => (string)($att['remark'] ?? ''),
             'bank_card' => $data['bank_card'] ?? '', 'overrides' => [],
-        ];
+        ], $__cfResult);
     }
 
     /** 微调后重算派生列（gross/net/tax），保持行内其它字段不变。 */
@@ -634,6 +643,8 @@ class PayrollCalculator
             'coef' => (float)($row['coef'] ?? 1),
             'req_att' => (float)($row['req_att'] ?? 0), 'act_att' => (float)($row['act_att'] ?? 0),
         ];
+        $__cfR = $this->rules->raw('custom_fields', []);
+        if (is_array($__cfR)) { foreach ($__cfR as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = (float)($row[$__cn] ?? $__f['default'] ?? 0); } }
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS), 2);
         $soc = round(array_sum(array_map(
@@ -745,22 +756,31 @@ class PayrollCalculator
     {
         $snap = DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
         $payload = $snap ? (json_decode((string)$snap->payload, true) ?: []) : [];
-        return ($payload['rules']['tax'] ?? []) + [
+        $tax = ($payload['rules']['tax'] ?? []) + [
             'basic_deduction' => 5000,
-            'brackets' => [
-                [36000, 0.03, 0], [144000, 0.10, 2520], [300000, 0.20, 16920],
-                [420000, 0.25, 31920], [660000, 0.30, 52920], [960000, 0.35, 85920],
-                [99999999999, 0.45, 181920],
-            ],
+            'brackets' => self::DEFAULT_TAX_BRACKETS,
         ];
+        // 若存储的级距缺失或非数组，回退标准 7 级，保证计算端永远有完整级距
+        if (!is_array($tax['brackets'] ?? null) || $tax['brackets'] === []) {
+            $tax['brackets'] = self::DEFAULT_TAX_BRACKETS;
+        }
+        return $tax;
     }
 
     private function taxAmount(float $taxable, array $config): float
     {
-        foreach (($config['brackets'] ?? []) as $br) {
+        $brackets = $config['brackets'] ?? [];
+        if (!is_array($brackets) || $brackets === []) $brackets = self::DEFAULT_TAX_BRACKETS;
+        $top = null;
+        foreach ($brackets as $br) {
+            $top = $br;
             if ($taxable <= (float)($br[0] ?? 0)) {
                 return round(max(0, $taxable * (float)($br[1] ?? 0) - (float)($br[2] ?? 0)), 2);
             }
+        }
+        // 超过已配置的最高档：按最高档税率与速算扣除数计（避免级距不全时高收入者被算成 0）
+        if ($top !== null) {
+            return round(max(0, $taxable * (float)($top[1] ?? 0) - (float)($top[2] ?? 0)), 2);
         }
         return 0.0;
     }
@@ -895,6 +915,8 @@ class PayrollCalculator
      */
     private function rowStatus(object $person, array $data, string $ym): string
     {
+        // status 列已明确为离职（钉钉离职名单为权威）时一律按离职处理，即使未取到离职日期
+        if (trim((string)($person->status ?? '')) === '离职') return '离职';
         $regular = $data['regular_date'] ?? $person->regular_date;
         $status = StaffStatus::derive($person->resign_date ?? null, $regular, StaffStatus::monthEnd($ym));
         if (!$regular && (string)($person->status ?? '') === '试用' && empty($person->resign_date)) {
@@ -914,7 +936,7 @@ class PayrollCalculator
             $symbol = trim((string)$symbol);
             if ($symbol === '' || !isset($symbols[$symbol])) continue;
             $item = $symbols[$symbol];
-            if (!empty($item['in_required'])) $stats['required'] += (float)($item['value'] ?? 1);
+            if (!empty($item['in_required'])) $stats['required'] += 1;
             if (!empty($item['in_actual']))   $stats['attend'] += (float)($item['value'] ?? 1);
             $cat = self::CATEGORIES[$item['category'] ?? ''] ?? null;
             if ($cat) $stats[$cat]++;

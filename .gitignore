@@ -6,3 +6,5 @@
 /storage/framework/views/*
 .phpunit.result.cache
 /public/purchase/assets_bak_20260912
+
+.superpowers/

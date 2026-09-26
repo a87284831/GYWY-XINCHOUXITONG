@@ -24,8 +24,16 @@ class PayrollWriteController extends ApiController
             return response()->json(['ok' => false, 'error' => '核算月份或项目无效'], 400);
         }
         if ($this->isProjectScope($account)) {
-            // 项目账号无薪资核定权限，仅总部管理员可核定
             return response()->json(['ok' => false, 'error' => '仅总部可核定薪资，项目账号无核定权限'], 403);
+        }
+        // 考勤必须锁定才能核算
+        $notLocked = [];
+        foreach ($projects as $p) {
+            $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
+            if (!$row || !(bool) $row->locked) $notLocked[] = $p;
+        }
+        if ($notLocked) {
+            return response()->json(['ok' => false, 'error' => '以下项目考勤尚未锁定为最终版本，不能核算：' . implode('、', $notLocked) . '。请通知项目人力上传并锁定考勤后再核算。'], 400);
         }
         try {
             $result = $calc->calculate($ym, $projects);

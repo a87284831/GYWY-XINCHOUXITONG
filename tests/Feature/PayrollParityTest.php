@@ -44,7 +44,6 @@ class PayrollParityTest extends TestCase
             ['file_name' => 'symbols.json'],
             ['payload' => json_encode(['items' => $this->symbols()], JSON_UNESCAPED_UNICODE)]
         );
-        CalcRules::forget();
     }
 
     private function symbols(): array
@@ -92,7 +91,7 @@ class PayrollParityTest extends TestCase
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '测试岗',
             'status' => $over['status'] ?? '正式', 'fixed_monthly' => $fixed, 'base_salary' => $base,
             'hire_date' => $hire, 'regular_date' => $over['regular_date'] ?? null,
-            'resign_date' => $over['resign_date'] ?? null, 'deleted' => $over['deleted'] ?? false,
+            'resign_date' => $over['resign_date'] ?? null, 'deleted' => $over['deleted'] ?? false, 'person_type' => $over['person_type'] ?? 'staff',
             'data' => json_encode($data, JSON_UNESCAPED_UNICODE),
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -120,7 +119,7 @@ class PayrollParityTest extends TestCase
     {
         DB::table('payroll_attendance')->insert([
             'record_key' => self::YM . '|测试项目', 'year_month' => self::YM, 'project_name' => '测试项目',
-            'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE),
+            'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE), 'locked' => true,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         (new PayrollCalculator())->calculate(self::YM, ['测试项目']);

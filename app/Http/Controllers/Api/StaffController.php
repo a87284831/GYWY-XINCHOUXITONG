@@ -13,6 +13,7 @@ class StaffController extends ApiController
     public function bulkDelete(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') return response()->json(['ok' => false, 'error' => '仅管理员可操作'], 403);
         $ids = array_map('intval', (array) $request->input('ids', []));
         $query = DB::table('payroll_staff')->whereIn('legacy_id', $ids);
         if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
@@ -23,6 +24,7 @@ class StaffController extends ApiController
     public function bulkDeduct(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') return response()->json(['ok' => false, 'error' => '仅管理员可操作'], 403);
         $ids = array_map('intval', (array) $request->input('ids', [])); $items = $request->input('items', []);
         if (!is_array($items)) return response()->json(['ok' => false, 'error' => '扣除数据格式错误'], 400);
         $query = DB::table('payroll_staff')->whereIn('legacy_id', $ids);
@@ -206,6 +208,7 @@ class StaffController extends ApiController
 
         // ===== 阶段二：全部通过后统一写入 =====
         $added = 0; $updated = 0; $pending = 0;
+        $maxId = (int) (DB::table('payroll_staff')->max('legacy_id') ?? 0);
         foreach ($rows as $r) {
             $input = $r['input'];
             $existing = DB::table('payroll_staff')->where('name', $input['name'])->where('project_name', $r['project'])->first();
@@ -230,9 +233,9 @@ class StaffController extends ApiController
                 ]);
                 $updated++;
             } else {
-                $id = (int) (DB::table('payroll_staff')->max('legacy_id') ?? 0) + 1;
+                $maxId++;
                 DB::table('payroll_staff')->insert([
-                    'legacy_id' => $id, 'name' => $input['name'], 'project_name' => $r['project'], 'position' => $r['position'],
+                    'legacy_id' => $maxId, 'name' => $input['name'], 'project_name' => $r['project'], 'position' => $r['position'],
                     'status' => \App\Services\StaffStatus::derive($r['resign'], $r['regular'], $today),
                     'fixed_monthly' => $r['fixedVal'] ?? 0, 'base_salary' => $r['baseVal'] ?? 0,
                     'hire_date' => $r['hire'], 'regular_date' => $r['regular'], 'resign_date' => $r['resign'],
@@ -336,7 +339,6 @@ class StaffController extends ApiController
     {
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) {
-            error_log('[SAVE_DEBUG] requireAccount: ' . $account->getContent());
             return $account;
         }
         $input = $request->input('staff');
