@@ -23,4 +23,7 @@ export default defineConfig({
     outDir: '../public/app',
     emptyOutDir: true,
   },
+  test: {
+    environment: 'jsdom',
+  },
 })

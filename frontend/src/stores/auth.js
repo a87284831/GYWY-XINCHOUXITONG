@@ -11,6 +11,9 @@ export const useAuthStore = defineStore('auth', {
     appModules: [],
     // 项目列表（复刻 state.projects，由 /api/init 提供）
     projects: [],
+    // 角色与系统设置（复刻 state.roles / state.settings，由 /api/init 提供）
+    roles: [],
+    settings: {},
   }),
   getters: {
     // 复刻 canPerm(mod)：admin 全通过，否则按权限点集合判断；空串=所有人可见
@@ -50,6 +53,8 @@ export const useAuthStore = defineStore('auth', {
       this.user = data.user
       this.projects = data.projects || []
       this.appModules = data.app_modules || []
+      this.roles = data.roles || []
+      this.settings = data.settings || {}
       const permSet = []
       const add = (p) => {
         if (!permSet.includes(p)) permSet.push(p)
