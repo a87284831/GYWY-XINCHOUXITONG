@@ -47,6 +47,39 @@
               <label class="fld"><input type="checkbox" v-model="fm.perf_on"> 启用绩效工资</label>
               <label class="fld" style="margin-left:16px"><input type="checkbox" v-model="fm.perf_prob"> 试用期不参与</label>
             </div>
+            <div class="hint" style="margin:8px 0 4px">绩效发放周期：员工/案场人员固定按月发放；管理/总部人员可配置为季度末累计发放（季度末月按本季度逐月绩效累计 × 周期系数 × 职级比例发放，7月/1月同时发半年度部分）。</div>
+            <div v-for="t in ['mgr', 'hq']" :key="t" style="margin-top:8px;padding:8px;border:1px dashed #cbd5e1;border-radius:6px">
+              <div class="row">
+                <b>{{ t === 'mgr' ? '管理人员' : '总部人员' }}</b>
+                <label class="fld" style="margin-left:12px">发放周期
+                  <select v-model="payRules[t].cycle" style="width:150px">
+                    <option value="monthly">按月发放</option>
+                    <option value="quarterly">季度末累计发放</option>
+                  </select></label>
+              </div>
+              <template v-if="payRules[t].cycle === 'quarterly'">
+                <div class="table-wrap" style="margin-top:6px"><table class="tb" style="min-width:520px">
+                  <thead><tr><th>职级</th><th>季度比例</th><th>半年度比例</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(l, i) in payRules[t].levels" :key="i">
+                      <td><input type="text" v-model="l.level" placeholder="如：经理级" style="width:120px"></td>
+                      <td><input type="number" step="0.01" v-model="l.quarter_ratio" style="width:80px"></td>
+                      <td><input type="number" step="0.01" v-model="l.half_year_ratio" style="width:80px"></td>
+                      <td><button class="btn sm" @click="payRules[t].levels.splice(i, 1)">删除</button></td>
+                    </tr>
+                    <tr>
+                      <td style="color:#64748b">其他职级（默认）</td>
+                      <td><input type="number" step="0.01" v-model="payRules[t].def_q" style="width:80px"></td>
+                      <td><input type="number" step="0.01" v-model="payRules[t].def_h" style="width:80px"></td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+                <div class="row" style="margin-top:6px">
+                  <button class="btn sm" @click="payRules[t].levels.push({ level: '', quarter_ratio: 1, half_year_ratio: 0 })">+ 添加职级</button>
+                </div>
+              </template>
+            </div>
           </template>
           <template v-else-if="sec === '③ 病假工资'">
             <div class="row">
@@ -191,6 +224,11 @@ const grossIn = ref(null)
 const netIn = ref(null)
 const fm = reactive({ seg: false, prorate: 'required', perf_on: false, perf_prob: false, sick_on: false, sick_a: 0, sick_b: 0, sick_base: 'base', meal_mode: 'full', allow_mode: 'full', rp: false, miss_on: false, miss_f3: 30, miss_a3: 50, abs_on: false, abs_mult: 3, late_on: false, late_per: 10, tax_basic: 5000, cum_start: 'jan', gross: '', net: '' })
 const paramSections = ['① 应发基本工资', '② 绩效工资', '③ 病假工资', '④ 补贴发放', '⑤ 奖惩', '⑥ 考勤扣款', '⑦ 个人所得税', '⑧ 五险一金 / 专项附加']
+// 管理/总部绩效发放规则（对应 calc_rules.pay_rules.manager / .hq）
+const payRules = reactive({
+  mgr: { cycle: 'monthly', levels: [], def_q: 1, def_h: 0 },
+  hq: { cycle: 'monthly', levels: [], def_q: 1, def_h: 0 },
+})
 
 const customVars = computed(() => fields.value.filter((f) => f.enabled).map((f) => f.name))
 function inFormula(name, which) {
@@ -226,6 +264,20 @@ function initFm() {
   fm.net = cnFormula((R.formula || {}).net) || NET_DEFAULT
   const src = (R.tax && Array.isArray(R.tax.brackets) && R.tax.brackets.length) ? R.tax.brackets : STD_TAX_BRACKETS
   taxDraft.value = src.map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
+  // 管理/总部绩效规则
+  const pr = R.pay_rules || {}
+  for (const t of ['mgr', 'hq']) {
+    const s = pr[t === 'mgr' ? 'manager' : 'hq'] || {}
+    payRules[t].cycle = s.cycle === 'quarterly' ? 'quarterly' : 'monthly'
+    const lv = s.levels || {}
+    payRules[t].levels = Object.keys(lv).map((k) => ({
+      level: k,
+      quarter_ratio: Number(lv[k].quarter_ratio ?? 1),
+      half_year_ratio: Number(lv[k].half_year_ratio ?? 0),
+    }))
+    payRules[t].def_q = Number((s.default || {}).quarter_ratio ?? 1)
+    payRules[t].def_h = Number((s.default || {}).half_year_ratio ?? 0)
+  }
 }
 function setCap(b, e) { b[0] = e.target.value === '' ? 99999999999 : parseFloat(e.target.value) }
 function taxAdd() { taxDraft.value = taxAddBracket(taxDraft.value) }
@@ -348,6 +400,24 @@ async function saveAll() {
     R.deduction_rules.absent = { enabled: fm.abs_on, multiplier: parseFloat(fm.abs_mult) || 2 }
     R.deduction_rules.late_early = { enabled: fm.late_on, per_time: parseFloat(fm.late_per) || 10 }
     R.formula = R.formula || {}
+    // 管理/总部绩效发放规则：员工/案场固定按月，不开放编辑
+    R.pay_rules = R.pay_rules || {}
+    R.pay_rules.staff = R.pay_rules.staff && R.pay_rules.staff.cycle ? R.pay_rules.staff : { cycle: 'monthly', ratio: 1.0 }
+    R.pay_rules.case = R.pay_rules.case && R.pay_rules.case.cycle ? R.pay_rules.case : { cycle: 'monthly', ratio: 1.0 }
+    for (const t of ['mgr', 'hq']) {
+      const key = t === 'mgr' ? 'manager' : 'hq'
+      if (payRules[t].cycle === 'quarterly') {
+        const levels = {}
+        for (const l of payRules[t].levels) {
+          const name = String(l.level || '').trim()
+          if (!name) continue
+          levels[name] = { quarter_ratio: parseFloat(l.quarter_ratio) || 0, half_year_ratio: parseFloat(l.half_year_ratio) || 0 }
+        }
+        R.pay_rules[key] = { cycle: 'quarterly', levels, default: { quarter_ratio: parseFloat(payRules[t].def_q) || 0, half_year_ratio: parseFloat(payRules[t].def_h) || 0 } }
+      } else {
+        R.pay_rules[key] = { cycle: 'monthly', ratio: 1.0 }
+      }
+    }
     // BUG-3 修复：保存前把中文变量名转回英文键，后端 Expr 只支持英文标识符
     R.formula.gross = enFormula((fm.gross || '').trim())
     R.formula.net = enFormula((fm.net || '').trim())
