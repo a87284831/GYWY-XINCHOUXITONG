@@ -25,6 +25,9 @@ const saving = ref(false)
 const defaultLine = ref(FILL_LINES[0])
 let keySeq = 0
 
+const noProject = computed(() => isAdmin.value && !projectId.value) // admin 未指定代填项目：不能保存
+const proxyProjectName = ref('')
+
 const monthText = computed(() => Number(month.value.slice(0, 4)) + ' 年 ' + Number(month.value.slice(5)) + ' 月')
 const returnedCount = computed(() => rows.value.filter((r) => r.status === 'returned').length)
 const savedCount = computed(() => rows.value.filter((r) => r.id).length)
@@ -59,6 +62,16 @@ async function loadWindow() {
   try {
     win.value = (await api('/api/purchase/fill/window?month=' + month.value)).data
   } catch (e) { /* 窗口加载失败不阻断 */ }
+}
+
+// 代填时把项目名显示出来，避免记住/传参后填错对象不自知
+async function loadProxyName() {
+  if (!isAdmin.value || !projectId.value) return
+  try {
+    const list = (await api('/api/purchase/projects/options')).data || []
+    const hit = list.find((p) => p.id === projectId.value)
+    proxyProjectName.value = hit ? hit.name : ('#' + projectId.value)
+  } catch (e) { /* 名称获取失败不阻断 */ }
 }
 
 async function refillSpecs(r) {
@@ -271,7 +284,7 @@ async function saveAll(submit) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadWindow(), loadRows()])
+  await Promise.all([loadWindow(), loadRows(), loadProxyName()])
 })
 </script>
 
@@ -285,8 +298,14 @@ onMounted(async () => {
         填报人为：{{ fillerName }}
         （窗口：{{ win && win.window ? win.window.start_date + ' 至 ' + win.window.end_date : '未配置' }}）
       </span>
+      <el-tag v-if="isAdmin && projectId" size="small" type="warning" effect="dark">
+        代填项目：{{ proxyProjectName || ('#' + projectId) }}
+      </el-tag>
     </div>
     <div style="font-size:12px;color:#94a3b8;margin:6px 0 12px;">每月 20-23 日为填报窗口，逾期截止</div>
+
+    <el-alert v-if="noProject" type="error" :closable="false" show-icon style="margin-bottom:12px;"
+      title="未指定代填项目：管理员请从「采购填报」页选择代填项目后进入，本页暂不能保存（避免记录落到错误项目）" />
 
     <el-alert v-if="returnedCount > 0" type="warning" :closable="false" show-icon style="margin-bottom:12px;"
       :title="'招采已退回 ' + returnedCount + ' 条记录要求修改，请查看红色行中的退回原因，修改后点击「提交全部」重新提交'" />
@@ -300,8 +319,8 @@ onMounted(async () => {
         </el-select>
         <span style="color:#999;font-size:12px;">新行自动沿用，行内可单独修改</span>
         <div style="flex:1 1 auto"></div>
-        <el-button type="primary" :loading="saving" @click="saveAll(false)">保存全部 {{ saveableCount }}</el-button>
-        <el-button type="success" :loading="saving" @click="saveAll(true)">提交全部 {{ saveableCount }}</el-button>
+        <el-button type="primary" :loading="saving" :disabled="noProject" @click="saveAll(false)">保存全部 {{ saveableCount }}</el-button>
+        <el-button type="success" :loading="saving" :disabled="noProject" @click="saveAll(true)">提交全部 {{ saveableCount }}</el-button>
         <el-button @click="addRow">新增一行</el-button>
         <el-button @click="rows = [Object.assign(newRow(++keySeq, defaultLine.value))]">重置</el-button>
       </div>

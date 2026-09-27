@@ -13,7 +13,11 @@ const auth = useAuthStore()
 const isAdmin = computed(() => !!auth.user && auth.user.role === 'admin')
 
 const year = ref(new Date().getFullYear())
-const projectId = ref(0)
+// 代填项目：null=未选（下拉显示占位符而非 0）；记住上次选择，避免每次进入都要重选
+const PID_KEY = 'gw_purchase_fill_pid'
+let _savedPid = 0
+try { _savedPid = Number(localStorage.getItem(PID_KEY)) || 0 } catch (e) { /* 存储不可用忽略 */ }
+const projectId = ref(_savedPid || null)
 const projects = ref([])
 const rows = ref([])
 const loading = ref(false)
@@ -23,7 +27,7 @@ const curMonth = new Date().toISOString().slice(0, 7)
 const years = (() => {
   const y = new Date().getFullYear()
   const out = []
-  for (let i = y + 1; i >= y - 3; i--) out.push(i)
+  for (let i = y + 4; i >= y - 3; i--) out.push(i)
   return out
 })()
 
@@ -31,10 +35,21 @@ async function loadProjects() {
   if (!isAdmin.value) return
   try {
     projects.value = (await api('/api/purchase/projects/options')).data || []
+    // 记住的项目已不存在（停用/删除）时清掉，避免下拉显示数字 id
+    if (projectId.value && !projects.value.some((p) => p.id === projectId.value)) projectId.value = null
   } catch (e) { /* 代填列表失败不阻断页面 */ }
 }
 
+function onProjectChange(v) {
+  try {
+    if (v) localStorage.setItem(PID_KEY, String(v))
+    else localStorage.removeItem(PID_KEY)
+  } catch (e) { /* 存储不可用忽略 */ }
+  load()
+}
+
 async function load() {
+  if (isAdmin.value && !projectId.value) { rows.value = []; return } // 未选代填项目不发请求（后端会报项目缺失）
   loading.value = true
   try {
     const q = '?year=' + year.value + (isAdmin.value && projectId.value ? '&project_id=' + projectId.value : '')
@@ -65,16 +80,20 @@ onMounted(async () => {
       </el-select>
       <template v-if="isAdmin">
         <span style="font-size:13px;color:#6b7280;">代填项目：</span>
-        <el-select v-model="projectId" style="width:200px" placeholder="选择项目" @change="load">
+        <el-select v-model="projectId" style="width:200px" placeholder="选择项目" @change="onProjectChange">
           <el-option v-for="p in projects" :key="p.id" :value="p.id" :label="p.name" />
         </el-select>
+        <span v-if="!projectId" style="font-size:12.5px;color:#e6a23c;">请先选择要代填的项目，再进入月份填报</span>
       </template>
     </div>
     <div style="font-size:12.5px;color:#94a3b8;margin:8px 0 14px;">
       选择月份进入填报 · 当前为 {{ curMonth.slice(0, 4) }} 年 {{ Number(curMonth.slice(5)) }} 月：本月开放填报，历史月份只读可查看（往年月份也可查看）
     </div>
 
-    <div v-loading="loading" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">
+    <div v-if="isAdmin && !projectId" class="dash-card" style="padding:24px;text-align:center;color:#94a3b8;font-size:13px;">
+      请在上方选择「代填项目」后查看/填报该项目的月度需求
+    </div>
+    <div v-else v-loading="loading" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">
       <div v-for="r in rows" :key="r.month" class="dash-card" style="padding:14px 16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;">
           <div style="font-size:16px;font-weight:700;">{{ Number(r.month.slice(5)) }} 月</div>

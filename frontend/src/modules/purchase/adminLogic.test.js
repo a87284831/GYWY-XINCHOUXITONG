@@ -57,8 +57,8 @@ describe('adminLogic', () => {
     expect(budgetRowState({ budget: 0, actual: 0, over: false })).toBe('unset')
   })
 
-  it('budgetYears: 当前年前后各一年', () => {
-    expect(budgetYears(new Date('2026-09-01T00:00:00'))).toEqual([2025, 2026, 2027])
+  it('budgetYears: 前一年到后四年', () => {
+    expect(budgetYears(new Date('2026-09-01T00:00:00'))).toEqual([2025, 2026, 2027, 2028, 2029, 2030])
   })
 
   it('seedCustomForm: 填报行→编辑表单（name/alias 默认 item_name，category 恒空，quantity/use_location 清空）', () => {

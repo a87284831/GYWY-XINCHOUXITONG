@@ -41,10 +41,10 @@ export function budgetRowState(row) {
   return 'unset'
 }
 
-// 导入弹窗年份下拉（当前年 ±1）
+// 导入弹窗年份下拉（前一年 ~ 后四年，兼顾跨年备料与远期预算）
 export function budgetYears(now) {
   const y = now.getFullYear()
-  return [y - 1, y, y + 1]
+  return [y - 1, y, y + 1, y + 2, y + 3, y + 4]
 }
 
 // 清单外审核：填报行 → 编辑入库表单
