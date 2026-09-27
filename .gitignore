@@ -7,4 +7,10 @@
 .phpunit.result.cache
 /public/purchase/assets_bak_20260912
 
+# 前端依赖与本地缓存（npm install 可重建，禁止入库）
+node_modules/
+**/.vite/
+npm-debug.log*
+*.local
+
 .superpowers/
