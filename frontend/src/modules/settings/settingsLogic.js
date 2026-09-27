@@ -18,6 +18,9 @@ export const VAR_CN = {
   spec_total: '附加扣除合计',
 }
 export function cnFormula(f) { return String(f || '').replace(/[a-zA-Z_]\w*/g, (m) => VAR_CN[m] || m) }
+// 中文→英文逆映射（保存公式时用，后端 Expr 只支持英文标识符）
+const VAR_EN = Object.fromEntries(Object.entries(VAR_CN).map(([en, cn]) => [cn, en]))
+export function enFormula(f) { return String(f || '').replace(/[\u4e00-\u9fa5]+/g, (m) => VAR_EN[m] || m) }
 export const GROSS_DEFAULT = '应发基本工资 + 应发绩效工资 + 病假工资 + 夜班话费补贴 + 餐补 + 其他补贴 + 月度奖励 + 已发福利 - 月度扣罚 - 缺卡扣款 - 迟到早退扣款 - 其他扣款 - 工装扣款'
 export const NET_DEFAULT = '应发合计 - 五险一金合计 - 本月个税 - 已发福利'
 export const BUILTIN_VARS = ['应发基本工资', '应发绩效工资', '病假工资', '夜班话费补贴', '餐补', '其他补贴', '月度奖励', '已发福利', '月度扣罚', '缺卡扣款', '迟到早退扣款', '其他扣款', '工装扣款', '应发合计', '五险一金合计', '本月个税', '养老保险', '医疗保险', '失业保险', '住房公积金', '大病', '附加扣除合计']
@@ -47,8 +50,8 @@ export function taxNormalize(brackets) {
 
 /* ---- 薪酬设置：公式验证（前端安全求值） — 复刻 evalFormulaSafe（app.js:3628） ---- */
 export function evalFormulaSafe(expr, vars) {
-  // 仅允许 数字、中文/英文白名单变量、+ - * / ( )
-  const tokens = expr.match(/[\u4e00-\u9fa5]+|[a-zA-Z_]\w*|[0-9.]+|[+\-*/()]/g) || []
+  // 支持：数字、中文/英文白名单变量、+ - * / % ( ) , 以及白名单函数 min/max/abs/round/floor/ceil/if
+  const tokens = expr.match(/[\u4e00-\u9fa5]+|[a-zA-Z_]\w*|[0-9.]+|[+\-*/%(),]/g) || []
   const rebuilt = tokens.join('')
   if (rebuilt !== expr.replace(/\s/g, '')) throw new Error('含非法字符')
   const allowed = Object.keys(vars)
@@ -60,7 +63,16 @@ export function evalFormulaSafe(expr, vars) {
     }
     return t
   }).join('')
-  return Function('"use strict";return (' + code + ')')()
+  // 将白名单函数映射到 JS 等价物，与后端 Expr 支持的函数保持一致
+  const jsCode = code
+    .replace(/\bmin\(/g, 'Math.min(')
+    .replace(/\bmax\(/g, 'Math.max(')
+    .replace(/\babs\(/g, 'Math.abs(')
+    .replace(/\bround\(/g, 'Math.round(')
+    .replace(/\bfloor\(/g, 'Math.floor(')
+    .replace(/\bceil\(/g, 'Math.ceil(')
+    .replace(/\bif\(/g, '_if(')
+  return Function('Math', '_if', '"use strict";return (' + jsCode + ')')(Math, (c, t, e) => (c ? t : e))
 }
 
 /* ---- 薪酬设置：自定义薪酬项规整 — 复刻 cfSave/saveAllSalarySettings（app.js:3386/3523） ---- */

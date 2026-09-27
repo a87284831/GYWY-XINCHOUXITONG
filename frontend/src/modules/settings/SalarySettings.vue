@@ -128,7 +128,7 @@
           <span :style="{ marginLeft: '10px', fontSize: '13px', color: testRes.ok ? '#16a34a' : '#dc2626' }">{{ testRes.text }}</span>
         </div>
         <div style="padding:10px;background:#f0f0ff;border-radius:6px">
-          <div style="font-weight:600;margin-bottom:6px;font-size:13px">可用变量（点击可插入到光标位置）：</div>
+          <div style="font-weight:600;margin-bottom:6px;font-size:13px">可用变量（点击插入到光标位置，先点击目标输入框）：</div>
           <div style="margin-bottom:6px"><span style="font-size:11px;color:#6b7280">内置：</span>
             <span v-for="v in BUILTIN_VARS" :key="v" @click="insertVar(v)" style="display:inline-block;background:#e0e7ff;padding:2px 7px;margin:2px;border-radius:3px;font-size:12px;cursor:pointer">{{ v }}</span>
           </div>
@@ -152,11 +152,14 @@
               <td><input type="number" step="0.5" style="width:70px" v-model.number="s.value"></td>
               <td><select v-model="s.category"><option v-for="x in SYM_CATEGORIES" :key="x">{{ x }}</option></select></td>
               <td><input type="text" style="width:200px" v-model="s.desc"></td>
-              <td><button class="btn sm primary" @click="symSave">保存</button> <button class="btn sm danger" @click="symDel(i)">删除</button></td>
+              <td><button class="btn sm danger" @click="symDel(i)">删除</button></td>
             </tr>
           </tbody></table></div>
           <div v-if="symFormulas" class="hint" style="margin:10px 0 0">
             <div v-for="(v, k) in symFormulas" :key="k"><b>{{ SYM_FORMULA_CN[k] || k }}</b> = {{ v === '0' ? '0' : '=' + v }}</div>
+          </div>
+          <div style="margin-top:12px;text-align:right">
+            <button class="btn primary" @click="symSave">💾 保存符号库</button>
           </div>
         </div>
         <div v-else class="hint">加载中...</div>
@@ -174,7 +177,7 @@
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { cnFormula, GROSS_DEFAULT, NET_DEFAULT, BUILTIN_VARS, STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize, evalFormulaSafe, normalizeCustomFields, SYM_CATEGORIES, SYM_FORMULA_CN } from './settingsLogic'
+import { cnFormula, enFormula, GROSS_DEFAULT, NET_DEFAULT, BUILTIN_VARS, STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize, evalFormulaSafe, normalizeCustomFields, SYM_CATEGORIES, SYM_FORMULA_CN } from './settingsLogic'
 
 const rules = ref(null)
 const fields = ref([])
@@ -233,12 +236,20 @@ function taxDelBracket(i) {
 function taxRestoreStd() { taxDraft.value = STD_TAX_BRACKETS.map((b) => [Number(b[0]), Number(b[1]), Number(b[2])]) }
 
 function insertVar(v) {
-  const input = grossIn.value
+  // BUG-1 修复：优先插入到当前焦点所在的公式输入框
+  const active = document.activeElement
+  const grossEl = grossIn.value
+  const netEl = netIn.value
+  let input = null
+  let field = ''
+  if (active === grossEl) { input = grossEl; field = 'gross' }
+  else if (active === netEl) { input = netEl; field = 'net' }
+  else if (grossEl) { input = grossEl; field = 'gross' }
   if (!input) return
   const start = input.selectionStart || 0
   const end = input.selectionEnd || 0
   const val = input.value
-  fm.gross = val.substring(0, start) + v + val.substring(end)
+  fm[field] = val.substring(0, start) + v + val.substring(end)
   nextTick(() => { input.setSelectionRange(start + v.length, start + v.length); input.focus() })
 }
 
@@ -308,9 +319,9 @@ function symDel(i) {
   if (!confirm(`确认删除符号"${symbols.value[i].symbol}"？删除后需点击"保存符号库"生效。`)) return
   symbols.value.splice(i, 1)
 }
-
 /* ---- 统一保存 — 复刻 saveAllSalarySettings（app.js:3520-3566） ---- */
 async function saveAll() {
+  if (!confirm('确认保存所有薪酬设置？修改将在下次核算时生效。')) return
   try {
     const cfFields = normalizeCustomFields(fields.value)
     await api('/api/custom_fields/save', { body: { fields: cfFields } })
@@ -337,8 +348,9 @@ async function saveAll() {
     R.deduction_rules.absent = { enabled: fm.abs_on, multiplier: parseFloat(fm.abs_mult) || 2 }
     R.deduction_rules.late_early = { enabled: fm.late_on, per_time: parseFloat(fm.late_per) || 10 }
     R.formula = R.formula || {}
-    R.formula.gross = (fm.gross || '').trim()
-    R.formula.net = (fm.net || '').trim()
+    // BUG-3 修复：保存前把中文变量名转回英文键，后端 Expr 只支持英文标识符
+    R.formula.gross = enFormula((fm.gross || '').trim())
+    R.formula.net = enFormula((fm.net || '').trim())
     if (!R.formula.gross || !R.formula.net) { alert('应发合计和实发工资公式不能为空'); return }
     await api('/api/calc_rules/save', { body: { rules: R } })
     rules.value = R
