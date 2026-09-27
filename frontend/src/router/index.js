@@ -257,6 +257,24 @@ const routes = [
         component: () => import('@/modules/purchase/FillForm.vue'),
         meta: { perm: 'purchase_view' },
       },
+      {
+        path: 'purchase/summary',
+        name: 'purchaseSummary',
+        component: () => import('@/modules/purchase/PurchaseSummary.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
+        path: 'purchase/products',
+        name: 'purchaseProducts',
+        component: () => import('@/modules/purchase/ProductLibrary.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
+        path: 'purchase/oplogs',
+        name: 'purchaseOplogs',
+        component: () => import('@/modules/purchase/OpLogs.vue'),
+        meta: { perm: 'purchase_view' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -267,10 +285,18 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   auth.restore()
   if (!to.meta.public && !auth.token) return '/login'
+  // 深链/整页刷新时 user 尚未 hydrate：先确保会话就绪，否则权限判定一律 false 误重定向
+  if (auth.token && !auth.user) {
+    try {
+      await auth.ensureReady()
+    } catch (e) {
+      return '/login'
+    }
+  }
   if (to.path === '/login' && auth.token) return '/'
   if (to.meta.perm && !auth.can(to.meta.perm)) return '/'
 })

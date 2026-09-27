@@ -69,6 +69,67 @@ describe('auth store', () => {
     expect(s.token).toBe('')
   })
 
+  it('ensureReady: 有 token 无 user 时拉 /api/init 并 hydrate', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, user: { name: '管理员', role: 'admin' }, app_modules: [], projects: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    sessionStorage.setItem('gw_token', 'saved-tok')
+    const s = useAuthStore()
+
+    await s.ensureReady()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(s.user.name).toBe('管理员')
+  })
+
+  it('ensureReady: 并发调用复用同一 Promise，只发一次 /api/init', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, user: { role: 'admin' }, app_modules: [], projects: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    sessionStorage.setItem('gw_token', 'saved-tok')
+    const s = useAuthStore()
+
+    await Promise.all([s.ensureReady(), s.ensureReady()])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ensureReady: 已有 user 时不请求；无 token 时不请求', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const s = useAuthStore()
+    s.token = 'tk'
+    s.user = { role: 'admin' }
+    await s.ensureReady()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    s.token = ''
+    s.user = null
+    await s.ensureReady()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('ensureReady: 失败后清理进行中 Promise，允许重试', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: false, error: '未登录' }, 401))
+      .mockResolvedValueOnce(
+        jsonResponse({ ok: true, user: { role: 'admin' }, app_modules: [], projects: [] })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    sessionStorage.setItem('gw_token', 'saved-tok')
+    const s = useAuthStore()
+
+    await expect(s.ensureReady()).rejects.toThrow('未登录')
+    // client 401 已清 token；模拟重新登录后恢复
+    s.token = 'saved-tok'
+    await s.ensureReady()
+    expect(s.user.role).toBe('admin')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('can: 空串所有人可见；admin 全通过；普通角色按 perms 集合判断', () => {
     const s = useAuthStore()
     expect(s.can('')).toBe(true)

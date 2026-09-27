@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { api } from '@/api/client'
 import router from '@/router'
 
+// 进行中的会话恢复请求（模块级，跨 store 实例去重；守卫并发触发时只发一次 /api/init）
+let bootPromise = null
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
@@ -40,6 +43,24 @@ export const useAuthStore = defineStore('auth', {
     restore() {
       const t = sessionStorage.getItem('gw_token')
       if (t) this.token = t
+    },
+    // 深链/刷新场景：守卫在 MainLayout 挂载前执行，必须先确保 user 就绪再判权限。
+    // 有 token 缺 user 时拉 /api/init 并 hydrate；并发调用复用同一 Promise。
+    async ensureReady() {
+      this.restore()
+      if (!this.token || this.user) return
+      if (!bootPromise) {
+        bootPromise = api('/api/init')
+          .then((data) => {
+            this.hydrate(data)
+            bootPromise = null
+          })
+          .catch((e) => {
+            bootPromise = null
+            throw e
+          })
+      }
+      return bootPromise
     },
     // 复刻旧版 refreshProjects（app.js:4541）：项目档案变更后同步全局项目列表
     async refreshProjects() {
