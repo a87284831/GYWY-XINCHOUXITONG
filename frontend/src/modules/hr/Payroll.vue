@@ -153,30 +153,46 @@
               <table class="tb" :ref="(el) => (typeTableEls[tp] = el)">
                 <thead><tr><th v-for="h in PAY_HEADS" :key="h">{{ h }}</th></tr></thead>
                 <tbody>
-                  <tr
-                    v-for="r in typeFiltered[tp]"
-                    :key="r.staff_id"
-                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id }"
-                    @click="typeSel[tp] = r.staff_id"
-                  >
-                    <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
-                    <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
-                    <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
-                    <td class="num">{{ r.req_att }}</td><td class="num">{{ r.act_att }}</td>
-                    <td class="num">{{ r.perf_att }}</td><td class="num">{{ r.coef }}</td>
-                    <td class="num">{{ money(r.base_pay) }}</td><td class="num">{{ money(r.perf_pay) }}</td>
-                    <td class="num">{{ r.sick_days }}</td><td class="num">{{ money(r.sick_pay) }}</td>
-                    <td class="num">{{ money(r.night) }}</td><td class="num">{{ money(r.meal) }}</td>
-                    <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td>
-                    <td class="num">{{ money(r.welfare) }}</td><td class="num">{{ money(r.punish) }}</td>
-                    <td class="num">{{ money(r.late_d) }}</td><td class="num">{{ money(r.miss_d) }}</td>
-                    <td class="num">{{ money(r.other_d) }}</td><td class="num">{{ money(r.uniform_d) }}</td>
-                    <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
-                    <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
-                    <td class="num">{{ money(r.actual_tax) }}</td>
-                    <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
-                    <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
-                  </tr>
+                  <template v-for="r in typeDisplay[tp]" :key="r.isSub ? r.key : r.staff_id">
+                    <!-- 逐月绩效明细子行（灰底缩进，不参与筛选/选中/微调） -->
+                    <tr v-if="r.isSub" class="sub-perf">
+                      <td colspan="4" style="padding-left:24px;color:#64748b">{{ r.label }}</td>
+                      <td></td>
+                      <td></td><td class="num" style="color:#64748b">{{ money(r.base) }}</td>
+                      <td></td><td></td>
+                      <td class="num" style="color:#64748b">{{ r.perf_att }}</td><td></td>
+                      <td></td><td class="num" style="color:#64748b">{{ money(r.amount) }}</td>
+                      <td colspan="17"></td><td></td>
+                    </tr>
+                    <!-- 主行 -->
+                    <tr
+                      v-else
+                      :class="{ 'pay-sel': typeSel[tp] === r.staff_id }"
+                      @click="typeSel[tp] = r.staff_id"
+                    >
+                      <td>
+                        {{ r.project }}
+                        <button v-if="r._subs" class="sub-toggle" :title="r._open ? '收起逐月绩效明细' : '展开逐月绩效明细'" @click.stop="toggleSubRows(r)">{{ r._open ? '▾' : '▸' }}{{ r._subs }}条</button>
+                      </td>
+                      <td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
+                      <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
+                      <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
+                      <td class="num">{{ r.req_att }}</td><td class="num">{{ r.act_att }}</td>
+                      <td class="num">{{ r.perf_att }}</td><td class="num">{{ r.coef }}</td>
+                      <td class="num">{{ money(r.base_pay) }}</td><td class="num">{{ money(r.perf_pay) }}</td>
+                      <td class="num">{{ r.sick_days }}</td><td class="num">{{ money(r.sick_pay) }}</td>
+                      <td class="num">{{ money(r.night) }}</td><td class="num">{{ money(r.meal) }}</td>
+                      <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td>
+                      <td class="num">{{ money(r.welfare) }}</td><td class="num">{{ money(r.punish) }}</td>
+                      <td class="num">{{ money(r.late_d) }}</td><td class="num">{{ money(r.miss_d) }}</td>
+                      <td class="num">{{ money(r.other_d) }}</td><td class="num">{{ money(r.uniform_d) }}</td>
+                      <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
+                      <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
+                      <td class="num">{{ money(r.actual_tax) }}</td>
+                      <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
+                      <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
+                    </tr>
+                  </template>
                 </tbody>
                 <tfoot v-if="typeFiltered[tp].length">
                   <tr style="background:#f0fdf4;font-weight:bold">
@@ -293,7 +309,7 @@ import { useUiStore } from '@/stores/ui'
 import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailSubRows } from './payrollLogic'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -348,6 +364,8 @@ const typeErr = reactive({ mgr: '', case: '', hq: '' })
 const typeMsg = reactive({ mgr: '', case: '', hq: '' })
 const typeProjFilter = reactive({ mgr: '', case: '', hq: '' })
 const typeSel = reactive({ mgr: '', case: '', hq: '' })
+// 逐月绩效子行展开状态（默认展开；key=staff_id，false=收起）
+const subExpanded = reactive({})
 const typeTableEls = {}
 const payTable = ref(null)
 const attStatus = ref({ projects: [] })
@@ -376,6 +394,30 @@ const typeTot = computed(() => ({
   case: payTotalRow(typeFiltered.value.case),
   hq: payTotalRow(typeFiltered.value.hq),
 }))
+
+// 季度绩效逐月明细子行：主行后插入展开状态的子行（默认展开）
+function withSubRows(rows) {
+  const out = []
+  for (const r of rows) {
+    const subs = perfDetailSubRows(r)
+    if (subs.length) {
+      const open = subExpanded[r.staff_id] !== false
+      out.push({ ...r, _subs: subs.length, _open: open })
+      if (open) for (const s of subs) out.push({ ...r, ...s })
+    } else {
+      out.push(r)
+    }
+  }
+  return out
+}
+const typeDisplay = computed(() => ({
+  mgr: withSubRows(typeFiltered.value.mgr),
+  case: withSubRows(typeFiltered.value.case),
+  hq: withSubRows(typeFiltered.value.hq),
+}))
+function toggleSubRows(r) {
+  subExpanded[r.staff_id] = !(subExpanded[r.staff_id] !== false)
+}
 const empLogs = computed(() => (empMeta.value.logs || []).slice(-50).reverse())
 
 const attStatusHtml = computed(() => {
@@ -620,5 +662,25 @@ onBeforeUnmount(() => document.removeEventListener('click', onCardClick))
 tr.pay-sel td {
   background: #fff6d6 !important;
   color: #1f2937;
+}
+/* 季度绩效逐月明细子行：灰底、字号略小 */
+tr.sub-perf td {
+  background: #f8fafc;
+  font-size: 12px;
+  border-top: none;
+}
+.sub-toggle {
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 0 5px;
+  margin-left: 4px;
+  cursor: pointer;
+  line-height: 16px;
+}
+.sub-toggle:hover {
+  background: #e2e8f0;
 }
 </style>
