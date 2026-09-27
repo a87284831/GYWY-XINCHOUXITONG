@@ -352,7 +352,7 @@ class AttendanceController extends ApiController
             for ($day = 1; $day <= 31; $day++) {
                 $value = $days[$day] ?? null;
                 $symbol = $value ? trim((string) $this->cellValue($sheet, $value, $row)) : '';
-                if ($symbol !== '' && !isset($symbols[$symbol])) $errors[] = "第{$row}行第{$day}日符号无效：{$symbol}";
+                if ($symbol !== '' && !\App\Services\PayrollCalculator::symbolLookup($symbol, $symbols)) $errors[] = "第{$row}行第{$day}日符号无效：{$symbol}";
                 $daysData[] = $symbol;
             }
             $record = ['days' => $daysData];

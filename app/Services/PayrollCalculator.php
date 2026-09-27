@@ -344,7 +344,7 @@ class PayrollCalculator
         $segmentAbsent = array_fill(0, count($segments), 0);
         foreach (($att['days'] ?? []) as $dayIndex => $symbol) {
             $day = $dayIndex + 1;
-            $item = $symbols[trim((string)$symbol)] ?? null;
+            $item = self::symbolLookup((string)$symbol, $symbols);
             foreach ($segments as $i => $seg) {
                 if ($day >= $seg['from'] && $day <= $seg['to']) {
                     if (!empty($item['in_actual'])) $segmentAttend[$i] += (float)($item['value'] ?? 1);
@@ -729,6 +729,29 @@ class PayrollCalculator
         return collect($items)->mapWithKeys(fn($i) => [(string)($i['symbol'] ?? '') => $i])->all();
     }
 
+    /**
+     * 符号查找：先精确匹配，未命中时按"勾号家族"别名容错（√/V/v/∨/✓/✔ 互认）。
+     * 背景：生产符号库曾把正常出勤录成 V，而考勤表用 √，精确匹配查不到导致
+     * 全月出勤按 0 天计、基本/绩效工资全 0。别名容错让两侧任一写法都能命中，
+     * 已入库的历史考勤无需重传即可正确核算。
+     */
+    public static function symbolLookup(string $symbol, array $symbols): ?array
+    {
+        $key = trim($symbol);
+        if ($key === '') return null;
+        if (isset($symbols[$key])) return $symbols[$key];
+        $alias = self::symbolAlias($key);
+        foreach ($symbols as $sym => $item) {
+            if (self::symbolAlias(trim((string)$sym)) === $alias) return $item;
+        }
+        return null;
+    }
+
+    private static function symbolAlias(string $s): string
+    {
+        return in_array($s, ['√', '∨', 'V', 'v', '✓', '✔'], true) ? '√' : $s;
+    }
+
     private function taxConfig(): array
     {
         $snap = DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
@@ -911,8 +934,9 @@ class PayrollCalculator
             'miss'=>0,'absent'=>0,'late'=>0,'early'=>0];
         foreach ($days as $symbol) {
             $symbol = trim((string)$symbol);
-            if ($symbol === '' || !isset($symbols[$symbol])) continue;
-            $item = $symbols[$symbol];
+            if ($symbol === '') continue;
+            $item = self::symbolLookup($symbol, $symbols);
+            if (!$item) continue;
             if (!empty($item['in_required'])) $stats['required'] += 1;
             if (!empty($item['in_actual']))   $stats['attend'] += (float)($item['value'] ?? 1);
             $cat = self::CATEGORIES[$item['category'] ?? ''] ?? null;

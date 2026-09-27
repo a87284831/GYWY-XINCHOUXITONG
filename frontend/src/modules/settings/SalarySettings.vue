@@ -33,22 +33,22 @@
       <!-- 2. 基础计算参数 -->
       <details style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;padding:14px" open>
         <summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:12px;color:#1e40af">📐 基础计算参数</summary>
-        <div v-for="sec in paramSections" :key="sec.title" style="margin-bottom:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px">
-          <div style="font-weight:600;margin-bottom:6px">{{ sec.title }}</div>
-          <template v-if="sec.title === '① 应发基本工资'">
+        <div v-for="sec in paramSections" :key="sec" style="margin-bottom:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px">
+          <div style="font-weight:600;margin-bottom:6px">{{ sec }}</div>
+          <template v-if="sec === '① 应发基本工资'">
             <div class="row">
               <label class="fld"><input type="checkbox" v-model="fm.seg"> 月中调薪按生效日期分段折算</label>
               <label class="fld" style="margin-left:16px">折算基数 <select v-model="fm.prorate" style="width:120px">
                 <option value="required">按应出勤天数</option><option value="calendar">按自然天数</option></select></label>
             </div>
           </template>
-          <template v-else-if="sec.title === '② 绩效工资'">
+          <template v-else-if="sec === '② 绩效工资'">
             <div class="row">
               <label class="fld"><input type="checkbox" v-model="fm.perf_on"> 启用绩效工资</label>
               <label class="fld" style="margin-left:16px"><input type="checkbox" v-model="fm.perf_prob"> 试用期不参与</label>
             </div>
           </template>
-          <template v-else-if="sec.title === '③ 病假工资'">
+          <template v-else-if="sec === '③ 病假工资'">
             <div class="row">
               <label class="fld"><input type="checkbox" v-model="fm.sick_on"> 启用</label>
               <label class="fld" style="margin-left:12px">系数 <input type="number" step="0.01" v-model.number="fm.sick_a" style="width:55px"> × <input type="number" step="0.01" v-model.number="fm.sick_b" style="width:55px"></label>
@@ -57,16 +57,16 @@
             </div>
             <div class="hint" style="margin:4px 0 0">最终计发比例 = 系数A × 系数B = {{ (Number(fm.sick_a) * Number(fm.sick_b) * 100).toFixed(0) }}%</div>
           </template>
-          <template v-else-if="sec.title === '④ 补贴发放'">
+          <template v-else-if="sec === '④ 补贴发放'">
             <div class="row">
               <label class="fld">餐补 <select v-model="fm.meal_mode" style="width:110px"><option value="full">全额</option><option value="prorate">按出勤折算</option></select></label>
               <label class="fld" style="margin-left:16px">其他补贴 <select v-model="fm.allow_mode" style="width:110px"><option value="full">全额</option><option value="prorate">按出勤折算</option></select></label>
             </div>
           </template>
-          <template v-else-if="sec.title === '⑤ 奖惩'">
+          <template v-else-if="sec === '⑤ 奖惩'">
             <label class="fld"><input type="checkbox" v-model="fm.rp"> 月度奖励/扣罚全额计入税前应发</label>
           </template>
-          <template v-else-if="sec.title === '⑥ 考勤扣款'">
+          <template v-else-if="sec === '⑥ 考勤扣款'">
             <div class="row">
               <label class="fld"><input type="checkbox" v-model="fm.miss_on"> 缺卡扣款</label>
               <label class="fld" style="margin-left:8px">前3次 <input type="number" v-model.number="fm.miss_f3" style="width:50px"> 元/次</label>
@@ -81,7 +81,7 @@
               <label class="fld" style="margin-left:8px">每次 <input type="number" step="0.5" v-model.number="fm.late_per" style="width:50px"> 元</label>
             </div>
           </template>
-          <template v-else-if="sec.title === '⑦ 个人所得税'">
+          <template v-else-if="sec === '⑦ 个人所得税'">
             <div class="row">
               <label class="fld">基本减除 <input type="number" v-model.number="fm.tax_basic" style="width:70px"> 元/月</label>
               <label class="fld" style="margin-left:16px">累计起算 <select v-model="fm.cum_start" style="width:100px">
