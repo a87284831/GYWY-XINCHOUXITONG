@@ -171,4 +171,126 @@ class PayrollController extends ApiController
             ->select('project_name', DB::raw('MAX(archived) AS archived'))->groupBy('project_name')->get();
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }
+
+    // ---------------- 季度/半年度绩效系数 ----------------
+
+    /** 批量保存系数（同键 upsert，仅总部可操作） */
+    public function savePeriodCoef(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) {
+            return $account;
+        }
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '仅总部可录入绩效系数'], 403);
+        }
+        $type = $request->string('period_type')->toString();
+        $key = trim($request->string('period_key')->toString());
+        if (!in_array($type, ['quarterly', 'half_year'], true) || !preg_match('/^\d{4}-(Q[1-4]|H[12])$/', $key)) {
+            return response()->json(['ok' => false, 'error' => '周期类型或标识无效'], 422);
+        }
+        $items = $request->input('items', []);
+        if (!is_array($items)) {
+            return response()->json(['ok' => false, 'error' => 'items 格式无效'], 422);
+        }
+        $saved = 0;
+        foreach ($items as $it) {
+            $sid = (int)($it['staff_legacy_id'] ?? 0);
+            $coef = $it['coef'] ?? null;
+            if ($sid <= 0 || !is_numeric($coef)) {
+                continue;
+            }
+            DB::table('payroll_period_coefs')->upsert(
+                ['staff_legacy_id' => $sid, 'period_type' => $type, 'period_key' => $key,
+                    'coef' => round((float)$coef, 2), 'created_at' => now(), 'updated_at' => now()],
+                ['staff_legacy_id', 'period_type', 'period_key'],
+                ['coef', 'updated_at']
+            );
+            $saved++;
+        }
+        return response()->json(['ok' => true, 'saved' => $saved]);
+    }
+
+    /** 按周期查询已录系数（联人员姓名/项目/职级） */
+    public function listPeriodCoef(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) {
+            return $account;
+        }
+        $type = $request->string('period_type')->toString();
+        $key = trim($request->string('period_key')->toString());
+        $rows = DB::table('payroll_period_coefs')
+            ->where('period_type', $type)->where('period_key', $key)->get();
+        $staff = $rows->isEmpty() ? collect() : DB::table('payroll_staff')
+            ->whereIn('legacy_id', $rows->pluck('staff_legacy_id')->all())->get()->keyBy('legacy_id');
+        $items = $rows->map(function ($r) use ($staff) {
+            $s = $staff[$r->staff_legacy_id] ?? null;
+            $data = $s ? ($this->jsonValue($s->data) ?: []) : [];
+            return [
+                'staff_legacy_id' => (int)$r->staff_legacy_id,
+                'name' => $s->name ?? '', 'project' => $s->project_name ?? '',
+                'position' => $s->position ?? '', 'position_level' => (string)($data['position_level'] ?? ''),
+                'coef' => (float)$r->coef,
+            ];
+        })->values();
+        return response()->json(['ok' => true, 'period_type' => $type, 'period_key' => $key, 'items' => $items]);
+    }
+
+    /** 按核算月列出管理/总部人员的系数录入状态（仅季度末月可用） */
+    public function pendingPeriodCoef(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) {
+            return $account;
+        }
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '仅总部可查看系数录入状态'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '无效月份'], 422);
+        }
+        $year = (int)substr($ym, 0, 4);
+        $month = (int)substr($ym, 5, 2);
+        // 季度末月 → 刚结束季度的标识；7月/1月同时返回半年度标识
+        [$qKey, $qFirstYm, $hKey] = match ($month) {
+            4 => ["{$year}-Q1", "{$year}-01", null],
+            7 => ["{$year}-Q2", "{$year}-04", "{$year}-H1"],
+            10 => ["{$year}-Q3", "{$year}-07", null],
+            1 => [($year - 1) . '-Q4', ($year - 1) . '-10', ($year - 1) . '-H2'],
+            default => [null, null, null],
+        };
+        if ($qKey === null) {
+            return response()->json(['ok' => false, 'error' => '当前月份不是季度末月，无需录入季度系数'], 422);
+        }
+        $staff = DB::table('payroll_staff')->where('deleted', false)
+            ->whereIn('person_type', ['manager', 'hq'])
+            ->get()
+            // 周期开始前已离职的人员无需录入
+            ->filter(fn ($s) => empty($s->resign_date) || substr((string)$s->resign_date, 0, 7) >= $qFirstYm)
+            ->values();
+        $coefs = DB::table('payroll_period_coefs')
+            ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all() ?: [0])
+            ->where(function ($q) use ($qKey, $hKey) {
+                $q->where(fn ($w) => $w->where('period_type', 'quarterly')->where('period_key', $qKey));
+                if ($hKey) {
+                    $q->orWhere(fn ($w) => $w->where('period_type', 'half_year')->where('period_key', $hKey));
+                }
+            })->get();
+        $qCoefs = $coefs->where('period_type', 'quarterly')->keyBy('staff_legacy_id');
+        $hCoefs = $coefs->where('period_type', 'half_year')->keyBy('staff_legacy_id');
+        $items = $staff->map(function ($s) use ($qCoefs, $hCoefs) {
+            $data = $this->jsonValue($s->data) ?: [];
+            return [
+                'staff_legacy_id' => (int)$s->legacy_id,
+                'name' => $s->name, 'project' => $s->project_name, 'position' => $s->position,
+                'person_type' => $s->person_type,
+                'position_level' => (string)($data['position_level'] ?? ''),
+                'coef' => isset($qCoefs[$s->legacy_id]) ? (float)$qCoefs[$s->legacy_id]->coef : null,
+                'half_coef' => isset($hCoefs[$s->legacy_id]) ? (float)$hCoefs[$s->legacy_id]->coef : null,
+            ];
+        })->values();
+        return response()->json(['ok' => true, 'ym' => $ym, 'period' => $qKey, 'half_period' => $hKey, 'items' => $items]);
+    }
 }
