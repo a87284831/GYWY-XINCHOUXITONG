@@ -258,6 +258,24 @@ const routes = [
         meta: { perm: 'purchase_view' },
       },
       {
+        path: 'purchase/overview',
+        name: 'purchaseOverview',
+        component: () => import('@/modules/purchase/Overview.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
+        path: 'purchase/customs',
+        name: 'purchaseCustoms',
+        component: () => import('@/modules/purchase/Customs.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
+        path: 'purchase/budget',
+        name: 'purchaseBudget',
+        component: () => import('@/modules/purchase/Budget.vue'),
+        meta: { perm: 'purchase_view' },
+      },
+      {
         path: 'purchase/summary',
         name: 'purchaseSummary',
         component: () => import('@/modules/purchase/PurchaseSummary.vue'),
