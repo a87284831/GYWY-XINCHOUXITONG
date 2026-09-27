@@ -406,118 +406,48 @@ class PayrollCalculator
         $basePayRef = $actual > 0 ? round($basePay * $h / $actual, 2) : $basePay;
         $perfPayRef = ($actual > 0 && $coef != 0.0) ? round($perfPay * $h / ($actual * $coef), 2) : $perfPay;
 
-        // 季度绩效覆盖：管理/总部人员在季度末月按季度累计计算
+        // 季度绩效覆盖：管理/总部人员在季度末月按季度累计计算；7月/1月同时发半年度部分（两笔分开）
         $perfDetail = null;
         if (in_array($category, ['manager', 'hq'], true)) {
             $personData = $this->jsonValue($person->data) ?: [];
             $positionLevel = (string)($personData['position_level'] ?? '');
             $payRule = $this->rules->getPayRule($category, $positionLevel);
             if (($payRule['cycle'] ?? 'monthly') === 'quarterly') {
+                $year = (int)substr($ym, 0, 4);
                 $month = (int)substr($ym, 5, 2);
                 if ($this->isQuarterEnd($month)) {
-                    $quarterMonths = $this->getQuarterMonths($month);
-                    $quarterBase = 0.0;
-                    $monthDetails = [];
-                    foreach ($quarterMonths as $qm) {
-                        $qYm = substr($ym, 0, 4) . '-' . str_pad((string)$qm, 2, '0', STR_PAD_LEFT);
-                        // 从历史结果中取该月绩效基数（fixed - base）
-                        $histRow = null;
-                        if ($historyByStaff) {
-                            $histRow = $historyByStaff->firstWhere('year_month', $qYm);
-                        }
-                        if (!$histRow) {
-                            $histRow = DB::table('payroll_results')
-                                ->where('staff_legacy_id', $person->legacy_id)
-                                ->where('year_month', $qYm)
-                                ->where('is_manager_row', $category === 'manager')
-                                ->where('is_case_row', false)
-                                ->where('is_hq_row', $category === 'hq')
-                                ->first();
-                        }
-                        if ($histRow) {
-                            $histData = $this->jsonValue($histRow->row_data) ?: [];
-                            $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
-                            $monthAttend = (float)($histData['perf_att'] ?? 0);
-                            $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
-                            $quarterBase += $monthAmount;
-                            $monthDetails[] = [
-                                'ym' => $qYm, 'perf_att' => $monthAttend,
-                                'base' => $monthBase, 'amount' => round($monthAmount, 2),
-                            ];
-                        }
-                    }
-                    // 取季度系数
-                    $periodKey = substr($ym, 0, 4) . '-Q' . ceil($month / 3);
-                    $coefRow = DB::table('payroll_period_coefs')
-                        ->where('staff_legacy_id', $person->legacy_id)
-                        ->where('period_type', 'quarterly')
-                        ->where('period_key', $periodKey)
-                        ->first();
-                    $periodCoef = $coefRow ? (float)$coefRow->coef : null;
-                    if ($periodCoef === null) {
-                        // 缺系数：该人员跳过，perf_pay=0
+                    // 季度部分：发"刚结束的季度"（4月发Q1、7月发Q2、10月发Q3、1月发上年Q4）
+                    [$qKey, $qYms] = $this->quarterPeriod($year, $month);
+                    [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
+                    $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
+                    if ($qCoef === null) {
+                        // 缺季度系数：季度部分为 0 并标记（半年度部分有系数仍发）
                         $perfPay = 0.0;
-                        $perfDetail = ['error' => 'missing_coef', 'period' => $periodKey];
+                        $perfDetail = ['error' => 'missing_coef', 'period' => $qKey];
                     } else {
-                        $quarterRatio = $payRule['quarter_ratio'] ?? 1.0;
-                        $perfPay = round($quarterBase * $periodCoef * $quarterRatio, 2);
+                        $qRatio = $payRule['quarter_ratio'] ?? 1.0;
+                        $perfPay = round($qBase * $qCoef * $qRatio, 2);
                         $perfDetail = [
-                            'period' => $periodKey, 'type' => 'quarterly',
-                            'ratio' => $quarterRatio, 'coef' => $periodCoef,
-                            'months' => $monthDetails,
+                            'period' => $qKey, 'type' => 'quarterly',
+                            'ratio' => $qRatio, 'coef' => $qCoef,
+                            'months' => $qMonths,
                         ];
                     }
-                } elseif ($this->isHalfYearEnd($month)) {
-                    // 半年度末：先算季度，再算半年度（7月/1月）
-                    // 半年度逻辑：取半年度月份，用 half_year_ratio
-                    $halfYearMonths = $this->getHalfYearMonths($month);
-                    $halfYearBase = 0.0;
-                    $monthDetails = [];
-                    foreach ($halfYearMonths as $hm) {
-                        $hYm = substr($ym, 0, 4) . '-' . str_pad((string)$hm, 2, '0', STR_PAD_LEFT);
-                        $histRow = null;
-                        if ($historyByStaff) {
-                            $histRow = $historyByStaff->firstWhere('year_month', $hYm);
-                        }
-                        if (!$histRow) {
-                            $histRow = DB::table('payroll_results')
-                                ->where('staff_legacy_id', $person->legacy_id)
-                                ->where('year_month', $hYm)
-                                ->where('is_manager_row', $category === 'manager')
-                                ->where('is_case_row', false)
-                                ->where('is_hq_row', $category === 'hq')
-                                ->first();
-                        }
-                        if ($histRow) {
-                            $histData = $this->jsonValue($histRow->row_data) ?: [];
-                            $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
-                            $monthAttend = (float)($histData['perf_att'] ?? 0);
-                            $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
-                            $halfYearBase += $monthAmount;
-                            $monthDetails[] = [
-                                'ym' => $hYm, 'perf_att' => $monthAttend,
-                                'base' => $monthBase, 'amount' => round($monthAmount, 2),
+                    // 半年度部分（7月发H1、1月发上年H2）
+                    if ($this->isHalfYearEnd($month)) {
+                        [$hKey, $hYms] = $this->halfYearPeriod($year, $month);
+                        [$hBase, $hMonths] = $this->accumulatePeriodPerf($person, $category, $hYms, $historyByStaff);
+                        $hCoef = $this->periodCoef((int)$person->legacy_id, 'half_year', $hKey);
+                        if ($hCoef === null) {
+                            $perfDetail['half_year'] = ['error' => 'missing_coef', 'period' => $hKey];
+                        } else {
+                            $hRatio = $payRule['half_year_ratio'] ?? 0.0;
+                            $perfPay = round($perfPay + round($hBase * $hCoef * $hRatio, 2), 2);
+                            $perfDetail['half_year'] = [
+                                'period' => $hKey, 'ratio' => $hRatio, 'coef' => $hCoef,
+                                'months' => $hMonths,
                             ];
                         }
-                    }
-                    $periodKey = substr($ym, 0, 4) . '-H' . ceil($month / 6);
-                    $coefRow = DB::table('payroll_period_coefs')
-                        ->where('staff_legacy_id', $person->legacy_id)
-                        ->where('period_type', 'half_year')
-                        ->where('period_key', $periodKey)
-                        ->first();
-                    $periodCoef = $coefRow ? (float)$coefRow->coef : null;
-                    if ($periodCoef === null) {
-                        $perfPay = 0.0;
-                        $perfDetail = ['error' => 'missing_coef', 'period' => $periodKey];
-                    } else {
-                        $halfYearRatio = $payRule['half_year_ratio'] ?? 0.0;
-                        $perfPay = round($halfYearBase * $periodCoef * $halfYearRatio, 2);
-                        $perfDetail = [
-                            'period' => $periodKey, 'type' => 'half_year',
-                            'ratio' => $halfYearRatio, 'coef' => $periodCoef,
-                            'months' => $monthDetails,
-                        ];
                     }
                 } else {
                     // 季度中：绩效为 0
@@ -1085,21 +1015,65 @@ class PayrollCalculator
         return in_array($month, [7, 1], true);
     }
 
-    private function getQuarterMonths(int $month): array
+    /** 季度末月对应的"刚结束季度"：返回 [periodKey, [ym,...]]，1月归上年 Q4 */
+    private function quarterPeriod(int $year, int $month): array
     {
-        return match($month) {
-            4 => [1, 2, 3],
-            7 => [4, 5, 6],
-            10 => [7, 8, 9],
-            1 => [10, 11, 12],
+        return match ($month) {
+            4 => ["{$year}-Q1", ["{$year}-01", "{$year}-02", "{$year}-03"]],
+            7 => ["{$year}-Q2", ["{$year}-04", "{$year}-05", "{$year}-06"]],
+            10 => ["{$year}-Q3", ["{$year}-07", "{$year}-08", "{$year}-09"]],
+            1 => [($year - 1) . '-Q4', [($year - 1) . '-10', ($year - 1) . '-11', ($year - 1) . '-12']],
         };
     }
 
-    private function getHalfYearMonths(int $month): array
+    /** 半年度末月对应的"刚结束半年度"：返回 [periodKey, [ym,...]]，1月归上年 H2 */
+    private function halfYearPeriod(int $year, int $month): array
     {
-        return match($month) {
-            7 => [1, 2, 3, 4, 5, 6],
-            1 => [7, 8, 9, 10, 11, 12],
+        return match ($month) {
+            7 => ["{$year}-H1", ["{$year}-01", "{$year}-02", "{$year}-03", "{$year}-04", "{$year}-05", "{$year}-06"]],
+            1 => [($year - 1) . '-H2', [($year - 1) . '-07', ($year - 1) . '-08', ($year - 1) . '-09', ($year - 1) . '-10', ($year - 1) . '-11', ($year - 1) . '-12']],
         };
+    }
+
+    /** 累计一个周期内各月绩效基数（fixed-base × 绩效出勤/应出勤）：返回 [合计基数, 逐月明细] */
+    private function accumulatePeriodPerf(object $person, string $category, array $yms, $historyByStaff): array
+    {
+        $total = 0.0;
+        $months = [];
+        foreach ($yms as $m) {
+            $histRow = $historyByStaff ? $historyByStaff->firstWhere('year_month', $m) : null;
+            if (!$histRow) {
+                $histRow = DB::table('payroll_results')
+                    ->where('staff_legacy_id', $person->legacy_id)
+                    ->where('year_month', $m)
+                    ->where('is_manager_row', $category === 'manager')
+                    ->where('is_case_row', false)
+                    ->where('is_hq_row', $category === 'hq')
+                    ->first();
+            }
+            if ($histRow) {
+                $histData = $this->jsonValue($histRow->row_data) ?: [];
+                $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
+                $monthAttend = (float)($histData['perf_att'] ?? 0);
+                $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
+                $total += $monthAmount;
+                $months[] = [
+                    'ym' => $m, 'perf_att' => $monthAttend,
+                    'base' => $monthBase, 'amount' => round($monthAmount, 2),
+                ];
+            }
+        }
+        return [$total, $months];
+    }
+
+    /** 查周期系数；未录入返回 null（区别于合法录入的 0.0） */
+    private function periodCoef(int $legacyId, string $type, string $key): ?float
+    {
+        $row = DB::table('payroll_period_coefs')
+            ->where('staff_legacy_id', $legacyId)
+            ->where('period_type', $type)
+            ->where('period_key', $key)
+            ->first();
+        return $row ? (float)$row->coef : null;
     }
 }
