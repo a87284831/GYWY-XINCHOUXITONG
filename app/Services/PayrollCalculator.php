@@ -182,7 +182,7 @@ class PayrollCalculator
                 ];
                 continue;
             }
-            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
+            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect(), $category);
         }
 
         if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing];
@@ -304,7 +304,7 @@ class PayrollCalculator
     }
 
     /** 单行完整计算 */
-    private function computeRow(object $person, array $att, array $symbols, string $ym, $historyByStaff = null): array
+    private function computeRow(object $person, array $att, array $symbols, string $ym, $historyByStaff = null, string $category = 'staff'): array
     {
         $stats = self::attendanceStats($att['days'] ?? [], $symbols);
 
@@ -405,6 +405,126 @@ class PayrollCalculator
         // 满勤基准：供"微调"按出勤/系数可恢复地缩放 base_pay、perf_pay
         $basePayRef = $actual > 0 ? round($basePay * $h / $actual, 2) : $basePay;
         $perfPayRef = ($actual > 0 && $coef != 0.0) ? round($perfPay * $h / ($actual * $coef), 2) : $perfPay;
+
+        // 季度绩效覆盖：管理/总部人员在季度末月按季度累计计算
+        $perfDetail = null;
+        if (in_array($category, ['manager', 'hq'], true)) {
+            $personData = $this->jsonValue($person->data) ?: [];
+            $positionLevel = (string)($personData['position_level'] ?? '');
+            $payRule = $this->rules->getPayRule($category, $positionLevel);
+            if (($payRule['cycle'] ?? 'monthly') === 'quarterly') {
+                $month = (int)substr($ym, 5, 2);
+                if ($this->isQuarterEnd($month)) {
+                    $quarterMonths = $this->getQuarterMonths($month);
+                    $quarterBase = 0.0;
+                    $monthDetails = [];
+                    foreach ($quarterMonths as $qm) {
+                        $qYm = substr($ym, 0, 4) . '-' . str_pad((string)$qm, 2, '0', STR_PAD_LEFT);
+                        // 从历史结果中取该月绩效基数（fixed - base）
+                        $histRow = null;
+                        if ($historyByStaff) {
+                            $histRow = $historyByStaff->firstWhere('year_month', $qYm);
+                        }
+                        if (!$histRow) {
+                            $histRow = DB::table('payroll_results')
+                                ->where('staff_legacy_id', $person->legacy_id)
+                                ->where('year_month', $qYm)
+                                ->where('is_manager_row', $category === 'manager')
+                                ->where('is_case_row', false)
+                                ->where('is_hq_row', $category === 'hq')
+                                ->first();
+                        }
+                        if ($histRow) {
+                            $histData = $this->jsonValue($histRow->row_data) ?: [];
+                            $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
+                            $monthAttend = (float)($histData['perf_att'] ?? 0);
+                            $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
+                            $quarterBase += $monthAmount;
+                            $monthDetails[] = [
+                                'ym' => $qYm, 'perf_att' => $monthAttend,
+                                'base' => $monthBase, 'amount' => round($monthAmount, 2),
+                            ];
+                        }
+                    }
+                    // 取季度系数
+                    $periodKey = substr($ym, 0, 4) . '-Q' . ceil($month / 3);
+                    $coefRow = DB::table('payroll_period_coefs')
+                        ->where('staff_legacy_id', $person->legacy_id)
+                        ->where('period_type', 'quarterly')
+                        ->where('period_key', $periodKey)
+                        ->first();
+                    $periodCoef = $coefRow ? (float)$coefRow->coef : null;
+                    if ($periodCoef === null) {
+                        // 缺系数：该人员跳过，perf_pay=0
+                        $perfPay = 0.0;
+                        $perfDetail = ['error' => 'missing_coef', 'period' => $periodKey];
+                    } else {
+                        $quarterRatio = $payRule['quarter_ratio'] ?? 1.0;
+                        $perfPay = round($quarterBase * $periodCoef * $quarterRatio, 2);
+                        $perfDetail = [
+                            'period' => $periodKey, 'type' => 'quarterly',
+                            'ratio' => $quarterRatio, 'coef' => $periodCoef,
+                            'months' => $monthDetails,
+                        ];
+                    }
+                } elseif ($this->isHalfYearEnd($month)) {
+                    // 半年度末：先算季度，再算半年度（7月/1月）
+                    // 半年度逻辑：取半年度月份，用 half_year_ratio
+                    $halfYearMonths = $this->getHalfYearMonths($month);
+                    $halfYearBase = 0.0;
+                    $monthDetails = [];
+                    foreach ($halfYearMonths as $hm) {
+                        $hYm = substr($ym, 0, 4) . '-' . str_pad((string)$hm, 2, '0', STR_PAD_LEFT);
+                        $histRow = null;
+                        if ($historyByStaff) {
+                            $histRow = $historyByStaff->firstWhere('year_month', $hYm);
+                        }
+                        if (!$histRow) {
+                            $histRow = DB::table('payroll_results')
+                                ->where('staff_legacy_id', $person->legacy_id)
+                                ->where('year_month', $hYm)
+                                ->where('is_manager_row', $category === 'manager')
+                                ->where('is_case_row', false)
+                                ->where('is_hq_row', $category === 'hq')
+                                ->first();
+                        }
+                        if ($histRow) {
+                            $histData = $this->jsonValue($histRow->row_data) ?: [];
+                            $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
+                            $monthAttend = (float)($histData['perf_att'] ?? 0);
+                            $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
+                            $halfYearBase += $monthAmount;
+                            $monthDetails[] = [
+                                'ym' => $hYm, 'perf_att' => $monthAttend,
+                                'base' => $monthBase, 'amount' => round($monthAmount, 2),
+                            ];
+                        }
+                    }
+                    $periodKey = substr($ym, 0, 4) . '-H' . ceil($month / 6);
+                    $coefRow = DB::table('payroll_period_coefs')
+                        ->where('staff_legacy_id', $person->legacy_id)
+                        ->where('period_type', 'half_year')
+                        ->where('period_key', $periodKey)
+                        ->first();
+                    $periodCoef = $coefRow ? (float)$coefRow->coef : null;
+                    if ($periodCoef === null) {
+                        $perfPay = 0.0;
+                        $perfDetail = ['error' => 'missing_coef', 'period' => $periodKey];
+                    } else {
+                        $halfYearRatio = $payRule['half_year_ratio'] ?? 0.0;
+                        $perfPay = round($halfYearBase * $periodCoef * $halfYearRatio, 2);
+                        $perfDetail = [
+                            'period' => $periodKey, 'type' => 'half_year',
+                            'ratio' => $halfYearRatio, 'coef' => $periodCoef,
+                            'months' => $monthDetails,
+                        ];
+                    }
+                } else {
+                    // 季度中：绩效为 0
+                    $perfPay = 0.0;
+                }
+            }
+        }
 
         // 缺卡阶梯
         $missPunchEnabled = $this->rules->flag('deduction_rules.miss_punch.enabled', true);
@@ -589,6 +709,7 @@ class PayrollCalculator
             'withhold' => $tax, 'actual_tax' => $tax, 'tax_diff' => 0,
             'net' => $net, 'remark' => (string)($att['remark'] ?? ''),
             'bank_card' => $data['bank_card'] ?? '', 'overrides' => [],
+            'perf_detail' => $perfDetail,
         ], $__cfResult);
     }
 
@@ -950,5 +1071,35 @@ class PayrollCalculator
         if (is_array($v)) return $v;
         if (is_string($v) && $v !== '') { $d = json_decode($v, true); return is_array($d) ? $d : null; }
         return null;
+    }
+
+    // ---------------- 季度/半年度绩效 ----------------
+
+    private function isQuarterEnd(int $month): bool
+    {
+        return in_array($month, [4, 7, 10, 1], true);
+    }
+
+    private function isHalfYearEnd(int $month): bool
+    {
+        return in_array($month, [7, 1], true);
+    }
+
+    private function getQuarterMonths(int $month): array
+    {
+        return match($month) {
+            4 => [1, 2, 3],
+            7 => [4, 5, 6],
+            10 => [7, 8, 9],
+            1 => [10, 11, 12],
+        };
+    }
+
+    private function getHalfYearMonths(int $month): array
+    {
+        return match($month) {
+            7 => [1, 2, 3, 4, 5, 6],
+            1 => [7, 8, 9, 10, 11, 12],
+        };
     }
 }
