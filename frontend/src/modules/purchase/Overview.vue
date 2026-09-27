@@ -387,7 +387,7 @@ onMounted(load)
       <el-table v-loading="loading" :data="rows" border stripe>
         <el-table-column label="项目" min-width="140" fixed="left">
           <template #default="{ row }">
-            <el-link type="primary" :underline="false" @click="openProject(row)"><b>{{ row.project_name }}</b></el-link>
+            <el-link type="primary" underline="never" @click="openProject(row)"><b>{{ row.project_name }}</b></el-link>
           </template>
         </el-table-column>
         <el-table-column v-for="ln in lines" :key="ln" :label="ln" min-width="130">

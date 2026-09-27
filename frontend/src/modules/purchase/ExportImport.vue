@@ -153,7 +153,8 @@ async function doBatchImport() {
   batchResults.value = []
   try {
     const fd = new FormData()
-    batchFiles.value.forEach((f) => fd.append('files', f))
+    // PHP 多文件上传要求同名字段带 []（旧版用 'files' 会被 PHP 折叠为单文件，批量导入实际必现 500——既存生产 bug 修正）
+    batchFiles.value.forEach((f) => fd.append('files[]', f))
     const d = await api('/api/purchase/import/batch', { method: 'POST', form: fd })
     batchResults.value = d.files || []
     const { success, fail } = batchSummary(batchResults.value)
