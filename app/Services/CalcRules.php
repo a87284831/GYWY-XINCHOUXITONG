@@ -135,4 +135,32 @@ class CalcRules
     {
         $this->lastError = [];
     }
+
+    /**
+     * 获取绩效发放规则。
+     *
+     * @param string $personType 人员类型：staff|manager|case|hq
+     * @param string $positionLevel 岗位职级（仅 quarterly 类型使用）
+     * @return array{cycle:string, ratio?:float, quarter_ratio?:float, half_year_ratio?:float}
+     */
+    public function getPayRule(string $personType, string $positionLevel = ''): array
+    {
+        $rules = $this->section('pay_rules');
+        $rule = $rules[$personType] ?? ['cycle' => 'monthly', 'ratio' => 1.0];
+
+        if (($rule['cycle'] ?? 'monthly') === 'monthly') {
+            return [
+                'cycle' => 'monthly',
+                'ratio' => (float)($rule['ratio'] ?? 1.0),
+            ];
+        }
+
+        // quarterly：按职级取比例，无则取 default
+        $levelRule = $rule['levels'][$positionLevel] ?? $rule['default'] ?? ['quarter_ratio' => 1.0, 'half_year_ratio' => 0.0];
+        return [
+            'cycle' => 'quarterly',
+            'quarter_ratio' => (float)($levelRule['quarter_ratio'] ?? 1.0),
+            'half_year_ratio' => (float)($levelRule['half_year_ratio'] ?? 0.0),
+        ];
+    }
 }
