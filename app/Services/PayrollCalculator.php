@@ -238,9 +238,11 @@ class PayrollCalculator
                 }
 
                 // 重新核算过的归档人员：重插行恢复归档标记（唯一键 ym+staff_id 冲突，只能事后恢复）
+                // 仅标记本次重插的人；原样回插者本身已带 archived=true，不得重复计数/更新
                 $preserved = $restored;
-                if ($archivedIds) {
-                    $preserved += (clone $delQ)->whereIn('staff_legacy_id', $archivedIds)
+                $reMarkIds = array_values(array_intersect($archivedIds, $insertedIds));
+                if ($reMarkIds) {
+                    $preserved += (clone $delQ)->whereIn('staff_legacy_id', $reMarkIds)
                         ->update(['archived' => true, 'updated_at' => now()]);
                 }
                 return $preserved;
@@ -529,8 +531,10 @@ class PayrollCalculator
                 $taxBefore     += (float)($old['actual_tax'] ?? 0);
             }
         }
-        // 外部年初至今累计：本系统外已发收入/已预扣税（如年中入职前原单位），一次性叠加
+        // 外部年初至今累计：本系统外已发收入/五险一金/专项附加/已预扣税（如年中入职前原单位），一次性叠加
         $incomeBefore += (float)($data['year_cum_income'] ?? 0);
+        $socialBefore += (float)($data['year_cum_social'] ?? 0);
+        $specBefore   += (float)($data['year_cum_spec'] ?? 0);
         $taxBefore    += (float)($data['year_cum_tax'] ?? 0);
         $cumIncome  = $incomeBefore + $gross;
         $cumSocial  = $socialBefore + $social;
@@ -668,8 +672,10 @@ class PayrollCalculator
                     $taxBefore    += (float)($old['actual_tax'] ?? 0);
                 }
             }
-            // 外部年初至今累计：本系统外已发收入/已预扣税（如年中入职前原单位），与核算口径一致
+            // 外部年初至今累计：本系统外已发收入/五险一金/专项附加/已预扣税（如年中入职前原单位），与核算口径一致
             $incomeBefore += (float)($personData['year_cum_income'] ?? 0);
+            $socialBefore += (float)($personData['year_cum_social'] ?? 0);
+            $specBefore   += (float)($personData['year_cum_spec'] ?? 0);
             $taxBefore    += (float)($personData['year_cum_tax'] ?? 0);
             $cumIncome  = $incomeBefore + $gross;
             $cumSocial  = $socialBefore + $soc;

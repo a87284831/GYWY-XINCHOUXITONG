@@ -107,9 +107,11 @@
   <div v-if="dlg === 'yearcum'" class="modal-mask" @mousedown.self="dlg = ''">
     <div class="modal" style="width:560px">
       <h3>外部年初至今累计 — {{ ycStaff && ycStaff.name }}</h3>
-      <div class="msg info">年中入职人员：填写其在本系统外（原单位）当年 1 月至入职前一月的累计收入与已预扣个税，核算时叠加进累计预扣口径；不填按 0 处理。跨年时请清零重填。</div>
+      <div class="msg info">年中入职人员：填写其在本系统外（原单位）当年 1 月至入职前一月的累计收入、五险一金、专项附加扣除与已预扣个税，核算时叠加进累计预扣口径；不填按 0 处理。跨年时请清零重填。</div>
       <div class="form-grid">
         <label>当年累计收入（元）<input type="number" step="0.01" min="0" v-model="ycForm.income" /></label>
+        <label>累计五险一金（元）<input type="number" step="0.01" min="0" v-model="ycForm.social" /></label>
+        <label>累计专项附加扣除（元）<input type="number" step="0.01" min="0" v-model="ycForm.spec" /></label>
         <label>已预扣个税（元）<input type="number" step="0.01" min="0" v-model="ycForm.tax" /></label>
       </div>
       <div class="row end" style="margin-top:14px">
@@ -233,7 +235,7 @@ const dlg = ref('')
 const deductStaff = ref(null)
 const deductForm = ref([])
 const ycStaff = ref(null)
-const ycForm = ref({ income: 0, tax: 0 })
+const ycForm = ref({ income: 0, tax: 0, social: 0, spec: 0 })
 const bulkForm = ref([])
 const bulkTaxMode = ref('0')
 const historyStaff = ref(null)
@@ -334,6 +336,8 @@ function openYearCum(s) {
   ycForm.value = {
     income: Number(s.year_cum_income ?? 0) || 0,
     tax: Number(s.year_cum_tax ?? 0) || 0,
+    social: Number(s.year_cum_social ?? 0) || 0,
+    spec: Number(s.year_cum_spec ?? 0) || 0,
   }
   dlg.value = 'yearcum'
 }
@@ -341,10 +345,14 @@ function openYearCum(s) {
 async function saveYearCum() {
   const income = Number(ycForm.value.income) || 0
   const tax = Number(ycForm.value.tax) || 0
+  const social = Number(ycForm.value.social) || 0
+  const spec = Number(ycForm.value.spec) || 0
   try {
-    await api('/api/staff/year_cum', { body: { staff_id: ycStaff.value.id, year_cum_income: income, year_cum_tax: tax } })
+    await api('/api/staff/year_cum', { body: { staff_id: ycStaff.value.id, year_cum_income: income, year_cum_tax: tax, year_cum_social: social, year_cum_spec: spec } })
     ycStaff.value.year_cum_income = income
     ycStaff.value.year_cum_tax = tax
+    ycStaff.value.year_cum_social = social
+    ycStaff.value.year_cum_spec = spec
     dlg.value = ''
     toast('已保存')
   } catch (e) { alert(e.message) }

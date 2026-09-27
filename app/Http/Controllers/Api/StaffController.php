@@ -529,7 +529,9 @@ class StaffController extends ApiController
         }
         $income = $request->input('year_cum_income');
         $tax = $request->input('year_cum_tax');
-        foreach (['收入' => $income, '已预扣个税' => $tax] as $label => $v) {
+        $social = $request->input('year_cum_social');
+        $spec = $request->input('year_cum_spec');
+        foreach (['收入' => $income, '已预扣个税' => $tax, '五险一金' => $social, '专项附加扣除' => $spec] as $label => $v) {
             if ($v === null || $v === '') continue;
             if (!is_numeric($v) || (float) $v < 0) {
                 return response()->json(['ok' => false, 'error' => "外部累计{$label}应为不小于0的数字"], 400);
@@ -538,10 +540,14 @@ class StaffController extends ApiController
         $data = $this->jsonValue($staff->data) ?: [];
         $data['year_cum_income'] = round((float) ($income ?? 0), 2);
         $data['year_cum_tax'] = round((float) ($tax ?? 0), 2);
+        $data['year_cum_social'] = round((float) ($social ?? 0), 2);
+        $data['year_cum_spec'] = round((float) ($spec ?? 0), 2);
         DB::table('payroll_staff')->where('legacy_id', $legacyId)->update([
             'data' => json_encode($data, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
         ]);
-        return response()->json(['ok' => true, 'year_cum_income' => $data['year_cum_income'], 'year_cum_tax' => $data['year_cum_tax']]);
+        return response()->json(['ok' => true,
+            'year_cum_income' => $data['year_cum_income'], 'year_cum_tax' => $data['year_cum_tax'],
+            'year_cum_social' => $data['year_cum_social'], 'year_cum_spec' => $data['year_cum_spec']]);
     }
 
     public function salaryAdjust(Request $request): JsonResponse
