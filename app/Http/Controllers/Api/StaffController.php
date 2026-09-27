@@ -508,6 +508,42 @@ class StaffController extends ApiController
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * 外部年初至今累计（本系统外已发收入/已预扣税额）：
+     * 年中入职人员原单位 1 月至入职前一月的累计收入与代扣个税，
+     * 核算时叠加进累计预扣口径；跨年时由用户清零重填。
+     */
+    public function yearCum(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) {
+            return $account;
+        }
+        $legacyId = (int) $request->input('staff_id');
+        $staff = DB::table('payroll_staff')->where('legacy_id', $legacyId)->first();
+        if (!$staff) {
+            return response()->json(['ok' => false, 'error' => '人员不存在'], 404);
+        }
+        if ($this->isProjectScope($account) && $staff->project_name !== $account->project_name) {
+            return response()->json(['ok' => false, 'error' => '无权操作其他项目人员'], 403);
+        }
+        $income = $request->input('year_cum_income');
+        $tax = $request->input('year_cum_tax');
+        foreach (['收入' => $income, '已预扣个税' => $tax] as $label => $v) {
+            if ($v === null || $v === '') continue;
+            if (!is_numeric($v) || (float) $v < 0) {
+                return response()->json(['ok' => false, 'error' => "外部累计{$label}应为不小于0的数字"], 400);
+            }
+        }
+        $data = $this->jsonValue($staff->data) ?: [];
+        $data['year_cum_income'] = round((float) ($income ?? 0), 2);
+        $data['year_cum_tax'] = round((float) ($tax ?? 0), 2);
+        DB::table('payroll_staff')->where('legacy_id', $legacyId)->update([
+            'data' => json_encode($data, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
+        ]);
+        return response()->json(['ok' => true, 'year_cum_income' => $data['year_cum_income'], 'year_cum_tax' => $data['year_cum_tax']]);
+    }
+
     public function salaryAdjust(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request);

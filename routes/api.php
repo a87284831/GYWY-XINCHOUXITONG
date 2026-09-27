@@ -91,6 +91,7 @@ Route::get('/performance/ranking', [PerformanceController::class, 'ranking']);
 Route::get('/performance/export_all', [PerformanceController::class, 'exportAll']);
 Route::post('/staff/save', [StaffController::class, 'save']);
 Route::post('/staff/deduct', [StaffController::class, 'deduct']);
+Route::post('/staff/year_cum', [StaffController::class, 'yearCum']);
 Route::post('/staff/bulk_delete', [StaffController::class, 'bulkDelete']);
 Route::post('/staff/bulk_deduct', [StaffController::class, 'bulkDeduct']);
 Route::post('/staff/bulk_tax_mode', [StaffController::class, 'bulkTaxMode']);

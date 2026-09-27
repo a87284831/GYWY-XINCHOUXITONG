@@ -72,10 +72,27 @@ class AttendanceController extends ApiController
         if ($errors) {
             return response()->json(['ok' => false, 'error' => implode('；', array_slice($errors, 0, 30))], 400);
         }
-        $staffNames = DB::table('payroll_staff')->where('project_name', $project)->where('deleted', false)->pluck('name')->all();
+        $staffRows = DB::table('payroll_staff')->where('project_name', $project)->where('deleted', false)
+            ->get(['legacy_id', 'name', 'dingtalk_userid']);
+        $staffNames = $staffRows->pluck('name')->all();
         $unknown = array_values(array_diff(array_keys($rows), $staffNames));
         if ($unknown) {
             return response()->json(['ok' => false, 'error' => '以下人员不在本项目人员档案中：' . implode('、', array_slice($unknown, 0, 10))], 400);
+        }
+        // 同名人员会让"按姓名匹配考勤"产生归属歧义（核算时无法确定考勤行是谁的），直接拒绝上传
+        $dupNames = $staffRows->countBy('name')->filter(fn ($c) => $c > 1)->keys()->all();
+        if ($dupNames) {
+            return response()->json(['ok' => false, 'error' => '以下姓名在本项目人员档案中存在多条记录，按姓名匹配考勤会产生歧义，请先处理同名人员（钉钉同步后每人有唯一ID）：'
+                . implode('、', array_slice($dupNames, 0, 10))], 400);
+        }
+        // 给每行考勤打上人员标记：核算时优先按 dingtalk_userid / staff_id 匹配，姓名仅作旧数据兜底
+        $staffByName = $staffRows->keyBy('name');
+        foreach ($rows as $name => $record) {
+            $s = $staffByName[$name] ?? null;
+            if ($s) {
+                $rows[$name]['staff_id'] = (int) $s->legacy_id;
+                $rows[$name]['dingtalk_userid'] = trim((string) ($s->dingtalk_userid ?? ''));
+            }
         }
         $key = $ym . '|' . $project;
         $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();

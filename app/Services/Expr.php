@@ -7,8 +7,9 @@ use RuntimeException;
 /**
  * 安全算术表达式求值器（不使用 eval），支持：
  *   + - * / % ( ) 数字 变量 白名单函数 min/max/abs/round/floor/ceil/if
- * 未定义变量按 0 处理，避免用户新加变量导致整链断掉。
+ * 未定义变量直接抛异常（不再静默按 0），变量名打错会在核算时报错而不是算出错误工资。
  * if() 支持短路求值：只计算被选中的分支，避免除零等运行时错误。
+ * 注意：不支持幂运算 '^'，tokenizer 会明确报错，提示改用乘法或乘方应走白名单函数。
  */
 class Expr
 {
@@ -54,7 +55,8 @@ class Expr
                 while ($j < $n && (ctype_alnum($s[$j]) || $s[$j] === '_')) $j++;
                 $out[] = ['id', substr($s, $i, $j - $i)]; $i = $j; continue;
             }
-            if (strpos('+-*/(),%^', $c) !== false) { $out[] = [$c, null]; $i++; continue; }
+            // '^' 明确不支持（解析器无幂运算），落到下面的非法字符分支给出清晰报错
+            if (strpos('+-*/(),%', $c) !== false) { $out[] = [$c, null]; $i++; continue; }
             throw new RuntimeException("非法字符 '{$c}' 位于位置 {$i}");
         }
         return $out;
@@ -172,7 +174,8 @@ class Expr
                 return self::callFn($fnName, $args);
             }
             if (array_key_exists($name, $this->vars)) return (float)$this->vars[$name];
-            return 0.0;
+            // 未定义变量不再静默按 0：变量名打错时应显式失败，避免整月工资算错
+            throw new RuntimeException("未定义变量：{$name}");
         }
         throw new RuntimeException("无法解析 token：{$t[0]}");
     }

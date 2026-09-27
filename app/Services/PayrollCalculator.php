@@ -17,7 +17,10 @@ use RuntimeException;
  *      通过 Expr 求值（表达式引擎，无 eval）。
  *   3. 累计预扣的起点受 tax.cum_start 影响（jan=当年一月, hire=入职月）。
  *   4. 无考勤数据时不再 delete+空 insert，避免误清空历史结果。
- *   5. 重算保留 archived 标记。
+ *   5. 重算保留 archived 标记；未被重新核算的归档行原样回插，不再静默丢失。
+ *   6. 公式求值失败（含未定义变量）直接抛异常，整月结果不落库，避免静默按 0 计薪。
+ *   7. 考勤缺人不再静默跳过：missing 名单随结果返回，由前端透出提示。
+ *   8. 写库走 GET_LOCK 命名锁 + chunk 批量插入，并记录规则快照哈希 rules_hash 便于追溯。
  */
 class PayrollCalculator
 {
@@ -27,6 +30,9 @@ class PayrollCalculator
         '缺卡' => 'miss', '旷工' => 'absent', '迟到' => 'late', '早退' => 'early',
     ];
 
+    // 注意：welfare（已发福利/奖励）在应发公式中是加项（计入计税口径），在实发公式中是减项
+    // （实发时扣回——即"福利计税但不实发"）。两条默认公式成对设计，对拍测试已锁定该口径；
+    // 若在系统设置里自定义公式，必须成对同步调整，勿只改其一。
     private const DEFAULT_GROSS = 'base_pay + perf_pay + sick_pay + night + meal + title_sub + reward + welfare - punish - miss_d - late_d - other_d - uniform_d';
 
     /** 国家综合所得年度累计预扣率表（7 级），存储级距不全时的兜底 */
@@ -40,22 +46,37 @@ class PayrollCalculator
     public function __construct(private readonly CalcRules $rules = new CalcRules()) {}
 
     /**
-     * 当月生效人员分类映射：legacy_id => category（staff/manager/case）。
-     * 依据 payroll_staff_category_log 按生效日期取该月最新一条；无记录默认基层员工。
+     * 当月生效人员分类映射：legacy_id => category（staff/manager/case/hq）。
+     *
+     * person_type 保存"当前"分类，person_type_since 是该分类的生效日：
+     *   - 生效日 <= 核算月月末：本月已按当前分类生效，直接使用；
+     *   - 生效日 >  核算月月末：当前分类是该月之后才调整的，本月旧分类无记录可查，
+     *     回退按基层员工（staff）核算并记日志——宁可少算，不冒算。
      */
     private static function categoryMap(string $ym): array
     {
-        // 直接从人员档案的 person_type 字段判断（来自钉钉岗位职级同步）
-        $rows = DB::table('payroll_staff')
-            ->where('deleted', false)
-            ->get(['legacy_id', 'person_type']);
+        $monthEnd = date('Y-m-t', strtotime($ym . '-01'));
+        $rows = DB::table('payroll_staff')->where('deleted', false)
+            ->get(['legacy_id', 'person_type', 'person_type_since']);
         $map = [];
-        foreach ($rows as $r) { $map[$r->legacy_id] = $r->person_type ?: 'staff'; }
+        foreach ($rows as $r) {
+            $since = substr((string)($r->person_type_since ?? ''), 0, 10);
+            if ($since !== '' && $since > $monthEnd && ($r->person_type ?: 'staff') !== 'staff') {
+                \Illuminate\Support\Facades\Log::info('person_type_since 晚于核算月份，该月按基层员工核算', [
+                    'legacy_id' => $r->legacy_id, 'person_type' => $r->person_type,
+                    'person_type_since' => $since, 'ym' => $ym,
+                ]);
+                $map[$r->legacy_id] = 'staff';
+                continue;
+            }
+            $map[$r->legacy_id] = $r->person_type ?: 'staff';
+        }
         return $map;
     }
 
     /**
-     * 计算并写库。返回 ['count'=>int,'skipped'=>array,'preserved_archived'=>int]
+     * 计算并写库。返回 ['count'=>int,'skipped'=>array,'preserved_archived'=>int,'missing'=>array]
+     * 项目员工核算：限定项目清单，类别=staff。
      */
     public function calculate(string $ym, array $projects): array
     {
@@ -64,74 +85,7 @@ class PayrollCalculator
         }
         $projects = array_values(array_filter(array_map('strval', $projects), fn($p) => $p !== ''));
         if (!$projects) throw new RuntimeException('未指定项目');
-
-        $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
-        // 项目核算不含管理人员与案场人员（管理人员/案场人员分别由 calculateManagers / calculateCaseStaff 单独核算）
-        $catMap    = self::categoryMap($ym);
-        $staff     = DB::table('payroll_staff')->whereIn('project_name', $projects)
-            ->where('deleted', false)->get()
-            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'staff');
-
-        // 预取当年历史核算结果（累计预扣个税用），避免逐员工 N+1 查询
-        $historyByStaff = collect();
-        if (!$staff->isEmpty()) {
-            $historyByStaff = DB::table('payroll_results')
-                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
-                ->where('year_month', '<', $ym)
-                ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
-                ->get()->groupBy('staff_legacy_id');
-        }
-
-        // 安全护栏：该月这些项目根本没有任何考勤，就别删已有结果（防止 recalc 把有结果无考勤的历史清空）。
-        $anyAttendance = false;
-        foreach ($projects as $p) { if (isset($attBlocks[$p])) { $anyAttendance = true; break; } }
-        if (!$anyAttendance) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
-        }
-
-        $rows = [];
-        foreach ($staff as $person) {
-            $block = $attBlocks[$person->project_name] ?? null;
-            $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
-            $att = $attRows[$person->name] ?? null;
-            if (!$att) continue;
-            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
-        }
-
-        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
-
-        // 统一按 项目→部门→岗位→姓名 排序后落库，列表与导出顺序一致
-        $rows = self::orderRows($rows);
-
-        // 保留归档标记（仅项目表行；管理人员行/案场人员行不受项目核算影响）
-        $archivedIds = DB::table('payroll_results')
-            ->where('year_month', $ym)->whereIn('project_name', $projects)
-            ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
-            ->where('archived', true)->pluck('staff_legacy_id')->all();
-
-        DB::transaction(function () use ($ym, $projects, $rows) {
-            DB::table('payroll_results')->where('year_month', $ym)->whereIn('project_name', $projects)
-                ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)->delete();
-            foreach ($rows as $row) {
-                DB::table('payroll_results')->insert([
-                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
-                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 0, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
-        });
-
-        $preserved = 0;
-        if ($archivedIds) {
-            $preserved = DB::table('payroll_results')->where('year_month', $ym)
-                ->whereIn('staff_legacy_id', $archivedIds)
-                ->whereIn('project_name', $projects)
-                ->where('is_manager_row', false)->where('is_case_row', false)
-                ->update(['archived' => true, 'updated_at' => now()]);
-        }
-
-        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+        return $this->calculateGroup($ym, 'staff', [false, false, false], $projects);
     }
 
     /**
@@ -144,66 +98,7 @@ class PayrollCalculator
         if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
             throw new RuntimeException('无效月份：' . $ym);
         }
-        $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
-        $catMap    = self::categoryMap($ym);
-        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
-            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'manager');
-
-        // 预取当年历史核算结果（含项目表与管理层表，同人跨表累计，个税累计口径不变）
-        $historyByStaff = collect();
-        if (!$staff->isEmpty()) {
-            $historyByStaff = DB::table('payroll_results')
-                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
-                ->where('year_month', '<', $ym)
-                ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
-                ->get()->groupBy('staff_legacy_id');
-        }
-
-        // 安全护栏：该月没有任何项目考勤就别动已有结果
-        if ($attBlocks->isEmpty()) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
-        }
-
-        $rows = [];
-        foreach ($staff as $person) {
-            $block = $attBlocks[$person->project_name] ?? null;
-            $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
-            $att = $attRows[$person->name] ?? null;
-            if (!$att) continue;
-            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
-        }
-
-        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
-
-        $rows = self::orderRows($rows);
-
-        // 保留归档标记（管理层行独立归档，与项目表互不干扰）
-        $archivedIds = DB::table('payroll_results')
-            ->where('year_month', $ym)->where('is_manager_row', true)->where('is_hq_row', false)
-            ->where('archived', true)->pluck('staff_legacy_id')->all();
-
-        DB::transaction(function () use ($ym, $rows) {
-            DB::table('payroll_results')->where('year_month', $ym)
-                ->where('is_manager_row', true)->where('is_hq_row', false)->delete();
-            foreach ($rows as $row) {
-                DB::table('payroll_results')->insert([
-                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
-                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 1, 'is_case_row' => 0, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
-        });
-
-        $preserved = 0;
-        if ($archivedIds) {
-            $preserved = DB::table('payroll_results')->where('year_month', $ym)
-                ->whereIn('staff_legacy_id', $archivedIds)
-                ->where('is_manager_row', true)
-                ->update(['archived' => true, 'updated_at' => now()]);
-        }
-
-        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+        return $this->calculateGroup($ym, 'manager', [true, false, false]);
     }
 
     /**
@@ -216,66 +111,7 @@ class PayrollCalculator
         if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
             throw new RuntimeException('无效月份：' . $ym);
         }
-        $symbols   = self::symbols();
-        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
-        $catMap    = self::categoryMap($ym);
-        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
-            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'case');
-
-        // 预取当年历史核算结果（含项目表/管理层表/案场表，同人跨表累计，个税累计口径不变）
-        $historyByStaff = collect();
-        if (!$staff->isEmpty()) {
-            $historyByStaff = DB::table('payroll_results')
-                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
-                ->where('year_month', '<', $ym)
-                ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
-                ->get()->groupBy('staff_legacy_id');
-        }
-
-        // 安全护栏：该月没有任何项目考勤就别动已有结果
-        if ($attBlocks->isEmpty()) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
-        }
-
-        $rows = [];
-        foreach ($staff as $person) {
-            $block = $attBlocks[$person->project_name] ?? null;
-            $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
-            $att = $attRows[$person->name] ?? null;
-            if (!$att) continue;
-            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
-        }
-
-        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
-
-        $rows = self::orderRows($rows);
-
-        // 保留归档标记（案场人员行独立归档，与项目表/管理层表互不干扰）
-        $archivedIds = DB::table('payroll_results')
-            ->where('year_month', $ym)->where('is_case_row', true)->where('is_hq_row', false)
-            ->where('archived', true)->pluck('staff_legacy_id')->all();
-
-        DB::transaction(function () use ($ym, $rows) {
-            DB::table('payroll_results')->where('year_month', $ym)
-                ->where('is_case_row', true)->where('is_hq_row', false)->delete();
-            foreach ($rows as $row) {
-                DB::table('payroll_results')->insert([
-                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
-                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 1, 'is_hq_row' => 0, 'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
-        });
-
-        $preserved = 0;
-        if ($archivedIds) {
-            $preserved = DB::table('payroll_results')->where('year_month', $ym)
-                ->whereIn('staff_legacy_id', $archivedIds)
-                ->where('is_case_row', true)
-                ->update(['archived' => true, 'updated_at' => now()]);
-        }
-
-        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+        return $this->calculateGroup($ym, 'case', [false, true, false]);
     }
 
     /**
@@ -288,14 +124,28 @@ class PayrollCalculator
         if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
             throw new RuntimeException('无效月份：' . $ym);
         }
+        return $this->calculateGroup($ym, 'hq', [false, false, true]);
+    }
+
+    /**
+     * 四类人员共用的核算主体：取考勤 → 逐人计算 → 命名锁下事务内删旧插新（chunk）。
+     *
+     * @param string     $category 类别键（staff/manager/case/hq），来自 categoryMap
+     * @param array      $flags    [is_manager_row, is_case_row, is_hq_row]
+     * @param array|null $projects 仅项目核算（staff）用：限定项目清单；其余三类汇总全部项目
+     * @return array{count:int,skipped:array,preserved_archived:int,missing:array}
+     */
+    private function calculateGroup(string $ym, string $category, array $flags, ?array $projects = null): array
+    {
+        [$isManager, $isCase, $isHq] = $flags;
         $symbols   = self::symbols();
         $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
-        // 总部人员：按岗位职级=总部人员筛选
         $catMap    = self::categoryMap($ym);
-        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
-            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === 'hq');
+        $staffQ    = DB::table('payroll_staff')->where('deleted', false);
+        if ($category === 'staff') $staffQ->whereIn('project_name', $projects);
+        $staff = $staffQ->get()->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $category);
 
-        // 预取当年历史核算结果（含各表，同人跨表累计，个税累计口径不变）
+        // 预取当年历史核算结果（累计预扣个税用），避免逐员工 N+1 查询
         $historyByStaff = collect();
         if (!$staff->isEmpty()) {
             $historyByStaff = DB::table('payroll_results')
@@ -305,50 +155,152 @@ class PayrollCalculator
                 ->get()->groupBy('staff_legacy_id');
         }
 
-        // 安全护栏：该月没有物业总部考勤就别动已有结果
-        if (!isset($attBlocks['物业总部'])) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0];
+        // 安全护栏：该月没有任何可用考勤就别动已有结果（防止 recalc 把有结果无考勤的历史清空）
+        if ($category === 'staff') {
+            $anyAttendance = false;
+            foreach ($projects as $p) { if (isset($attBlocks[$p])) { $anyAttendance = true; break; } }
+            if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
+        } elseif ($isHq) {
+            // 总部人员考勤统一取"物业总部"考勤块（总部考勤表单独上传）
+            if (!isset($attBlocks['物业总部'])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
+        } elseif ($attBlocks->isEmpty()) {
+            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
         }
 
-        $rows = [];
-        $attRows = $this->jsonValue($attBlocks['物业总部']->rows) ?: [];
+        $rows = []; $missing = [];
         foreach ($staff as $person) {
-            $att = $attRows[$person->name] ?? null;
-            if (!$att) continue;
+            $block   = $attBlocks[$isHq ? '物业总部' : $person->project_name] ?? null;
+            $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
+            $att = $this->findAttRow($attRows, $person);
+            if (!$att) {
+                // 考勤缺人不再静默跳过：汇总进 missing，由调用方透传前端提示
+                $missing[] = [
+                    'name' => $person->name, 'project' => $person->project_name,
+                    'reason' => trim((string)$person->status) === '离职'
+                        ? '离职人员，本月无考勤记录（已跳过）'
+                        : '考勤表中无此人的记录（已跳过）',
+                ];
+                continue;
+            }
             $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect());
         }
-        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0];
 
+        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing];
+
+        // 统一按 项目→部门→岗位→姓名 排序后落库，列表与导出顺序一致
         $rows = self::orderRows($rows);
+        $rulesHash = $this->rulesHash();
 
-        // 保留归档标记（总部人员行独立归档，与项目表/管理层表互不干扰）
-        $archivedIds = DB::table('payroll_results')
-            ->where('year_month', $ym)->where('is_hq_row', true)
-            ->where('archived', true)->pluck('staff_legacy_id')->all();
+        $preserved = $this->withCalcLock($ym, function () use ($ym, $projects, $rows, $category, $isManager, $isCase, $isHq, $rulesHash) {
+            return DB::transaction(function () use ($ym, $projects, $rows, $category, $isManager, $isCase, $isHq, $rulesHash) {
+                $delQ = DB::table('payroll_results')->where('year_month', $ym);
+                if ($category === 'staff') {
+                    // 仅项目表行；管理人员行/案场人员行/总部行不受项目核算影响
+                    $delQ->whereIn('project_name', $projects)
+                        ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+                } elseif ($isManager) {
+                    $delQ->where('is_manager_row', true)->where('is_hq_row', false);
+                } elseif ($isCase) {
+                    $delQ->where('is_case_row', true);
+                } else {
+                    $delQ->where('is_hq_row', true);
+                }
 
-        DB::transaction(function () use ($ym, $rows) {
-            DB::table('payroll_results')->where('year_month', $ym)
-                ->where('is_hq_row', true)->delete();
-            foreach ($rows as $row) {
-                DB::table('payroll_results')->insert([
-                    'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
-                    'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
-                    'archived' => false, 'is_manager_row' => 0, 'is_case_row' => 0, 'is_hq_row' => 1,
-                    'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
+                // 归档保全：先快照归档行；重算后未被重新核算的人原样回插，归档标记不再静默丢失
+                $archivedRows = (clone $delQ)->where('archived', true)->get();
+                $archivedIds  = $archivedRows->pluck('staff_legacy_id')->all();
+
+                $delQ->delete();
+
+                $records = []; $insertedIds = [];
+                foreach ($rows as $row) {
+                    $records[] = [
+                        'year_month' => $ym, 'staff_legacy_id' => $row['staff_id'],
+                        'project_name' => $row['project'], 'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
+                        'rules_hash' => $rulesHash,
+                        'archived' => false, 'is_manager_row' => (int)$isManager, 'is_case_row' => (int)$isCase, 'is_hq_row' => (int)$isHq,
+                        'created_at' => now(), 'updated_at' => now(),
+                    ];
+                    $insertedIds[] = $row['staff_id'];
+                }
+                // chunk 批量插入，避免逐行 insert 的开销
+                foreach (array_chunk($records, 100) as $chunk) {
+                    DB::table('payroll_results')->insert($chunk);
+                }
+
+                // 未被本次重插的归档行原样回插（保留原 id/归档标记/历史数据）
+                $restored = 0;
+                foreach ($archivedRows as $ar) {
+                    if (!in_array($ar->staff_legacy_id, $insertedIds, true)) {
+                        DB::table('payroll_results')->insert((array)$ar);
+                        $restored++;
+                    }
+                }
+
+                // 重新核算过的归档人员：重插行恢复归档标记（唯一键 ym+staff_id 冲突，只能事后恢复）
+                $preserved = $restored;
+                if ($archivedIds) {
+                    $preserved += (clone $delQ)->whereIn('staff_legacy_id', $archivedIds)
+                        ->update(['archived' => true, 'updated_at' => now()]);
+                }
+                return $preserved;
+            });
         });
 
-        $preserved = 0;
-        if ($archivedIds) {
-            $preserved = DB::table('payroll_results')->where('year_month', $ym)
-                ->whereIn('staff_legacy_id', $archivedIds)
-                ->where('is_hq_row', true)
-                ->update(['archived' => true, 'updated_at' => now()]);
-        }
-
-        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved];
+        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved, 'missing' => $missing];
     }
+
+    /**
+     * 考勤行匹配：上传考勤时已按档案给每行打上 staff_id / dingtalk_userid 标记，
+     * 核算时优先按 dingtalk_userid → staff_id 匹配（同名安全），最后回退姓名（兼容旧数据）。
+     */
+    private function findAttRow(array $attRows, object $person): ?array
+    {
+        $duid = trim((string)($person->dingtalk_userid ?? ''));
+        if ($duid !== '') {
+            foreach ($attRows as $row) {
+                if (trim((string)($row['dingtalk_userid'] ?? '')) === $duid) return $row;
+            }
+        }
+        foreach ($attRows as $row) {
+            if ((int)($row['staff_id'] ?? 0) === (int)$person->legacy_id) return $row;
+        }
+        return $attRows[$person->name] ?? null;
+    }
+
+    /**
+     * 核算写库互斥锁：同一月份同时只允许一个核算任务（MySQL GET_LOCK 命名锁），
+     * 防止并发重算交错删插。非 MySQL 后端（如测试用 sqlite 内存库）没有命名锁，直接执行。
+     */
+    private function withCalcLock(string $ym, callable $fn)
+    {
+        $name = 'payroll_calc_' . $ym;
+        try {
+            $lock = DB::selectOne('SELECT GET_LOCK(?, 10) AS acquired', [$name]);
+            $ok = $lock !== null && (int)($lock->acquired ?? 0) === 1;
+        } catch (\Throwable) {
+            $ok = true; // 非 MySQL 后端
+        }
+        if (!$ok) throw new RuntimeException('本月已有另一核算任务正在进行，请稍后重试');
+        try {
+            return $fn();
+        } finally {
+            try { DB::statement('DO RELEASE_LOCK(?)', [$name]); } catch (\Throwable) {}
+        }
+    }
+
+    /**
+     * 规则快照哈希：本次核算使用的 calc_rules + symbols 快照指纹，
+     * 落库到 payroll_results.rules_hash，便于事后追溯该月按哪套规则计算。
+     */
+    private function rulesHash(): string
+    {
+        $snaps = DB::table('legacy_json_snapshots')
+            ->whereIn('file_name', ['calc_rules.json', 'symbols.json'])
+            ->pluck('payload', 'file_name');
+        return md5(($snaps['calc_rules.json'] ?? '') . '|' . ($snaps['symbols.json'] ?? ''));
+    }
+
     /** 单行完整计算 */
     private function computeRow(object $person, array $att, array $symbols, string $ym, $historyByStaff = null): array
     {
@@ -541,13 +493,16 @@ class PayrollCalculator
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS
         ), 2);
+        // 公式失败（含变量名打错）立即中止整月核算，绝不把 0 应发静默落库
+        if ($err = $this->rules->getLastError()) {
+            throw new RuntimeException("应发公式计算失败（员工 {$person->name}）：{$err['error']}；表达式：{$err['expr']}");
+        }
 
         // 累计预扣个税
         $taxConfig = $this->taxConfig();
         $basicDeduction = (float)($taxConfig['basic_deduction'] ?? 5000);
         // 个税扣除模式：0=普通（每月 basic_deduction 累计）；1=6万扣除（年初一次性按全年6万）
-        $personData = $this->jsonValue($person->data) ?: [];
-        $taxMode = (int)($personData['tax_mode'] ?? 0);
+        $taxMode = (int)($data['tax_mode'] ?? 0);
         $cumStartMode = $this->rules->str('tax.cum_start', 'jan');
         $yearStart = substr($ym, 0, 4) . '-01';
         $hireMonth = $person->hire_date ? substr((string)$person->hire_date, 0, 7) : null;
@@ -574,6 +529,9 @@ class PayrollCalculator
                 $taxBefore     += (float)($old['actual_tax'] ?? 0);
             }
         }
+        // 外部年初至今累计：本系统外已发收入/已预扣税（如年中入职前原单位），一次性叠加
+        $incomeBefore += (float)($data['year_cum_income'] ?? 0);
+        $taxBefore    += (float)($data['year_cum_tax'] ?? 0);
         $cumIncome  = $incomeBefore + $gross;
         $cumSocial  = $socialBefore + $social;
         $cumSpec    = $specBefore + $spec;
@@ -590,6 +548,9 @@ class PayrollCalculator
         $net = round($this->rules->evaluate(
             $this->rules->str('formula.net', ''), $vars, self::DEFAULT_NET
         ), 2);
+        if ($err = $this->rules->getLastError()) {
+            throw new RuntimeException("实发公式计算失败（员工 {$person->name}）：{$err['error']}；表达式：{$err['expr']}");
+        }
 
         $__cfResult = [];
         $__cfList = $this->rules->raw('custom_fields', []);
@@ -647,6 +608,10 @@ class PayrollCalculator
         if (is_array($__cfR)) { foreach ($__cfR as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = (float)($row[$__cn] ?? $__f['default'] ?? 0); } }
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS), 2);
+        // 公式失败立即中止微调重算，不允许静默按 0 落库
+        if ($err = $this->rules->getLastError()) {
+            throw new RuntimeException("应发公式计算失败（微调重算）：{$err['error']}；表达式：{$err['expr']}");
+        }
         $soc = round(array_sum(array_map(
             fn($f) => (float)($row[$f] ?? 0), ['pen', 'med', 'une', 'house', 'big'])), 2);
         $row['soc_total'] = $soc;
@@ -703,6 +668,9 @@ class PayrollCalculator
                     $taxBefore    += (float)($old['actual_tax'] ?? 0);
                 }
             }
+            // 外部年初至今累计：本系统外已发收入/已预扣税（如年中入职前原单位），与核算口径一致
+            $incomeBefore += (float)($personData['year_cum_income'] ?? 0);
+            $taxBefore    += (float)($personData['year_cum_tax'] ?? 0);
             $cumIncome  = $incomeBefore + $gross;
             $cumSocial  = $socialBefore + $soc;
             $cumSpec    = $specBefore + $spec;
@@ -724,6 +692,9 @@ class PayrollCalculator
         $vars['gross'] = $gross; $vars['soc_total'] = $soc; $vars['actual_tax'] = $tax;
         $net = round($this->rules->evaluate(
             $this->rules->str('formula.net', ''), $vars, self::DEFAULT_NET), 2);
+        if ($err = $this->rules->getLastError()) {
+            throw new RuntimeException("实发公式计算失败（微调重算）：{$err['error']}；表达式：{$err['expr']}");
+        }
 
         $row['gross'] = $gross;
         $row['actual_tax'] = $tax;

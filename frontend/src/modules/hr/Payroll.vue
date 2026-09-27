@@ -410,7 +410,7 @@ async function doCalc() {
   try {
     const r = await api('/api/payroll/calc', { body: { ym: ui.month, projects: calcProjects.value } })
     let msg = `核算完成，共 ${r.count} 人。`
-    if (r.skipped_count) msg += ` 跳过 ${r.skipped_count} 人（无考勤记录）：` + r.skipped.map((s) => `${s.name}(${s.project})`).join('、')
+    if (r.missing && r.missing.length) msg += `\n⚠ ${r.missing.length} 人无考勤记录未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
     if (r.warning) msg += '\n⚠ ' + r.warning
     calcMsg.value = `<div class="msg ok">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
     loadPayroll()
@@ -423,7 +423,10 @@ async function doCalcType(tp) {
   if (!confirm(`确认核算 ${ui.month} ${label}${scope}？同月重复核算将覆盖旧数据。`)) return
   try {
     const r = await api(TP_META[tp].calcApi, { body: { ym: ui.month } })
-    typeMsg[tp] = `<div class="msg ok">${label}完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? '（' + r.skipped.join('、') + '）' : ''}</div>`
+    const missTxt = r.missing && r.missing.length
+      ? `<br>⚠ 无考勤未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
+      : ''
+    typeMsg[tp] = `<div class="msg ok">${label}完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? '（' + r.skipped.join('、') + '）' : ''}${missTxt}</div>`
     loadType(tp)
     loadPayroll()
   } catch (e) { typeMsg[tp] = `<div class="msg err">${e.message}</div>` }

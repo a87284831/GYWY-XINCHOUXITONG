@@ -40,7 +40,7 @@ class PayrollWriteController extends ApiController
             if (!empty($result['skipped'])) {
                 \Illuminate\Support\Facades\Log::info('payroll.calc.skipped', ['ym' => $ym, 'projects' => $projects, 'reason' => $result['skipped']]);
             }
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => []]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'] ?? [], 'missing' => $result['missing'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '核算失败：' . $e->getMessage()], 500);
@@ -65,7 +65,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateManagers($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped']]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '管理人员核算失败：' . $e->getMessage()], 500);
@@ -90,7 +90,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateCaseStaff($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped']]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '案场人员核算失败：' . $e->getMessage()], 500);
@@ -115,7 +115,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateHq($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped']]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '总部人员核算失败：' . $e->getMessage()], 500);
@@ -200,7 +200,12 @@ class PayrollWriteController extends ApiController
             }
         }
 
-        $row = $calc->recomputeDerived($row, $staffId, $ym);
+        try {
+            $row = $calc->recomputeDerived($row, $staffId, $ym);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['ok' => false, 'error' => '微调重算失败：' . $e->getMessage()], 400);
+        }
         // 用户显式改过 actual_tax → 覆盖回去并按公式重算 net
         if ($userGaveTax) {
             $row['actual_tax'] = round((float)$changes['actual_tax'], 2);
@@ -211,6 +216,9 @@ class PayrollWriteController extends ApiController
             ];
             $defaultNet = 'gross - soc_total - actual_tax - welfare';
             $row['net'] = round($rules->evaluate($rules->str('formula.net', ''), $vars, $defaultNet), 2);
+            if ($rules->getLastError()) {
+                return response()->json(['ok' => false, 'error' => '实发公式计算失败：' . ($rules->getLastError()['error'] ?? '未知错误')], 400);
+            }
         }
 
         DB::table('payroll_results')->where('id', $record->id)->update([

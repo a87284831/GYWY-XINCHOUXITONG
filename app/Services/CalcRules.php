@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Log;
  * 从 legacy_json_snapshots.calc_rules.json 加载"系统设置→工资计算规则"，
  * 供薪资核算读取。所有 getter 都做了 null 安全与类型转换。
  * 单次请求内做静态缓存，避免重复查库。
+ *
+ * evaluate() 求值失败时会记录 lastError 并返回兜底值；调用方（核算/微调）必须在
+ * 落库前检查 getLastError()，非空即中止——公式出错绝不允许静默按 0 计薪。
  */
 class CalcRules
 {
