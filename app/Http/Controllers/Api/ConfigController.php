@@ -22,7 +22,7 @@ class ConfigController extends ApiController
 
     public function resetSymbols(Request $request): JsonResponse
     {
-        return $this->saveSnapshot($request, 'symbols.json', ['items' => $this->defaultSymbols()]);
+        return $this->saveSnapshot($request, 'symbols.json', ['items' => self::defaultSymbols()]);
     }
 
     public function importSymbols(Request $request): JsonResponse
@@ -64,7 +64,7 @@ class ConfigController extends ApiController
         return response()->json(['ok' => true] + $data);
     }
 
-    private function defaultSymbols(): array
+    public static function defaultSymbols(): array
     {
         return [
             ['symbol' => '√', 'name' => '正常出勤', 'in_required' => true, 'in_actual' => true, 'value' => 1, 'category' => '正常'],

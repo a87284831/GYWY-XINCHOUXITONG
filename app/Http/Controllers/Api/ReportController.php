@@ -402,10 +402,20 @@ class ReportController extends ApiController
         if ($this->isProjectScope($account)) $q->where('project_name', $account->project_name);
         $records = $q->get();
 
-        // 异常符号分类
-        $ANOMALY = ['迟' => '迟到', '早' => '早退', '缺' => '缺卡', '旷' => '旷工', '事' => '事假', '病' => '病假', '产' => '产假'];
-        $normalAttend = ['√', '半', '值', '假'];
-        $requiredSymbols = ['√', '半', '假', '缺', '迟', '早', '事', '病', '产', '旷'];
+        // 从符号库动态生成分类（替代硬编码，符号库修改后报表自动跟随）
+        $symbols = \App\Services\PayrollCalculator::symbols();
+        $ANOMALY = []; $normalAttend = [];
+        // 异常类别集合（业务概念，不随符号文本变化）
+        $anomalyCats = ['迟到', '早退', '缺卡', '旷工', '事假', '病假', '产假'];
+        foreach ($symbols as $sym => $meta) {
+            $cat = (string) ($meta['category'] ?? '');
+            $name = (string) ($meta['name'] ?? $sym);
+            if (in_array($cat, $anomalyCats, true)) {
+                $ANOMALY[$sym] = $name;
+            } elseif (!empty($meta['in_actual'])) {
+                $normalAttend[] = $sym;
+            }
+        }
 
         $projSummary = []; $anomalyTotals = array_fill_keys(array_values($ANOMALY), 0);
         $personStats = [];
@@ -421,13 +431,18 @@ class ReportController extends ApiController
                 $person = ['name' => $name, 'project' => $project, 'required' => 0, 'actual' => 0, 'anomalies' => []];
                 foreach ($days as $sym) {
                     $sym = trim((string) $sym);
-                    if ($sym === '' || $sym === '休') continue;
-                    $v = ($sym === '半') ? 0.5 : 1;
+                    if ($sym === '') continue;
+                    $item = \App\Services\PayrollCalculator::symbolLookup($sym, $symbols);
+                    $cat = $item ? (string) ($item['category'] ?? '') : '';
+                    if ($cat === '公休') continue;
+                    $v = $item ? (float) ($item['value'] ?? 1) : 1;
+                    // 用符号库中的标准符号做数组 key 查找，避免别名不匹配
+                    $stdSym = $item ? (string) ($item['symbol'] ?? $sym) : $sym;
                     $proj['required'] += $v; $person['required'] += $v;
-                    if (in_array($sym, $normalAttend, true)) { $proj['actual'] += ($sym === '半' ? 0.5 : 1); $person['actual'] += ($sym === '半' ? 0.5 : 1); }
-                    elseif (isset($ANOMALY[$sym])) {
-                        $anomalyTotals[$ANOMALY[$sym]]++;
-                        $person['anomalies'][] = $ANOMALY[$sym];
+                    if (in_array($stdSym, $normalAttend, true)) { $proj['actual'] += $v; $person['actual'] += $v; }
+                    elseif (isset($ANOMALY[$stdSym])) {
+                        $anomalyTotals[$ANOMALY[$stdSym]]++;
+                        $person['anomalies'][] = $ANOMALY[$stdSym];
                     }
                 }
                 if ($person['required'] > 0) {
@@ -471,7 +486,8 @@ class ReportController extends ApiController
                 if (!is_array($p)) continue;
                 foreach (($p['days'] ?? []) as $sym) {
                     $sym = trim((string) $sym); if ($sym === '') continue;
-                    $label = $sym === '√' ? '出勤' : ($ANOMALY[$sym] ?? ($sym === '休' ? '休息' : $sym));
+                    $item = \App\Services\PayrollCalculator::symbolLookup($sym, $symbols);
+                    $label = $item ? ((string) ($item['name'] ?? $sym)) : $sym;
                     $symbolCount[$label] = ($symbolCount[$label] ?? 0) + 1;
                 }
             }

@@ -321,7 +321,12 @@ class TemplateController extends ApiController
                 if (!empty($it['symbol'])) $symbols[] = (string) $it['symbol'];
             }
         }
-        if (!$symbols) $symbols = ['√', '半', '值', '假', '缺', '迟', '早', '休', '事', '病', '产', '旷'];
+        if (!$symbols) {
+            // 符号库缺失时回退到默认配置（与 resetSymbols 一致，避免硬编码漂移）
+            foreach ((\App\Http\Controllers\Api\ConfigController::defaultSymbols()) as $it) {
+                if (!empty($it['symbol'])) $symbols[] = (string) $it['symbol'];
+            }
+        }
         $dropStart = 5;
         $dropEnd = max(4 + $formulaRows + 15, $dropStart + 9); // 覆盖人员行并预留增行余量
         for ($c = $dateStart; $c <= $dateEnd; $c++) {
