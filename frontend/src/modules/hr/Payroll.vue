@@ -129,6 +129,11 @@
         <div class="row">
           <button class="btn primary" @click="doCalcType(tp)">{{ TP_META[tp].calcBtn }}（覆盖旧数据）</button>
           <button class="btn" @click="exportType(tp)">{{ TP_META[tp].exportBtn }}</button>
+          <button
+            v-if="(tp === 'mgr' || tp === 'hq') && isQuarterEndMonth(ui.month)"
+            class="btn warn"
+            @click="openCoefDialog()"
+          >{{ coefEntryLabel(ui.month) }}</button>
           <span v-html="typeArchiveHtml[tp]"></span>
         </div>
         <div class="hint">{{ TP_META[tp].hint }}</div>
@@ -229,6 +234,54 @@
         </div>
       </div>
     </div>
+
+    <!-- 季度/半年度绩效系数录入弹窗 -->
+    <div v-if="coefDialog.show" class="modal-mask" @mousedown.self="closeCoefDialog">
+      <div class="modal" style="width:860px;position:relative">
+        <div @click="closeCoefDialog" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <h3>绩效系数录入 — {{ ui.month }}</h3>
+        <div class="msg info">
+          本季度周期：<b>{{ coefDialog.period }}</b>
+          <template v-if="coefDialog.half_period">；半年度周期：<b>{{ coefDialog.half_period }}</b></template>
+          。请为以下管理/总部人员录入系数（未录入者该周期绩效按 0 计）。
+        </div>
+        <div v-if="coefDialog.loading" class="msg info">加载中…</div>
+        <div v-else-if="coefDialog.err" class="msg err">{{ coefDialog.err }}</div>
+        <template v-else>
+          <div v-if="coefDialog.items.length" class="table-wrap" style="max-height:420px">
+            <table class="tb">
+              <thead>
+                <tr>
+                  <th>姓名</th><th>项目</th><th>职位</th><th>职级</th><th>类型</th>
+                  <th>季度系数</th><th v-if="coefDialog.half_period">半年度系数</th><th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="it in coefDialog.items" :key="it.staff_legacy_id">
+                  <td>{{ it.name }}</td><td>{{ it.project }}</td><td>{{ it.position || '' }}</td>
+                  <td>{{ it.position_level || '' }}</td>
+                  <td>{{ it.person_type === 'manager' ? '管理' : '总部' }}</td>
+                  <td><input type="number" step="0.01" v-model="it.coef" style="width:90px" /></td>
+                  <td v-if="coefDialog.half_period"><input type="number" step="0.01" v-model="it.half_coef" style="width:90px" /></td>
+                  <td>
+                    <span :class="`tag ${it.coef !== null && it.coef !== '' ? 'green' : 'orange'}`">
+                      {{ it.coef !== null && it.coef !== '' ? '已录入' : '未录入' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="msg info">本季度暂无需录入系数的管理/总部人员。</div>
+        </template>
+        <div class="row end" style="margin-top:14px">
+          <button class="btn" @click="closeCoefDialog">取消</button>
+          <button class="btn primary" :disabled="coefDialog.saving || !coefDialog.items.length" @click="saveCoef">
+            {{ coefDialog.saving ? '保存中…' : '保存系数' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -240,7 +293,7 @@ import { useUiStore } from '@/stores/ui'
 import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel } from './payrollLogic'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -304,6 +357,9 @@ const adjRow = ref(null)
 const adjValues = reactive({})
 const adjRemark = ref('')
 const adjReason = ref('')
+
+// 季度/半年度系数录入弹窗
+const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
 
 const projChecks = computed(() => auth.projects.filter((p) => p !== '物业总部'))
 
@@ -496,6 +552,60 @@ async function saveAdjust() {
     loadPayroll()
     if (payTab.value !== 'emp') loadType(payTab.value)
   } catch (e) { alert(e.message) }
+}
+
+async function openCoefDialog() {
+  coefDialog.show = true
+  coefDialog.loading = true
+  coefDialog.err = ''
+  coefDialog.ym = ui.month
+  coefDialog.items = []
+  try {
+    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}`)
+    if (!r.ok) { coefDialog.err = r.error || r.message || '当前月份不是季度末月，无需录入季度系数'; coefDialog.loading = false; return }
+    coefDialog.period = r.period
+    coefDialog.half_period = r.half_period || null
+    coefDialog.items = (r.items || []).map((it) => ({
+      ...it,
+      coef: it.coef === null || it.coef === undefined ? '' : String(it.coef),
+      half_coef: it.half_coef === null || it.half_coef === undefined ? '' : String(it.half_coef),
+    }))
+  } catch (e) { coefDialog.err = e.message } finally { coefDialog.loading = false }
+}
+
+function closeCoefDialog() {
+  coefDialog.show = false
+}
+
+async function saveCoef() {
+  const items = []
+  for (const it of coefDialog.items) {
+    if (it.coef !== '' && it.coef !== null) {
+      const v = parseFloat(it.coef)
+      if (!isNaN(v)) items.push({ staff_legacy_id: it.staff_legacy_id, coef: v })
+    }
+  }
+  const halfItems = []
+  if (coefDialog.half_period) {
+    for (const it of coefDialog.items) {
+      if (it.half_coef !== '' && it.half_coef !== null) {
+        const v = parseFloat(it.half_coef)
+        if (!isNaN(v)) halfItems.push({ staff_legacy_id: it.staff_legacy_id, coef: v })
+      }
+    }
+  }
+  if (!items.length && !halfItems.length) return toast('请至少填写一个系数', false)
+  coefDialog.saving = true
+  try {
+    if (items.length) {
+      await api('/api/payroll/period-coef/save', { body: { period_type: 'quarterly', period_key: coefDialog.period, items } })
+    }
+    if (halfItems.length && coefDialog.half_period) {
+      await api('/api/payroll/period-coef/save', { body: { period_type: 'half_year', period_key: coefDialog.half_period, items: halfItems } })
+    }
+    toast('系数已保存')
+    closeCoefDialog()
+  } catch (e) { alert(e.message) } finally { coefDialog.saving = false }
 }
 
 onMounted(() => {

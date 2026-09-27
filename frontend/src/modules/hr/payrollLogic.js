@@ -85,3 +85,79 @@ export function payDeptOptions(rows, project) {
 export function filterPayRows(rows, project, dept) {
   return rows.filter((r) => (!project || r.project === project) && (!dept || (r.department || '') === dept))
 }
+
+// ---------------- 季度绩效 ----------------
+
+const QUARTER_END_MONTHS = [4, 7, 10, 1]
+const HALF_YEAR_END_MONTHS = [7, 1]
+
+/** 判断 ym 是否季度末月 */
+export function isQuarterEndMonth(ym) {
+  const m = Number((ym || '').slice(5, 7))
+  return QUARTER_END_MONTHS.includes(m)
+}
+
+/** 判断 ym 是否半年度末月（7月/1月） */
+export function isHalfYearEndMonth(ym) {
+  const m = Number((ym || '').slice(5, 7))
+  return HALF_YEAR_END_MONTHS.includes(m)
+}
+
+/** 根据核算月返回季度/半年度标识（1月归上年 Q4/H2） */
+export function periodKeys(ym) {
+  const y = Number((ym || '').slice(0, 4))
+  const m = Number((ym || '').slice(5, 7))
+  const map = {
+    4: { q: `${y}-Q1`, h: null },
+    7: { q: `${y}-Q2`, h: `${y}-H1` },
+    10: { q: `${y}-Q3`, h: null },
+    1: { q: `${y - 1}-Q4`, h: `${y - 1}-H2` },
+  }
+  return map[m] || { q: null, h: null }
+}
+
+/** 生成录入按钮文案 */
+export function coefEntryLabel(ym) {
+  const { q, h } = periodKeys(ym)
+  if (!q) return ''
+  return h ? `📊 录入 ${q} 季度 + ${h} 半年度系数` : `📊 录入 ${q} 季度系数`
+}
+
+/** 从 perf_detail 生成工资表逐月绩效子行（缺系数/无明细 → 空） */
+export function perfDetailSubRows(row) {
+  const d = row && row.perf_detail
+  if (!d || d.error || !Array.isArray(d.months)) return []
+  const subs = d.months.map((m) => ({
+    key: `sub-${m.ym}`,
+    label: `└─ ${Number(m.ym.slice(5, 7))}月绩效`,
+    ym: m.ym,
+    perf_att: m.perf_att,
+    base: m.base,
+    amount: m.amount,
+    isSub: true,
+  }))
+  if (d.half_year && !d.half_year.error && Array.isArray(d.half_year.months)) {
+    const hTag = (d.half_year.period || '').split('-')[1] || 'H'
+    for (const m of d.half_year.months) {
+      subs.push({
+        key: `sub-h-${m.ym}`,
+        label: `└─ [${hTag}] ${Number(m.ym.slice(5, 7))}月绩效`,
+        ym: m.ym,
+        perf_att: m.perf_att,
+        base: m.base,
+        amount: m.amount,
+        isSub: true,
+      })
+    }
+  }
+  return subs
+}
+
+/** 导出 Excel 时从 perf_detail 提取逐月绩效金额（按 ym 键值对） */
+export function exportPerfDetailCols(row) {
+  const d = row && row.perf_detail
+  if (!d || d.error || !Array.isArray(d.months)) return {}
+  const out = {}
+  for (const m of d.months) out[m.ym] = m.amount
+  return out
+}
