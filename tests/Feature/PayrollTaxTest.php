@@ -10,8 +10,7 @@ use Tests\TestCase;
 
 /**
  * 个税累计预扣与核算健壮性测试：
- *   - 跨月跳档（3%→10%）、年中入职起算、6万扣除模式（tax_mode=1）
- *   - 外部年初至今累计（data.year_cum_income / year_cum_social / year_cum_spec / year_cum_tax）
+ *   - 跨月跳档（3%→10%）、年中入职独立计税（原单位数据不叠加）、6万扣除模式（tax_mode=1）
  *   - 微调后按年度累计重算个税（recomputeDerived）
  *   - 考勤缺人 missing 名单、按 staff_id 标记匹配考勤行
  *   - 归档行重算保全（未重插者原样回插，归档标记不丢失）
@@ -83,9 +82,7 @@ class PayrollTaxTest extends TestCase
             'regular_date' => $over['regular_date'] ?? '',
             'resign_date' => $over['resign_date'] ?? '',
         ];
-        foreach (['tax_mode', 'year_cum_income', 'year_cum_tax', 'year_cum_social', 'year_cum_spec'] as $k) {
-            if (array_key_exists($k, $over)) $data[$k] = $over[$k];
-        }
+        if (array_key_exists('tax_mode', $over)) $data['tax_mode'] = $over['tax_mode'];
         DB::table('payroll_staff')->insert([
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '测试岗',
             'status' => $over['status'] ?? '正式', 'fixed_monthly' => $fixed, 'base_salary' => $base,
@@ -192,23 +189,28 @@ class PayrollTaxTest extends TestCase
         $this->checkRow($row, '当月个税为0', $row['actual_tax'], 0.0);
     }
 
-    public function test_external_year_cumulative_counts_in_tax(): void
+    public function test_external_year_cumulative_ignored_independent_taxation(): void
     {
         $this->seedRules();
-        // 年中入职：本系统首月核算，但此前在原单位已有收入 20000、五险一金 2000、专项附加 1000、已预扣 300
-        $this->seedStaff(4, '赵六', 6000, 5000, '2026-03-01', [
+        // 年中入职独立计税：即使 data 中残留原单位累计（收入/五险一金/专项附加/已预扣税），
+        // 核算也必须忽略，只按本单位入职月起算
+        $this->seedStaff(4, '赵六', 6000, 5000, '2026-03-01');
+        $row = DB::table('payroll_staff')->where('legacy_id', 4)->first();
+        $data = json_decode((string) $row->data, true);
+        $data += [
             'year_cum_income' => 20000.0, 'year_cum_tax' => 300.0,
             'year_cum_social' => 2000.0, 'year_cum_spec' => 1000.0,
-        ]);
+        ];
+        DB::table('payroll_staff')->where('legacy_id', 4)->update(['data' => json_encode($data, JSON_UNESCAPED_UNICODE)]);
         $r = $this->calc(['赵六' => $this->makeAtt($this->fullDays())], '2026-03');
-        $row = $r['rows'][4];
-        // 累计应纳税 = (20000+6000) - 5000 - 2000 - 1000 = 18000 → 3% = 540 → 当月 = 540-300 = 240
-        $this->checkRow($row, '累计应纳税所得额(含外部)', $row['cum_taxable'], 18000.0);
-        $this->checkRow($row, '已预扣(含外部)', $row['paid_before'], 300.0);
-        $this->checkRow($row, '当月个税', $row['actual_tax'], 240.0);
+        $res = $r['rows'][4];
+        // 独立计税：累计应纳税 = 6000 - 5000(本单位任职1个月) = 1000 → 3% = 30
+        $this->checkRow($res, '已预扣为0(忽略外部)', $res['paid_before'], 0.0);
+        $this->checkRow($res, '累计应纳税所得额(不含外部)', $res['cum_taxable'], 1000.0);
+        $this->checkRow($res, '当月个税', $res['actual_tax'], 30.0);
     }
 
-    public function test_adjust_recompute_uses_year_cumulative_tax(): void
+    public function test_adjust_recompute_uses_ytd_history_tax(): void
     {
         $this->seedRules();
         $this->seedStaff(5, '钱七', 6000, 5000, '2026-01-01');
@@ -266,23 +268,6 @@ class PayrollTaxTest extends TestCase
         }
         $lisi = json_decode($rows->firstWhere('staff_legacy_id', 10)->row_data, true);
         $this->checkRow($lisi, '李四归档数据原样保留', $lisi['gross'], 6000.0);
-    }
-
-    public function test_manager_mid_year_with_full_external_cumulative(): void
-    {
-        $this->seedRules();
-        // 月薪1.5万管理人员 7 月入职：原单位 1-6 月累计收入 90000、五险一金 12000、专项附加 6000、已预扣 3480
-        $this->seedStaff(12, '高管', 15000, 10000, '2026-07-01', [
-            'year_cum_income' => 90000.0, 'year_cum_social' => 12000.0,
-            'year_cum_spec' => 6000.0, 'year_cum_tax' => 3480.0,
-        ]);
-        $r = $this->calc(['高管' => $this->makeAtt($this->fullDays())], '2026-07');
-        $row = $r['rows'][12];
-        // 累计应纳税 = (90000+15000) - 5000(本单位任职1个月) - 12000 - 6000 = 82000 → 10%档: 8200-2520=5680
-        // 当月 = 5680 - 已预扣 3480 = 2200
-        $this->checkRow($row, '累计应纳税所得额(含外部)', $row['cum_taxable'], 82000.0);
-        $this->checkRow($row, '已预扣(含外部)', $row['paid_before'], 3480.0);
-        $this->checkRow($row, '当月个税', $row['actual_tax'], 2200.0);
     }
 
     public function test_undefined_variable_in_formula_aborts_calc(): void

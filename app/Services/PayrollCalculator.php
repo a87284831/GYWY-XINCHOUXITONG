@@ -599,11 +599,8 @@ class PayrollCalculator
                 $taxBefore     += (float)($old['actual_tax'] ?? 0);
             }
         }
-        // 外部年初至今累计：本系统外已发收入/五险一金/专项附加/已预扣税（如年中入职前原单位），一次性叠加
-        $incomeBefore += (float)($data['year_cum_income'] ?? 0);
-        $socialBefore += (float)($data['year_cum_social'] ?? 0);
-        $specBefore   += (float)($data['year_cum_spec'] ?? 0);
-        $taxBefore    += (float)($data['year_cum_tax'] ?? 0);
+        // 独立计税口径：年中入职只累计本系统内（入职月起）的收入/扣除/已预扣税，
+        // 原单位数据不叠加，年度汇算清缴由员工自行处理
         $cumIncome  = $incomeBefore + $gross;
         $cumSocial  = $socialBefore + $social;
         $cumSpec    = $specBefore + $spec;
@@ -741,11 +738,6 @@ class PayrollCalculator
                     $taxBefore    += (float)($old['actual_tax'] ?? 0);
                 }
             }
-            // 外部年初至今累计：本系统外已发收入/五险一金/专项附加/已预扣税（如年中入职前原单位），与核算口径一致
-            $incomeBefore += (float)($personData['year_cum_income'] ?? 0);
-            $socialBefore += (float)($personData['year_cum_social'] ?? 0);
-            $specBefore   += (float)($personData['year_cum_spec'] ?? 0);
-            $taxBefore    += (float)($personData['year_cum_tax'] ?? 0);
             $cumIncome  = $incomeBefore + $gross;
             $cumSocial  = $socialBefore + $soc;
             $cumSpec    = $specBefore + $spec;
