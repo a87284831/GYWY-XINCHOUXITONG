@@ -58,10 +58,16 @@ class CalcRulesTest extends TestCase
         $this->assertEquals(0.90, $rule['quarter_ratio']);
         $this->assertEquals(0.10, $rule['half_year_ratio']);
 
-        // 未知职级 fallback to default
+        // 未配置档位：configured=false（显式失败，不再静默 fallback default）
         $rule = $rules->getPayRule('manager', '未知职级');
-        $this->assertEquals(1.0, $rule['quarter_ratio']);
+        $this->assertEquals('quarterly', $rule['cycle']);
+        $this->assertFalse($rule['configured']);
+        $this->assertEquals(0.0, $rule['quarter_ratio']);
         $this->assertEquals(0.0, $rule['half_year_ratio']);
+
+        // 档位为空同样 configured=false
+        $rule = $rules->getPayRule('manager', '');
+        $this->assertFalse($rule['configured']);
     }
 
     public function test_get_pay_rule_defaults_to_monthly_when_no_config(): void

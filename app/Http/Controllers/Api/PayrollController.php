@@ -230,7 +230,7 @@ class PayrollController extends ApiController
             return [
                 'staff_legacy_id' => (int)$r->staff_legacy_id,
                 'name' => $s->name ?? '', 'project' => $s->project_name ?? '',
-                'position' => $s->position ?? '', 'position_level' => (string)($data['position_level'] ?? ''),
+                'position' => $s->position ?? '', 'pay_grade' => (string)($data['pay_grade'] ?? ''),
                 'coef' => (float)$r->coef,
             ];
         })->values();
@@ -286,7 +286,7 @@ class PayrollController extends ApiController
                 'staff_legacy_id' => (int)$s->legacy_id,
                 'name' => $s->name, 'project' => $s->project_name, 'position' => $s->position,
                 'person_type' => $s->person_type,
-                'position_level' => (string)($data['position_level'] ?? ''),
+                'pay_grade' => (string)($data['pay_grade'] ?? ''),
                 'coef' => isset($qCoefs[$s->legacy_id]) ? (float)$qCoefs[$s->legacy_id]->coef : null,
                 'half_coef' => isset($hCoefs[$s->legacy_id]) ? (float)$hCoefs[$s->legacy_id]->coef : null,
             ];

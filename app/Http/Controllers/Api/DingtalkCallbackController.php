@@ -450,6 +450,8 @@ class DingtalkCallbackController extends ApiController
             '所学专业' => 'major', '毕业院校' => 'school', '民族' => 'nation',
             '婚姻状况' => 'marital', '住址' => 'home_addr', '紧急联系人' => 'emergency_contact',
             '紧急联系人电话' => 'emergency_phone', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
+            // 薪酬档位：钉钉花名册单选（专员级/主管级/经理级），字段名需与钉钉逐字一致
+            '薪酬档位' => 'pay_grade',
         ];
 
         $systemMap = [

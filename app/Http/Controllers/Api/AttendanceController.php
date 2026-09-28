@@ -172,7 +172,7 @@ class AttendanceController extends ApiController
 
     /**
      * GET /api/attendance/export?ym=2026-09&project=XX&staff_type=XX
-     * 导出已锁定考勤为 Excel。员工类型从 staff.data.position_level 读取。
+     * 导出已锁定考勤为 Excel。人员类型取 payroll_staff.person_type（钉钉花名册「岗位职级」同步）。
      */
     public function export(Request $request, \App\Services\PayrollCalculator $calc)
     {
@@ -183,6 +183,10 @@ class AttendanceController extends ApiController
             return response()->json(['ok' => false, 'error' => '月份格式错误'], 400);
         }
         $staffType = $request->string('staff_type')->toString();
+        $staffTypeMap = ['管理人员' => 'manager', '基层人员' => 'staff', '案场人员' => 'case', '总部人员' => 'hq'];
+        if ($staffType !== '' && !isset($staffTypeMap[$staffType])) {
+            return response()->json(['ok' => false, 'error' => '人员类型参数错误'], 400);
+        }
         $daysInMonth = (int) date('t', strtotime($ym . '-01'));
 
         if ($this->isProjectScope($account)) {
@@ -210,14 +214,14 @@ class AttendanceController extends ApiController
             $attByProject[$p] = $this->jsonValue($row->rows) ?: [];
         }
 
-        // 查员工档案，按 position_level 筛选
-        $staff = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false)
-            ->orderBy('project_name')->orderBy('position')->orderBy('name')->get();
+        // 查员工档案，按 person_type 筛选（与工资核算的管理/案场/总部/员工分类同源）
+        $staffQuery = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false);
+        if ($staffType !== '') {
+            $staffQuery->where('person_type', $staffTypeMap[$staffType]);
+        }
+        $staff = $staffQuery->orderBy('project_name')->orderBy('position')->orderBy('name')->get();
         $filtered = [];
         foreach ($staff as $person) {
-            $data = $this->jsonValue($person->data) ?: [];
-            $pl = (string)($data['position_level'] ?? '');
-            if ($staffType !== '' && $pl !== $staffType) continue;
             $att = $attByProject[$person->project_name][$person->name] ?? null;
             if (!$att) continue;
             $person->_att = $att;
@@ -299,7 +303,7 @@ class AttendanceController extends ApiController
             $sheet->setCellValue("{$m(9)}{$row}", (float)($att['big'] ?? 0));
             $sheet->setCellValue("{$m(10)}{$row}", (float)($att['other_deduct'] ?? 0));
             $sheet->setCellValue("{$m(11)}{$row}", (float)($att['uniform_deduct'] ?? 0));
-            $sheet->setCellValue("{$tailStart}{$row}", (string)($att['remark'] ?? ''));
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart) . $row, (string)($att['remark'] ?? ''));
             $row++;
         }
         $sheet->getStyle("A2:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()

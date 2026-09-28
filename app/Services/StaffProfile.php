@@ -30,6 +30,8 @@ class StaffProfile
         'recruit_channel'  => ['招聘渠道', 'enum', 'recruit'],
         'hometown'         => ['籍贯', 'text', null],
         'level'            => ['层级', 'enum', 'level'],
+        // 薪酬档位：钉钉智能人事花名册「薪酬档位」单选字段同步写入，本地仅查看（同步会覆盖）
+        'pay_grade'        => ['薪酬档位(钉钉同步)', 'enum', 'pay_grade'],
         'contract_start'   => ['劳动合同开始日期', 'date', null],
         'contract_end'     => ['劳动合同结束日期', 'date', null],
     ];
@@ -58,6 +60,8 @@ class StaffProfile
         '俄罗斯族', '鄂温克族', '德昂族', '保安族', '裕固族', '京族', '塔塔尔族', '独龙族', '鄂伦春族', '赫哲族',
         '门巴族', '珞巴族', '基诺族'];
     public const LEVELS = ['经理级以上', '主管级以上', '主管级', '专员级', '普通员工'];
+    /** 薪酬档位（与 CalcRules::PAY_GRADES 及钉钉花名册选项逐字一致） */
+    public const PAY_GRADES = ['专员级', '主管级', '经理级'];
 
     /** 枚举字典（供前端下拉） */
     public static function enums(): array
@@ -70,6 +74,7 @@ class StaffProfile
             'recruit' => self::RECRUITS,
             'nation' => self::NATIONS,
             'level' => self::LEVELS,
+            'pay_grade' => self::PAY_GRADES,
         ];
     }
 

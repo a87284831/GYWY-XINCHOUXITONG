@@ -268,14 +268,17 @@
             <table class="tb">
               <thead>
                 <tr>
-                  <th>姓名</th><th>项目</th><th>职位</th><th>职级</th><th>类型</th>
+                  <th>姓名</th><th>项目</th><th>职位</th><th>薪酬档位</th><th>类型</th>
                   <th>季度系数</th><th v-if="coefDialog.half_period">半年度系数</th><th>状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="it in coefDialog.items" :key="it.staff_legacy_id">
                   <td>{{ it.name }}</td><td>{{ it.project }}</td><td>{{ it.position || '' }}</td>
-                  <td>{{ it.position_level || '' }}</td>
+                  <td>
+                    <span v-if="it.pay_grade">{{ it.pay_grade }}</span>
+                    <span v-else class="tag orange">⚠ 未同步</span>
+                  </td>
                   <td>{{ it.person_type === 'manager' ? '管理' : '总部' }}</td>
                   <td><input type="number" step="0.01" v-model="it.coef" style="width:90px" /></td>
                   <td v-if="coefDialog.half_period"><input type="number" step="0.01" v-model="it.half_coef" style="width:90px" /></td>

@@ -58,26 +58,17 @@
                   </select></label>
               </div>
               <template v-if="payRules[t].cycle === 'quarterly'">
-                <div class="table-wrap" style="margin-top:6px"><table class="tb" style="min-width:520px">
-                  <thead><tr><th>职级</th><th>季度比例</th><th>半年度比例</th><th>操作</th></tr></thead>
+                <div class="hint" style="margin:6px 0">按人员档案「薪酬档位」匹配（钉钉花名册「薪酬档位」单选同步，三档固定）。比例填小数：0.95 = 95%。档位缺失、不在三档内或此处未配比例的人员，季度绩效计 0 并在工资表显式标错，不会按默认值静默发放。</div>
+                <div class="table-wrap" style="margin-top:6px"><table class="tb" style="min-width:380px">
+                  <thead><tr><th>薪酬档位</th><th>季度比例</th><th>半年度比例</th></tr></thead>
                   <tbody>
-                    <tr v-for="(l, i) in payRules[t].levels" :key="i">
-                      <td><input type="text" v-model="l.level" placeholder="如：经理级" style="width:120px"></td>
-                      <td><input type="number" step="0.01" v-model="l.quarter_ratio" style="width:80px"></td>
-                      <td><input type="number" step="0.01" v-model="l.half_year_ratio" style="width:80px"></td>
-                      <td><button class="btn sm" @click="payRules[t].levels.splice(i, 1)">删除</button></td>
-                    </tr>
-                    <tr>
-                      <td style="color:#64748b">其他职级（默认）</td>
-                      <td><input type="number" step="0.01" v-model="payRules[t].def_q" style="width:80px"></td>
-                      <td><input type="number" step="0.01" v-model="payRules[t].def_h" style="width:80px"></td>
-                      <td></td>
+                    <tr v-for="g in PAY_GRADES" :key="g">
+                      <td>{{ g }}</td>
+                      <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].quarter_ratio" style="width:90px"></td>
+                      <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].half_year_ratio" style="width:90px"></td>
                     </tr>
                   </tbody>
                 </table></div>
-                <div class="row" style="margin-top:6px">
-                  <button class="btn sm" @click="payRules[t].levels.push({ level: '', quarter_ratio: 1, half_year_ratio: 0 })">+ 添加职级</button>
-                </div>
               </template>
             </div>
           </template>
@@ -225,9 +216,12 @@ const netIn = ref(null)
 const fm = reactive({ seg: false, prorate: 'required', perf_on: false, perf_prob: false, sick_on: false, sick_a: 0, sick_b: 0, sick_base: 'base', meal_mode: 'full', allow_mode: 'full', rp: false, miss_on: false, miss_f3: 30, miss_a3: 50, abs_on: false, abs_mult: 3, late_on: false, late_per: 10, tax_basic: 5000, cum_start: 'jan', gross: '', net: '' })
 const paramSections = ['① 应发基本工资', '② 绩效工资', '③ 病假工资', '④ 补贴发放', '⑤ 奖惩', '⑥ 考勤扣款', '⑦ 个人所得税', '⑧ 五险一金 / 专项附加']
 // 管理/总部绩效发放规则（对应 calc_rules.pay_rules.manager / .hq）
+// 薪酬档位为钉钉花名册「薪酬档位」单选字段，三档固定，与后端 CalcRules::PAY_GRADES 逐字一致
+const PAY_GRADES = ['专员级', '主管级', '经理级']
+const emptyGradeRatios = () => Object.fromEntries(PAY_GRADES.map((g) => [g, { quarter_ratio: 0, half_year_ratio: 0 }]))
 const payRules = reactive({
-  mgr: { cycle: 'monthly', levels: [], def_q: 1, def_h: 0 },
-  hq: { cycle: 'monthly', levels: [], def_q: 1, def_h: 0 },
+  mgr: { cycle: 'monthly', ratios: emptyGradeRatios() },
+  hq: { cycle: 'monthly', ratios: emptyGradeRatios() },
 })
 
 const customVars = computed(() => fields.value.filter((f) => f.enabled).map((f) => f.name))
@@ -264,19 +258,18 @@ function initFm() {
   fm.net = cnFormula((R.formula || {}).net) || NET_DEFAULT
   const src = (R.tax && Array.isArray(R.tax.brackets) && R.tax.brackets.length) ? R.tax.brackets : STD_TAX_BRACKETS
   taxDraft.value = src.map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
-  // 管理/总部绩效规则
+  // 管理/总部绩效规则（三档固定比例）
   const pr = R.pay_rules || {}
   for (const t of ['mgr', 'hq']) {
     const s = pr[t === 'mgr' ? 'manager' : 'hq'] || {}
     payRules[t].cycle = s.cycle === 'quarterly' ? 'quarterly' : 'monthly'
     const lv = s.levels || {}
-    payRules[t].levels = Object.keys(lv).map((k) => ({
-      level: k,
-      quarter_ratio: Number(lv[k].quarter_ratio ?? 1),
-      half_year_ratio: Number(lv[k].half_year_ratio ?? 0),
-    }))
-    payRules[t].def_q = Number((s.default || {}).quarter_ratio ?? 1)
-    payRules[t].def_h = Number((s.default || {}).half_year_ratio ?? 0)
+    for (const g of PAY_GRADES) {
+      payRules[t].ratios[g] = {
+        quarter_ratio: Number(lv[g]?.quarter_ratio ?? 0),
+        half_year_ratio: Number(lv[g]?.half_year_ratio ?? 0),
+      }
+    }
   }
 }
 function setCap(b, e) { b[0] = e.target.value === '' ? 99999999999 : parseFloat(e.target.value) }
@@ -408,12 +401,13 @@ async function saveAll() {
       const key = t === 'mgr' ? 'manager' : 'hq'
       if (payRules[t].cycle === 'quarterly') {
         const levels = {}
-        for (const l of payRules[t].levels) {
-          const name = String(l.level || '').trim()
-          if (!name) continue
-          levels[name] = { quarter_ratio: parseFloat(l.quarter_ratio) || 0, half_year_ratio: parseFloat(l.half_year_ratio) || 0 }
+        for (const g of PAY_GRADES) {
+          levels[g] = {
+            quarter_ratio: parseFloat(payRules[t].ratios[g].quarter_ratio) || 0,
+            half_year_ratio: parseFloat(payRules[t].ratios[g].half_year_ratio) || 0,
+          }
         }
-        R.pay_rules[key] = { cycle: 'quarterly', levels, default: { quarter_ratio: parseFloat(payRules[t].def_q) || 0, half_year_ratio: parseFloat(payRules[t].def_h) || 0 } }
+        R.pay_rules[key] = { cycle: 'quarterly', levels }
       } else {
         R.pay_rules[key] = { cycle: 'monthly', ratio: 1.0 }
       }

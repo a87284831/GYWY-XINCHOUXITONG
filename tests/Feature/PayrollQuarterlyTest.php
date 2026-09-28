@@ -63,7 +63,7 @@ class PayrollQuarterlyTest extends TestCase
             'bank_card' => '',
             'regular_date' => '2025-02-01',
             'resign_date' => '',
-            'position_level' => $level,
+            'pay_grade' => $level,
         ];
         DB::table('payroll_staff')->insert([
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '经理',
@@ -163,6 +163,46 @@ class PayrollQuarterlyTest extends TestCase
         $this->assertEquals(0.0, (float) $r['perf_pay']);
         $this->assertEquals('missing_coef', $r['perf_detail']['error'] ?? null);
         $this->assertEquals('2026-Q1', $r['perf_detail']['period'] ?? null);
+    }
+
+    public function test_missing_pay_grade_marks_error_and_pays_zero(): void
+    {
+        $this->seedRules();
+        $this->seedManager(1, '张三', ''); // 档案未同步薪酬档位
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) {
+            $this->seedHistory(1, $m);
+        }
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
+        $r = $this->calcManager('2026-04', '张三');
+        $this->assertEquals(0.0, (float) $r['perf_pay'], '缺薪酬档位不得按 default 静默发放');
+        $this->assertEquals('missing_pay_grade', $r['perf_detail']['error'] ?? null);
+    }
+
+    public function test_invalid_pay_grade_marks_error(): void
+    {
+        $this->seedRules();
+        $this->seedManager(1, '张三', '总经理级'); // 不在 专员级/主管级/经理级 三档内
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) {
+            $this->seedHistory(1, $m);
+        }
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
+        $r = $this->calcManager('2026-04', '张三');
+        $this->assertEquals(0.0, (float) $r['perf_pay']);
+        $this->assertEquals('invalid_pay_grade', $r['perf_detail']['error'] ?? null);
+        $this->assertEquals('总经理级', $r['perf_detail']['pay_grade'] ?? null);
+    }
+
+    public function test_unconfigured_grade_ratio_marks_missing_pay_rule(): void
+    {
+        $this->seedRules(); // 规则只配了经理级
+        $this->seedManager(1, '张三', '专员级');
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) {
+            $this->seedHistory(1, $m);
+        }
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
+        $r = $this->calcManager('2026-04', '张三');
+        $this->assertEquals(0.0, (float) $r['perf_pay'], '档位合法但未配比例，不得按 default 发放');
+        $this->assertEquals('missing_pay_rule', $r['perf_detail']['error'] ?? null);
     }
 
     public function test_half_year_end_pays_both_quarter_and_half_year(): void

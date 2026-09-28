@@ -29,14 +29,14 @@ class PayrollPeriodCoefApiTest extends TestCase
         Cache::put('payroll_api_token:' . $this->token, $id, now()->addHours(8));
     }
 
-    private function seedStaff(int $id, string $name, string $type, string $level = '经理级'): void
+    private function seedStaff(int $id, string $name, string $type, string $grade = '经理级'): void
     {
         DB::table('payroll_staff')->insert([
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '经理',
             'status' => '正式', 'fixed_monthly' => 6000, 'base_salary' => 5000,
             'hire_date' => '2025-01-01', 'regular_date' => '2025-02-01',
             'resign_date' => null, 'deleted' => false, 'person_type' => $type,
-            'data' => json_encode(['position_level' => $level], JSON_UNESCAPED_UNICODE),
+            'data' => json_encode(['pay_grade' => $grade], JSON_UNESCAPED_UNICODE),
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
@@ -77,7 +77,7 @@ class PayrollPeriodCoefApiTest extends TestCase
         $byName = collect($items)->keyBy('name');
         $this->assertEquals(1.0, (float) $byName['张三']['coef']);
         $this->assertEquals(0.9, (float) $byName['李四']['coef']);
-        $this->assertEquals('经理级', $byName['张三']['position_level']);
+        $this->assertEquals('经理级', $byName['张三']['pay_grade']);
     }
 
     public function test_pending_lists_mgr_hq_staff_with_coef_status(): void
@@ -96,7 +96,7 @@ class PayrollPeriodCoefApiTest extends TestCase
         $this->assertCount(2, $items, '只含管理/总部人员');
         $this->assertEquals(1.0, (float) $items['张三']['coef']);
         $this->assertNull($items['李四']['coef'], '未录入应为 null');
-        $this->assertEquals('主管级', $items['李四']['position_level']);
+        $this->assertEquals('主管级', $items['李四']['pay_grade']);
         // 非季度末月 → 报错提示
         $resp2 = $this->getJson('/api/payroll/period-coef/pending?ym=2026-05', ['X-Token' => $this->token]);
         $resp2->assertJson(['ok' => false]);

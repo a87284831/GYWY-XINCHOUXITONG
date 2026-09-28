@@ -136,14 +136,17 @@ class CalcRules
         $this->lastError = [];
     }
 
+    /** 薪酬档位（唯一权威枚举）：钉钉花名册「薪酬档位」单选字段的选项，需与钉钉逐字一致 */
+    public const PAY_GRADES = ['专员级', '主管级', '经理级'];
+
     /**
      * 获取绩效发放规则。
      *
      * @param string $personType 人员类型：staff|manager|case|hq
-     * @param string $positionLevel 岗位职级（仅 quarterly 类型使用）
-     * @return array{cycle:string, ratio?:float, quarter_ratio?:float, half_year_ratio?:float}
+     * @param string $payGrade 薪酬档位（专员级|主管级|经理级，仅 quarterly 使用）
+     * @return array{cycle:string, ratio?:float, quarter_ratio?:float, half_year_ratio?:float, configured?:bool}
      */
-    public function getPayRule(string $personType, string $positionLevel = ''): array
+    public function getPayRule(string $personType, string $payGrade = ''): array
     {
         $rules = $this->section('pay_rules');
         $rule = $rules[$personType] ?? ['cycle' => 'monthly', 'ratio' => 1.0];
@@ -155,12 +158,21 @@ class CalcRules
             ];
         }
 
-        // quarterly：按职级取比例，无则取 default
-        $levelRule = $rule['levels'][$positionLevel] ?? $rule['default'] ?? ['quarter_ratio' => 1.0, 'half_year_ratio' => 0.0];
+        // quarterly：必须精确命中已配置档位；无配置时 configured=false（调用方负责显式报错，禁止静默兜底）
+        $levels = $rule['levels'] ?? [];
+        if (isset($levels[$payGrade]) && is_array($levels[$payGrade])) {
+            return [
+                'cycle' => 'quarterly',
+                'quarter_ratio' => (float)($levels[$payGrade]['quarter_ratio'] ?? 0.0),
+                'half_year_ratio' => (float)($levels[$payGrade]['half_year_ratio'] ?? 0.0),
+                'configured' => true,
+            ];
+        }
         return [
             'cycle' => 'quarterly',
-            'quarter_ratio' => (float)($levelRule['quarter_ratio'] ?? 1.0),
-            'half_year_ratio' => (float)($levelRule['half_year_ratio'] ?? 0.0),
+            'quarter_ratio' => 0.0,
+            'half_year_ratio' => 0.0,
+            'configured' => false,
         ];
     }
 }

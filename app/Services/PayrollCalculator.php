@@ -410,43 +410,61 @@ class PayrollCalculator
         $perfDetail = null;
         if (in_array($category, ['manager', 'hq'], true)) {
             $personData = $this->jsonValue($person->data) ?: [];
-            $positionLevel = (string)($personData['position_level'] ?? '');
-            $payRule = $this->rules->getPayRule($category, $positionLevel);
+            $payGrade = trim((string)($personData['pay_grade'] ?? ''));
+            $payRule = $this->rules->getPayRule($category, $payGrade);
             if (($payRule['cycle'] ?? 'monthly') === 'quarterly') {
                 $year = (int)substr($ym, 0, 4);
                 $month = (int)substr($ym, 5, 2);
+                // 档位校验（显式失败，禁止静默按 default 发放）：空 → missing_pay_grade；不在三档 → invalid_pay_grade；未配比例 → missing_pay_rule
+                $gradeError = null;
+                if ($payGrade === '') {
+                    $gradeError = 'missing_pay_grade';
+                } elseif (!in_array($payGrade, CalcRules::PAY_GRADES, true)) {
+                    $gradeError = 'invalid_pay_grade';
+                } elseif (empty($payRule['configured'])) {
+                    $gradeError = 'missing_pay_rule';
+                }
                 if ($this->isQuarterEnd($month)) {
                     // 季度部分：发"刚结束的季度"（4月发Q1、7月发Q2、10月发Q3、1月发上年Q4）
                     [$qKey, $qYms] = $this->quarterPeriod($year, $month);
-                    [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
-                    $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
-                    if ($qCoef === null) {
-                        // 缺季度系数：季度部分为 0 并标记（半年度部分有系数仍发）
+                    if ($gradeError) {
                         $perfPay = 0.0;
-                        $perfDetail = ['error' => 'missing_coef', 'period' => $qKey];
+                        $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                     } else {
-                        $qRatio = $payRule['quarter_ratio'] ?? 1.0;
-                        $perfPay = round($qBase * $qCoef * $qRatio, 2);
-                        $perfDetail = [
-                            'period' => $qKey, 'type' => 'quarterly',
-                            'ratio' => $qRatio, 'coef' => $qCoef,
-                            'months' => $qMonths,
-                        ];
+                        [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
+                        $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
+                        if ($qCoef === null) {
+                            // 缺季度系数：季度部分为 0 并标记（半年度部分有系数仍发）
+                            $perfPay = 0.0;
+                            $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
+                        } else {
+                            $qRatio = $payRule['quarter_ratio'] ?? 0.0;
+                            $perfPay = round($qBase * $qCoef * $qRatio, 2);
+                            $perfDetail = [
+                                'period' => $qKey, 'type' => 'quarterly', 'pay_grade' => $payGrade,
+                                'ratio' => $qRatio, 'coef' => $qCoef,
+                                'months' => $qMonths,
+                            ];
+                        }
                     }
                     // 半年度部分（7月发H1、1月发上年H2）
                     if ($this->isHalfYearEnd($month)) {
                         [$hKey, $hYms] = $this->halfYearPeriod($year, $month);
-                        [$hBase, $hMonths] = $this->accumulatePeriodPerf($person, $category, $hYms, $historyByStaff);
-                        $hCoef = $this->periodCoef((int)$person->legacy_id, 'half_year', $hKey);
-                        if ($hCoef === null) {
-                            $perfDetail['half_year'] = ['error' => 'missing_coef', 'period' => $hKey];
+                        if ($gradeError) {
+                            $perfDetail['half_year'] = ['error' => $gradeError, 'period' => $hKey, 'pay_grade' => $payGrade];
                         } else {
-                            $hRatio = $payRule['half_year_ratio'] ?? 0.0;
-                            $perfPay = round($perfPay + round($hBase * $hCoef * $hRatio, 2), 2);
-                            $perfDetail['half_year'] = [
-                                'period' => $hKey, 'ratio' => $hRatio, 'coef' => $hCoef,
-                                'months' => $hMonths,
-                            ];
+                            [$hBase, $hMonths] = $this->accumulatePeriodPerf($person, $category, $hYms, $historyByStaff);
+                            $hCoef = $this->periodCoef((int)$person->legacy_id, 'half_year', $hKey);
+                            if ($hCoef === null) {
+                                $perfDetail['half_year'] = ['error' => 'missing_coef', 'period' => $hKey];
+                            } else {
+                                $hRatio = $payRule['half_year_ratio'] ?? 0.0;
+                                $perfPay = round($perfPay + round($hBase * $hCoef * $hRatio, 2), 2);
+                                $perfDetail['half_year'] = [
+                                    'period' => $hKey, 'ratio' => $hRatio, 'coef' => $hCoef,
+                                    'months' => $hMonths,
+                                ];
+                            }
                         }
                     }
                 } else {
