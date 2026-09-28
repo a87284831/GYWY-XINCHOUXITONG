@@ -116,6 +116,71 @@ class TemplateController extends ApiController
         return $this->xlsxResponse($book, '人员批量导入模板.xlsx');
     }
 
+    /**
+     * 历史工资导入模板：每个月份一个 Sheet（Sheet 名=YYYY-MM 或 M月），
+     * 仅需填个税累计所必需的列，导入后作为归档行进入后续月份累计预扣。
+     */
+    public function payrollHistory(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $year = (int) $request->input('year', now()->year);
+
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet();
+        $sheet->setTitle(sprintf('%04d-01', $year));
+        // 列名须与 PayrollWriteController::importHistory 的模糊匹配一致
+        $headers = ['姓名*', '项目*', '应发工资合计*', '五险一金合计', '专项附加扣除', '本月个税*', '实发工资'];
+        $example = ['张三(示例,导入前删除本行)', '物业总部', 6000, 1500, 0, 30, 4470];
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($example, null, 'A2');
+
+        $lastCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
+        $sheet->getStyle("A1:{$lastCol}1")->getFont()->setBold(true)->setSize(10)->setColor(new Color('FFFFFFFF'));
+        $sheet->getStyle("A1:{$lastCol}1")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
+        $sheet->getStyle("A1:{$lastCol}1")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+        $sheet->getStyle("A2:{$lastCol}2")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
+        $sheet->getStyle("A2:{$lastCol}2")->getFont()->setItalic(true)->getColor()->setRGB('808080');
+        $sheet->getStyle("A1:{$lastCol}2")->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->getStyle("A1:{$lastCol}2")->getBorders()->getAllBorders()->getColor()->setRGB('D9D9D9');
+        $sheet->freezePane('A2');
+        $widths = [18, 14, 14, 14, 14, 12, 12];
+        foreach ($headers as $i => $h) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+            $sheet->getColumnDimension($letter)->setWidth($widths[$i]);
+        }
+        $sheet->getRowDimension(1)->setRowHeight(28);
+        // 金额列两位小数
+        $sheet->getStyle("C2:G1000")->getNumberFormat()->setFormatCode('#,##0.00');
+
+        // 填写说明
+        $help = $book->createSheet(); $help->setTitle('填写说明');
+        $rules = [
+            ['列名', '是否必填', '填写说明'],
+            ['Sheet 名称', '必填', '每个月份一个 Sheet，名称写成 2026-01 / 2026-02 …（或 1月 / 2月）。本模板已给出一个示例 Sheet，请复制后改名，每月一个'],
+            ['姓名', '必填', '与系统“人员档案”中的姓名完全一致，按“姓名+项目”匹配人员'],
+            ['项目', '必填', '与系统“项目档案”项目名完全一致（如：物业总部 / 临沂万城花开）'],
+            ['应发工资合计', '必填', '该月税前应发合计，元，数值型'],
+            ['五险一金合计', '可空', '该月个人承担的五险一金合计，留空按 0'],
+            ['专项附加扣除', '可空', '该月六项专项附加扣除合计，留空按 0'],
+            ['本月个税', '必填', '该月线下实际代扣的个税金额，元，数值型'],
+            ['实发工资', '可空', '留空时系统按 应发-五险一金-个税 自动计算'],
+            ['年中入职', '说明', '入职日期之前月份的行会自动跳过，无需手工删除；但人员档案的入职日期必须准确（钉钉花名册同步）'],
+            ['', '', ''],
+            ['操作步骤', '', '① 删除示例行；② 每月一个 Sheet 并按月份命名，逐行填入该月工资数据；③ 保存为 .xlsx；④ 在“薪资核算”页点“导入历史工资”上传（可一次包含多个月份 Sheet，也可分月上传）'],
+            ['导入效果', '', '历史月份作为归档行写入，之后核算下一月时系统自动累计这些月份的应发/五险一金/专项附加/已扣税，个税口径即可与线下衔接'],
+        ];
+        $help->fromArray($rules, null, 'A1');
+        $help->getStyle('A1:C1')->getFont()->setBold(true);
+        $help->getColumnDimension('A')->setWidth(18); $help->getColumnDimension('B')->setWidth(12); $help->getColumnDimension('C')->setWidth(95);
+        $help->getStyle('C2:C12')->getAlignment()->setWrapText(true);
+        $book->setActiveSheetIndex(0);
+        return $this->xlsxResponse($book, '历史工资导入模板.xlsx');
+    }
+
     /** 为指定表头列追加下拉数据验证 */
     private function attachValidation($sheet, array $headers, string $headLabel, array $options): void
     {

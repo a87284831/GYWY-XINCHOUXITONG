@@ -50,6 +50,7 @@ Route::post('/payroll/import-history', [PayrollWriteController::class, 'importHi
 Route::get('/staff/template', [TemplateController::class, 'staff']);
 Route::get('/budget/template', [TemplateController::class, 'budget']);
 Route::get('/attendance/template', [TemplateController::class, 'attendance']);
+Route::get('/payroll/history-template', [TemplateController::class, 'payrollHistory']);
 Route::get('/export/project', [ExportController::class, 'project']);
 Route::get('/export/managers', [ExportController::class, 'managers']);
 Route::get('/export/project-managers', [ExportController::class, 'projectManagers']);

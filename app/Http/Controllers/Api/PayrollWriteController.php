@@ -270,7 +270,7 @@ class PayrollWriteController extends ApiController
             for ($row = 1; $row <= min(10, $sheet->getHighestRow()); $row++) {
                 $vals = [];
                 for ($c = 1; $c <= min(40, $highestCol); $c++) {
-                    $vals[] = trim((string) $this->cellValue($sheet, $c, $row));
+                    $vals[] = trim(trim((string) $this->cellValue($sheet, $c, $row)), " *＊");
                 }
                 if (in_array('姓名', $vals, true) && preg_grep('/应发/', $vals)) {
                     $headerRow = $row;
@@ -282,10 +282,11 @@ class PayrollWriteController extends ApiController
                 continue;
             }
 
-            // 列映射
+            // 列映射（去掉表头的 * 必填标记和首尾空白后再匹配）
             $cols = [];
             for ($c = 1; $c <= $highestCol; $c++) {
                 $h = trim((string) $this->cellValue($sheet, $c, $headerRow));
+                $h = trim($h, " *＊");
                 if ($h === '') continue;
                 if ($h === '姓名') $cols['name'] = $c;
                 elseif (str_contains($h, '项目')) $cols['project'] = $c;

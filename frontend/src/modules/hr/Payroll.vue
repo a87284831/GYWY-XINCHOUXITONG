@@ -20,6 +20,7 @@
             <button class="btn" @click="calcProjects = auth.projects.slice()">全选</button>
             <button class="btn" @click="calcProjects = []">清空</button>
             <button class="btn primary" @click="doCalc">开始核算（覆盖旧数据）</button>
+            <button class="btn" @click="downloadHistoryTemplate">下载历史模板</button>
             <button class="btn" @click="histFile.click()">导入历史工资</button>
             <input type="file" ref="histFile" accept=".xlsx,.xls" style="display:none" @change="importHistory" />
             <span v-html="archiveHtml"></span>
@@ -519,6 +520,10 @@ async function doCalc() {
     calcMsg.value = `<div class="msg ok">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
     loadPayroll()
   } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
+}
+
+function downloadHistoryTemplate() {
+  download(`/api/payroll/history-template?year=${ui.month.slice(0, 4)}`, '历史工资导入模板.xlsx')
 }
 
 async function importHistory(e) {
