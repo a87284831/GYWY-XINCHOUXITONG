@@ -1819,6 +1819,7 @@ async function staffEdit(id) {
   <h4 style="margin:16px 0 8px;color:#2563eb">职级与劳动合同</h4>
   <div class="form-grid">
     ${sel("level", "层级", enums.level)}
+    <label>薪酬档位（钉钉同步）<input type="text" id="sf_pay_grade_view" value="${esc(v.pay_grade || "")}" readonly style="background:#f5f5f5" title="由钉钉花名册「薪酬档位」单选字段同步（专员级/主管级/经理级），本地不可修改；空值请在钉钉花名册填写后等待同步"></label>
     <label>人员分类<select id="sf_person_type" title="决定该人员参与哪套工资核算：基层员工→项目员工核算；管理人员→管理人员核算；案场人员→案场人员核算；所属项目为物业总部的人员一律进总部人员核算">
       <option value="staff" ${(v.person_type || "staff") === "staff" ? "selected" : ""}>基层员工</option>
       <option value="manager" ${v.person_type === "manager" ? "selected" : ""}>管理人员</option>
@@ -1846,7 +1847,7 @@ async function staffEdit(id) {
     ${inp("hometown", "籍贯（市）", "如：山东临沂")}
   </div>
   ${isNew ? "" : `<div class="form-grid"><label>调动原因（若调整部门则写入调动记录）<input type="text" id="sf_transfer_reason" placeholder="例：调往客服部"></label></div>`}
-  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为管理员在「系统设置→人员档案字段设置」中配置的必填项。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
+  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为必填项（姓名、所属项目固定必填）。人员档案字段以钉钉花名册同步为准，本地仅可修改社保/个税等本地项。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
   <div class="row end" style="margin-top:14px"><button class="btn" onclick="closeModal()">取消</button>
   <button class="btn primary" onclick="staffSave(${id})">保存</button></div>`;
   modal(html);
@@ -3780,7 +3781,6 @@ async function saveStaffFieldRequired() {
 const SETTINGS_TABS = [
   { key: "perm", label: "👤 权限管理", perm: "users" },
   { key: "approvalFlow", label: "✅ 审批权责设置", perm: "users" },
-  { key: "staffField", label: "👥 人员档案字段设置", perm: "users" },
   { key: "salarySettings", label: "💰 薪酬设置", perm: "rules" },
   { key: "company", label: "🏢 公司信息", perm: "settings" },
   { key: "security", label: "🔒 登录安全", perm: "settings" },
@@ -3815,7 +3815,7 @@ async function loadSettingsTab(tab) {
   if (!el) return;
   el.innerHTML = "加载中...";
   if (tab === "salarySettings") return pageSalarySettings(el);
-  const fn = { perm: settingsPerm, staffField: settingsStaffField, company: settingsCompany, security: settingsSecurity, backup: settingsBackup, logs: settingsLogs, approvalFlow: settingsApprovalFlow }[tab];
+  const fn = { perm: settingsPerm, company: settingsCompany, security: settingsSecurity, backup: settingsBackup, logs: settingsLogs, approvalFlow: settingsApprovalFlow }[tab];
   if (fn) { try { await fn(el); } catch (e) { el.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; } }
 }
 

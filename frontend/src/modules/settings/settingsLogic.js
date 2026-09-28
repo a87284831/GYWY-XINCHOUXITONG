@@ -91,7 +91,6 @@ export const SYM_FORMULA_CN = { personal: '事假', sick: '病假', maternity: '
 export const SETTINGS_TABS = [
   { key: 'perm', label: '👤 权限管理', perm: 'users' },
   { key: 'approvalFlow', label: '✅ 审批权责设置', perm: 'users' },
-  { key: 'staffField', label: '👥 人员档案字段设置', perm: 'users' },
   { key: 'salarySettings', label: '💰 薪酬设置', perm: 'rules' },
   { key: 'company', label: '🏢 公司信息', perm: 'settings' },
   { key: 'security', label: '🔒 登录安全', perm: 'settings' },
