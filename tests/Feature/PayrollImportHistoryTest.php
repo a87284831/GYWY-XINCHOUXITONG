@@ -94,14 +94,15 @@ class PayrollImportHistoryTest extends TestCase
             '2026-02' => [
                 $this->rowFor('张三', 5200, 1080, 33.6, 4086.4),
             ],
+            '2026-03' => [], // 空月份 Sheet（模板预置但未填写）：应跳过且不报错
         ]);
 
         $resp = $this->post('/api/payroll/import-history', ['file' => $file],
             ['X-Token' => $this->token]);
         $resp->assertOk()->assertJsonPath('ok', true);
         $json = $resp->json();
-        $this->assertSame(2, $json['sheets']);
-        $this->assertSame(2, $json['inserted']);   // 张三1月/2月；李四1月被跳过
+        $this->assertSame(3, $json['sheets']);
+        $this->assertSame(2, $json['inserted']);   // 张三1月/2月；李四1月被跳过；空Sheet0行
         $this->assertSame(1, $json['skipped_before_hire']);
         $this->assertSame([], $json['errors']);
 

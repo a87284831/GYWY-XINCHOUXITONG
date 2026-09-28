@@ -360,7 +360,9 @@ class PayrollWriteController extends ApiController
                 return trim((string) $v);
             };
 
-            for ($row = $headerRow + 1; $row <= $sheet->getHighestRow(); $row++) {
+            // 用 getHighestDataRow 而非 getHighestRow：模板预置了金额格式到1000行，
+            // 但空 Sheet 不应按样式行空转；只扫描有实际值的行
+            for ($row = $headerRow + 1; $row <= $sheet->getHighestDataRow(); $row++) {
                 $name = trim((string) $this->cellValue($sheet, $cols['name'], $row));
                 if ($name === '' || str_contains($name, '合计') || str_contains($name, '总计')) continue;
                 $project = isset($cols['project']) ? trim((string) $this->cellValue($sheet, $cols['project'], $row)) : '';

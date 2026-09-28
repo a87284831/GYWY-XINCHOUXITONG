@@ -117,8 +117,8 @@ class TemplateController extends ApiController
     }
 
     /**
-     * 历史工资导入模板：与系统“工资表导出”完全一致的 35 列完整格式，
-     * 每个月份一个 Sheet（Sheet 名=YYYY-MM 或 M月）。
+     * 历史工资导入模板：与系统“工资表导出”完全一致的 35 列完整格式。
+     * 预置全年 12 个月份 Sheet（Sheet 名=YYYY-MM），填哪月用哪月，空 Sheet 导入时自动跳过。
      * 导入后作为归档行进入 payroll_results，明细页/汇总页/导出均可完整展示，
      * 且后续月份累计预扣个税自动包含这些历史月份。
      */
@@ -133,26 +133,17 @@ class TemplateController extends ApiController
             '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
             '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计', '养老保险',
             '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '实发工资', '备注'];
-        // 示例行：第 1 行大标题、第 2 行表头，数据从第 3 行开始
+        // 示例行：仅放在 1 月 Sheet 作格式示范，导入前删除
         $example = [1, '物业总部', '客服部', '客服管家', '张三(示例,导入前删除本行)', '正式',
             4200, 3000, 26, 26, 1, 3000, 1500, 0, 100, 300, 0, 200, 0, 0, 0, 0, 0, 0,
             5100, 384, 96, 24, 576, 0, 1080, 0, 30, 3990, ''];
 
         $book = new Spreadsheet();
-        $sheet = $book->getActiveSheet();
-        $sheet->setTitle(sprintf('%04d-01', $year));
         $colCount = count($headers);
         $lastLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colCount);
-
-        // 第1行：大标题
-        $sheet->mergeCells("A1:{$lastLetter}1");
-        $sheet->setCellValue('A1', sprintf('%04d-01 工资表（历史导入模板）', $year));
-        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
-        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
-        $sheet->getRowDimension(1)->setRowHeight(28);
-
-        // 第2行：表头（分区配色，与导出工资表一致）
-        $sheet->fromArray($headers, null, 'A2');
+        $widths = [6, 14, 12, 12, 16, 9, 10, 10, 8, 8, 8, 11, 11, 10, 12, 8, 10, 10, 10, 10, 11, 10, 10, 10,
+            12, 10, 10, 10, 11, 8, 12, 12, 10, 11, 14];
+        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
         $bandOf = function (int $idx) {
             return match (true) {
                 $idx <= 8 => 'DDEBF7',  // 基本信息
@@ -162,44 +153,61 @@ class TemplateController extends ApiController
                 default => 'FCE4D6',    // 个税/实发/备注
             };
         };
-        for ($c = 1; $c <= $colCount; $c++) {
-            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-            $style = $sheet->getStyle("{$letter}2");
-            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($bandOf($c));
-            $style->getFont()->setBold(true)->setSize(10);
-            $style->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-            $style->getBorders()->getAllBorders()
-                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
-                ->getColor()->setRGB('BFBFBF');
-        }
-        $sheet->getRowDimension(2)->setRowHeight(34);
 
-        // 第3行：示例
-        $sheet->fromArray($example, null, 'A3');
-        $sheet->getStyle("A3:{$lastLetter}3")->getFill()
-            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
-        $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setItalic(true)->getColor()->setRGB('808080');
-        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
-        foreach ($moneyCols as $mc) {
-            $l = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($mc);
-            $sheet->getStyle("{$l}3")->getNumberFormat()->setFormatCode('#,##0.00');
-        }
+        // 预置 1-12 月共 12 个 Sheet
+        for ($m = 1; $m <= 12; $m++) {
+            $ym = sprintf('%04d-%02d', $year, $m);
+            $sheet = $m === 1 ? $book->getActiveSheet() : $book->createSheet();
+            $sheet->setTitle($ym);
 
-        $sheet->freezePane('F3');
-        $widths = [6, 14, 12, 12, 16, 9, 10, 10, 8, 8, 8, 11, 11, 10, 12, 8, 10, 10, 10, 10, 11, 10, 10, 10,
-            12, 10, 10, 10, 11, 8, 12, 12, 10, 11, 14];
-        foreach ($widths as $i => $w) {
-            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
-            $sheet->getColumnDimension($letter)->setWidth($w);
+            // 第1行：大标题
+            $sheet->mergeCells("A1:{$lastLetter}1");
+            $sheet->setCellValue('A1', $ym . ' 工资表');
+            $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+            $sheet->getRowDimension(1)->setRowHeight(28);
+
+            // 第2行：表头（分区配色，与导出工资表一致）
+            $sheet->fromArray($headers, null, 'A2');
+            for ($c = 1; $c <= $colCount; $c++) {
+                $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+                $style = $sheet->getStyle("{$letter}2");
+                $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($bandOf($c));
+                $style->getFont()->setBold(true)->setSize(10);
+                $style->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+                $style->getBorders()->getAllBorders()
+                    ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
+                    ->getColor()->setRGB('BFBFBF');
+            }
+            $sheet->getRowDimension(2)->setRowHeight(34);
+
+            // 第3行：仅 1 月放示例；金额格式只设第3行（不预置整列，避免12个Sheet产生数十万样式单元格撑爆内存）
+            if ($m === 1) {
+                $sheet->fromArray($example, null, 'A3');
+                $sheet->getStyle("A3:{$lastLetter}3")->getFill()
+                    ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
+                $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setItalic(true)->getColor()->setRGB('808080');
+            }
+            foreach ($moneyCols as $mc) {
+                $l = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($mc);
+                $sheet->getStyle("{$l}3")->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+
+            $sheet->freezePane('F3');
+            foreach ($widths as $i => $w) {
+                $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+                $sheet->getColumnDimension($letter)->setWidth($w);
+            }
         }
 
         // 填写说明
         $help = $book->createSheet(); $help->setTitle('填写说明');
         $rules = [
             ['项目', '说明'],
-            ['Sheet 命名', '每个月份一个 Sheet，名称写成 2026-01 / 2026-02 …（或 1月 / 2月）。请复制本模板的示例 Sheet 并改名，每月一个；本说明页无需修改'],
-            ['表格结构', '第1行大标题、第2行表头请勿删除或改名；数据从第3行开始，导入前请删除示例行；不要新增/删除/调换列顺序'],
-            ['列格式', '列名与系统“导出当前项目表”的工资表完全一致——如果你线下就是用系统导出表做的工资，整列复制即可'],
+            ['月份区分', '本模板已预置 ' . $year . ' 年 1-12 月共 12 个 Sheet（名称 2026-01 … 2026-12），每个 Sheet 就是一个月的工资表；你在哪个月的 Sheet 里填数据，就导入哪个月，不用的月份留空即可（导入时自动跳过）'],
+            ['表格结构', '每个 Sheet 第1行大标题、第2行表头请勿删除或改名；数据从第3行开始；不要新增/删除/调换列顺序'],
+            ['示例行', '仅 2026-01 的第3行有一行灰色示例，正式填写前删除该行；其余月份直接从第3行开始填'],
+            ['列格式', '列名与系统“导出当前项目表”的工资表完全一致——如果你线下就是用系统导出表做的工资，整列复制到对应月份 Sheet 即可'],
             ['必填列', '项目、姓名、应发工资合计、本月个税；其余列无数据可留空（金额留空按0，序号自动重排可忽略）'],
             ['项目 / 姓名', '必须与系统完全一致：项目取“项目档案”名称，姓名取“人员档案”姓名，系统按“姓名+项目”匹配人员'],
             ['部门/岗位/状态/月薪', '部门、岗位、人员状态、固定月薪、基本工资照实填写；留空时部门/岗位/月薪自动取人员档案当前值，状态默认“正式”'],
@@ -207,15 +215,16 @@ class TemplateController extends ApiController
             ['应发 / 实发', '应发工资合计按线下实际应发填；实发工资留空时系统按 应发-五险一金合计-个税-已发福利 自动计算'],
             ['年中入职', '入职日期之前月份的行自动跳过，无需手工删除；但人员档案入职日期必须准确（钉钉花名册同步）'],
             ['', ''],
-            ['操作步骤', '① 复制示例 Sheet 并按月份命名（如1-8月共8个）；② 删除各 Sheet 示例行，从第3行起填入当月工资；③ 保存 .xlsx；④ 在“薪资核算”页点“导入历史工资”上传，可一次含多个月份 Sheet'],
+            ['操作步骤', '① 在对应月份 Sheet（如 2026-01～2026-08）从第3行起填入当月工资，删除 1 月示例行；② 未使用月份保持空白；③ 保存 .xlsx；④ 在“薪资核算”页点“导入历史工资”上传，一次导入所有已填月份'],
+            ['跨年说明', '若要导入其他年份的数据，下载模板时页面会按当前所选核算月份的年份生成；也可自行把 Sheet 改名成对应年份（如 2025-03），名称为 YYYY-MM 或 M月 均可识别'],
             ['导入效果', '历史月份作为归档行写入：核算明细页、工资表导出均完整展示35列，汇总页年度累计/预算执行率自动包含历史月，之后核算下一月时个税累计口径与线下衔接'],
         ];
         $help->fromArray($rules, null, 'A1');
         $help->getStyle('A1:B1')->getFont()->setBold(true);
-        $help->getColumnDimension('A')->setWidth(26); $help->getColumnDimension('B')->setWidth(100);
-        $help->getStyle('B2:B12')->getAlignment()->setWrapText(true);
+        $help->getColumnDimension('A')->setWidth(26); $help->getColumnDimension('B')->setWidth(105);
+        $help->getStyle('B2:B15')->getAlignment()->setWrapText(true);
         $book->setActiveSheetIndex(0);
-        return $this->xlsxResponse($book, '历史工资导入模板.xlsx');
+        return $this->xlsxResponse($book, $year . '年历史工资导入模板.xlsx');
     }
 
     /** 为指定表头列追加下拉数据验证 */

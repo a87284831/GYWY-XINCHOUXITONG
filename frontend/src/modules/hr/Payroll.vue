@@ -523,7 +523,8 @@ async function doCalc() {
 }
 
 function downloadHistoryTemplate() {
-  download(`/api/payroll/history-template?year=${ui.month.slice(0, 4)}`, '历史工资导入模板.xlsx')
+  const y = ui.month.slice(0, 4)
+  download(`/api/payroll/history-template?year=${y}`, `${y}年历史工资导入模板.xlsx`)
 }
 
 async function importHistory(e) {
