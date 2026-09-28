@@ -1847,7 +1847,7 @@ async function staffEdit(id) {
     ${inp("hometown", "籍贯（市）", "如：山东临沂")}
   </div>
   ${isNew ? "" : `<div class="form-grid"><label>调动原因（若调整部门则写入调动记录）<input type="text" id="sf_transfer_reason" placeholder="例：调往客服部"></label></div>`}
-  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为必填项（姓名、所属项目固定必填）。人员档案字段以钉钉花名册同步为准，本地仅可修改社保/个税等本地项。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
+  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为必填项（姓名、所属项目固定必填）。钉钉花名册字段（含薪酬档位）以同步为准，本地修改可能在下次同步时被覆盖；社保、专项附加、个税模式等为本地数据。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
   <div class="row end" style="margin-top:14px"><button class="btn" onclick="closeModal()">取消</button>
   <button class="btn primary" onclick="staffSave(${id})">保存</button></div>`;
   modal(html);
