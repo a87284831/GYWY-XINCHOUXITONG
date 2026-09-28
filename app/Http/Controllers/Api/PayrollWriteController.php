@@ -282,34 +282,82 @@ class PayrollWriteController extends ApiController
                 continue;
             }
 
-            // 列映射（去掉表头的 * 必填标记和首尾空白后再匹配）
+            // 列映射：先按标准 35 列工资表精确匹配（列名同系统导出），
+            // 再用模糊规则回退（兼容 7 列精简模板或列名微调）；表头的 */空白标记忽略
+            $fullMap = [
+                '项目' => 'project', '部门' => 'department', '岗位' => 'position', '姓名' => 'name',
+                '人员状态' => 'status', '固定月薪' => 'fixed', '基本工资' => 'base',
+                '应出勤' => 'req_att', '实际出勤' => 'act_att', '绩效系数' => 'coef',
+                '应发基本工资' => 'base_pay', '应发绩效工资' => 'perf_pay', '病假工资' => 'sick_pay',
+                '夜班/话费补贴' => 'night', '餐补' => 'meal', '其他补贴' => 'title_sub',
+                '月度奖励' => 'reward', '已发福利' => 'welfare', '月度扣罚' => 'punish',
+                '迟到早退扣款' => 'late_d', '缺卡扣款' => 'miss_d', '其他扣款' => 'other_d',
+                '工装扣款' => 'uniform_d', '应发工资合计' => 'gross',
+                '养老保险' => 'pen', '医疗保险' => 'med', '失业保险' => 'une',
+                '住房公积金' => 'house', '大病' => 'big', '五险一金合计' => 'soc_total',
+                '专项附加扣除' => 'spec_total', '本月个税' => 'actual_tax', '实发工资' => 'net', '备注' => 'remark',
+            ];
             $cols = [];
+            $headByCol = [];
             for ($c = 1; $c <= $highestCol; $c++) {
-                $h = trim((string) $this->cellValue($sheet, $c, $headerRow));
-                $h = trim($h, " *＊");
-                if ($h === '') continue;
-                if ($h === '姓名') $cols['name'] = $c;
-                elseif (str_contains($h, '项目')) $cols['project'] = $c;
-                elseif (str_contains($h, '应发') && str_contains($h, '合计')) $cols['gross'] = $c;
-                elseif (str_contains($h, '五险一金') && str_contains($h, '合计')) $cols['soc'] = $c;
-                elseif (str_contains($h, '专项附加')) $cols['spec'] = $c;
-                elseif (str_contains($h, '个税')) $cols['tax'] = $c;
-                elseif (str_contains($h, '实发')) $cols['net'] = $c;
+                $h = trim(trim((string) $this->cellValue($sheet, $c, $headerRow)), " *＊");
+                $headByCol[$c] = $h;
+                if ($h === '' || $h === '序号') continue;
+                if (isset($fullMap[$h])) $cols[$fullMap[$h]] = $c;
             }
-            foreach (['name', 'gross', 'tax'] as $req) {
+            // 模糊回退：精确映射没命中时按关键词找列（精简模板/列名微调）
+            $findCol = function (callable $pred) use ($headByCol) {
+                foreach ($headByCol as $c => $h) {
+                    if ($h !== '' && $pred($h)) return $c;
+                }
+                return null;
+            };
+            if (!isset($cols['project'])) {
+                $cp = $findCol(fn($h) => $h !== '项目' && str_contains($h, '项目'));
+                if ($cp) $cols['project'] = $cp;
+            }
+            if (!isset($cols['gross'])) {
+                $cg = $findCol(fn($h) => str_contains($h, '应发') && str_contains($h, '合计'));
+                if ($cg) $cols['gross'] = $cg;
+            }
+            if (!isset($cols['soc_total'])) {
+                $cs = $findCol(fn($h) => str_contains($h, '五险一金') && str_contains($h, '合计'));
+                if ($cs) $cols['soc_total'] = $cs;
+            }
+            if (!isset($cols['spec_total'])) {
+                $c2 = $findCol(fn($h) => str_contains($h, '专项附加'));
+                if ($c2) $cols['spec_total'] = $c2;
+            }
+            if (!isset($cols['actual_tax'])) {
+                $c3 = $findCol(fn($h) => str_contains($h, '个税'));
+                if ($c3) $cols['actual_tax'] = $c3;
+            }
+            if (!isset($cols['net'])) {
+                $c4 = $findCol(fn($h) => str_contains($h, '实发'));
+                if ($c4) $cols['net'] = $c4;
+            }
+            foreach (['name', 'gross', 'actual_tax'] as $req) {
                 if (!isset($cols[$req])) {
                     $stats['errors'][] = "{$ym} 缺少必需列：" . match ($req) {
-                        'name' => '姓名', 'gross' => '应发工资合计', 'tax' => '本月个税',
+                        'name' => '姓名', 'gross' => '应发工资合计', 'actual_tax' => '本月个税',
                     };
                     continue 2;
                 }
             }
 
-            $get = function (string $key, int $row) use ($sheet, $cols) {
-                if (!isset($cols[$key])) return 0.0;
+            // 数值列读取：列不存在或单元格为空时返回 null（由调用方决定默认值）
+            $num = function (string $key, int $row) use ($sheet, $cols) {
+                if (!isset($cols[$key])) return null;
                 $v = $this->cellValue($sheet, $cols[$key], $row);
                 if (is_object($v)) $v = method_exists($v, 'getPlainText') ? $v->getPlainText() : (string) $v;
-                return (float) $v;
+                $v = trim((string) $v);
+                return $v === '' ? null : round((float) $v, 2);
+            };
+            $txt = function (string $key, int $row) use ($sheet, $cols) {
+                if (!isset($cols[$key])) return '';
+                $v = $this->cellValue($sheet, $cols[$key], $row);
+                if (is_object($v)) $v = method_exists($v, 'getPlainText') ? $v->getPlainText() : (string) $v;
+                return trim((string) $v);
             };
 
             for ($row = $headerRow + 1; $row <= $sheet->getHighestRow(); $row++) {
@@ -348,21 +396,68 @@ class PayrollWriteController extends ApiController
                     }
                 }
 
-                $gross = round($get('gross', $row), 2);
-                $soc = round($get('soc', $row), 2);
-                $spec = round($get('spec', $row), 2);
-                $tax = round($get('tax', $row), 2);
-                $net = isset($cols['net']) ? round($get('net', $row), 2) : round($gross - $soc - $tax, 2);
+                // 数值列：Excel 有值用 Excel，无列/空值按 0
+                $numKeys = ['fixed', 'base', 'req_att', 'act_att', 'coef', 'base_pay', 'perf_pay', 'sick_pay',
+                    'night', 'meal', 'title_sub', 'reward', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
+                    'uniform_d', 'gross', 'pen', 'med', 'une', 'house', 'big', 'soc_total', 'spec_total', 'actual_tax'];
+                $vals = [];
+                foreach ($numKeys as $k) $vals[$k] = $num($k, $row) ?? 0.0;
+                // 固定月薪/基本工资：Excel 留空时回退人员档案当前值
+                if (($fixedExcel = $num('fixed', $row)) === null) $vals['fixed'] = (float) ($staff->fixed_monthly ?? 0);
+                if (($baseExcel = $num('base', $row)) === null) $vals['base'] = (float) ($staff->base_salary ?? 0);
+
+                $gross = $vals['gross'];
+                $soc = $vals['soc_total'];
+                $tax = $vals['actual_tax'];
+                $welfare = $vals['welfare'];
+                // 实发：Excel 有值用 Excel；否则按系统公式 应发-五险一金-个税-已发福利
+                $netExcel = $num('net', $row);
+                $net = $netExcel !== null ? $netExcel : round($gross - $soc - $tax - $welfare, 2);
+
+                // 文本列：Excel 有值用 Excel，空值回退人员档案
+                $department = $txt('department', $row);
+                if ($department === '') $department = $this->deptFromPath($staff->dept_path ?? '', (string) $staff->project_name);
+                $position = $txt('position', $row) ?: ((string) ($staff->position ?? ''));
+                $status = $txt('status', $row) ?: ((string) ($staff->status ?? '') ?: '正式');
+                $remark = $txt('remark', $row);
 
                 $rowData = [
+                    'staff_id' => $staff->legacy_id,
                     'name' => $staff->name,
                     'project' => $staff->project_name,
-                    'position' => $staff->position ?: '',
+                    'department' => $department,
+                    'position' => $position,
+                    'status' => $status,
+                    'fixed' => $vals['fixed'],
+                    'base' => $vals['base'],
+                    'req_att' => $vals['req_att'],
+                    'act_att' => $vals['act_att'],
+                    'coef' => $vals['coef'],
+                    'base_pay' => $vals['base_pay'],
+                    'perf_pay' => $vals['perf_pay'],
+                    'sick_pay' => $vals['sick_pay'],
+                    'night' => $vals['night'],
+                    'meal' => $vals['meal'],
+                    'title_sub' => $vals['title_sub'],
+                    'reward' => $vals['reward'],
+                    'welfare' => $welfare,
+                    'punish' => $vals['punish'],
+                    'late_d' => $vals['late_d'],
+                    'miss_d' => $vals['miss_d'],
+                    'other_d' => $vals['other_d'],
+                    'uniform_d' => $vals['uniform_d'],
                     'gross' => $gross,
+                    'pen' => $vals['pen'],
+                    'med' => $vals['med'],
+                    'une' => $vals['une'],
+                    'house' => $vals['house'],
+                    'big' => $vals['big'],
                     'soc_total' => $soc,
-                    'spec_total' => $spec,
+                    'spec_total' => $vals['spec_total'],
                     'actual_tax' => $tax,
+                    'withhold' => $tax,
                     'net' => $net,
+                    'remark' => $remark,
                     'imported_history' => true,
                 ];
 
@@ -400,6 +495,18 @@ class PayrollWriteController extends ApiController
             'skipped_before_hire' => $stats['skipped_before_hire'],
             'errors' => $stats['errors'],
         ]);
+    }
+
+    /** 从 dept_path（形如 "罗庄春暖花开/客服部"）解析末级部门名；末级等于项目名时回退上一级（与 PayrollCalculator 同逻辑） */
+    private function deptFromPath(?string $deptPath, string $project): string
+    {
+        $path = trim((string) $deptPath);
+        if ($path === '') return '';
+        $parts = array_values(array_filter(array_map('trim', preg_split('#[\\\/]#u', $path)), fn($s) => $s !== ''));
+        if (!$parts) return '';
+        $last = end($parts);
+        if ($last === $project && count($parts) >= 2) $last = $parts[count($parts) - 2];
+        return $last === $project ? '' : (string) $last;
     }
 
     /** 从 sheet 名解析月份（YYYY-MM 或 M月/MM月）；无法解析时回退到 $fallback */

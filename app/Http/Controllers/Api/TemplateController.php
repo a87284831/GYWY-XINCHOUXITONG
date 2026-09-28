@@ -117,8 +117,10 @@ class TemplateController extends ApiController
     }
 
     /**
-     * 历史工资导入模板：每个月份一个 Sheet（Sheet 名=YYYY-MM 或 M月），
-     * 仅需填个税累计所必需的列，导入后作为归档行进入后续月份累计预扣。
+     * 历史工资导入模板：与系统“工资表导出”完全一致的 35 列完整格式，
+     * 每个月份一个 Sheet（Sheet 名=YYYY-MM 或 M月）。
+     * 导入后作为归档行进入 payroll_results，明细页/汇总页/导出均可完整展示，
+     * 且后续月份累计预扣个税自动包含这些历史月份。
      */
     public function payrollHistory(Request $request)
     {
@@ -126,57 +128,92 @@ class TemplateController extends ApiController
         if ($account instanceof JsonResponse) return $account;
         $year = (int) $request->input('year', now()->year);
 
+        // 与 ExportController::COLUMNS 完全一致（导入端按同样列名精确映射）
+        $headers = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '固定月薪', '基本工资', '应出勤', '实际出勤',
+            '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
+            '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计', '养老保险',
+            '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '实发工资', '备注'];
+        // 示例行：第 1 行大标题、第 2 行表头，数据从第 3 行开始
+        $example = [1, '物业总部', '客服部', '客服管家', '张三(示例,导入前删除本行)', '正式',
+            4200, 3000, 26, 26, 1, 3000, 1500, 0, 100, 300, 0, 200, 0, 0, 0, 0, 0, 0,
+            5100, 384, 96, 24, 576, 0, 1080, 0, 30, 3990, ''];
+
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
         $sheet->setTitle(sprintf('%04d-01', $year));
-        // 列名须与 PayrollWriteController::importHistory 的模糊匹配一致
-        $headers = ['姓名*', '项目*', '应发工资合计*', '五险一金合计', '专项附加扣除', '本月个税*', '实发工资'];
-        $example = ['张三(示例,导入前删除本行)', '物业总部', 6000, 1500, 0, 30, 4470];
-        $sheet->fromArray($headers, null, 'A1');
-        $sheet->fromArray($example, null, 'A2');
+        $colCount = count($headers);
+        $lastLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colCount);
 
-        $lastCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
-        $sheet->getStyle("A1:{$lastCol}1")->getFont()->setBold(true)->setSize(10)->setColor(new Color('FFFFFFFF'));
-        $sheet->getStyle("A1:{$lastCol}1")->getFill()
-            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
-        $sheet->getStyle("A1:{$lastCol}1")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-        $sheet->getStyle("A2:{$lastCol}2")->getFill()
-            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
-        $sheet->getStyle("A2:{$lastCol}2")->getFont()->setItalic(true)->getColor()->setRGB('808080');
-        $sheet->getStyle("A1:{$lastCol}2")->getBorders()->getAllBorders()
-            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-        $sheet->getStyle("A1:{$lastCol}2")->getBorders()->getAllBorders()->getColor()->setRGB('D9D9D9');
-        $sheet->freezePane('A2');
-        $widths = [18, 14, 14, 14, 14, 12, 12];
-        foreach ($headers as $i => $h) {
-            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
-            $sheet->getColumnDimension($letter)->setWidth($widths[$i]);
-        }
+        // 第1行：大标题
+        $sheet->mergeCells("A1:{$lastLetter}1");
+        $sheet->setCellValue('A1', sprintf('%04d-01 工资表（历史导入模板）', $year));
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
         $sheet->getRowDimension(1)->setRowHeight(28);
-        // 金额列两位小数
-        $sheet->getStyle("C2:G1000")->getNumberFormat()->setFormatCode('#,##0.00');
+
+        // 第2行：表头（分区配色，与导出工资表一致）
+        $sheet->fromArray($headers, null, 'A2');
+        $bandOf = function (int $idx) {
+            return match (true) {
+                $idx <= 8 => 'DDEBF7',  // 基本信息
+                $idx <= 11 => 'F2F2F2', // 出勤统计
+                $idx <= 25 => 'E2EFDA', // 应发项目
+                $idx <= 31 => 'FFF2CC', // 五险一金
+                default => 'FCE4D6',    // 个税/实发/备注
+            };
+        };
+        for ($c = 1; $c <= $colCount; $c++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $style = $sheet->getStyle("{$letter}2");
+            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($bandOf($c));
+            $style->getFont()->setBold(true)->setSize(10);
+            $style->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+            $style->getBorders()->getAllBorders()
+                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
+                ->getColor()->setRGB('BFBFBF');
+        }
+        $sheet->getRowDimension(2)->setRowHeight(34);
+
+        // 第3行：示例
+        $sheet->fromArray($example, null, 'A3');
+        $sheet->getStyle("A3:{$lastLetter}3")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
+        $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setItalic(true)->getColor()->setRGB('808080');
+        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
+        foreach ($moneyCols as $mc) {
+            $l = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($mc);
+            $sheet->getStyle("{$l}3")->getNumberFormat()->setFormatCode('#,##0.00');
+        }
+
+        $sheet->freezePane('F3');
+        $widths = [6, 14, 12, 12, 16, 9, 10, 10, 8, 8, 8, 11, 11, 10, 12, 8, 10, 10, 10, 10, 11, 10, 10, 10,
+            12, 10, 10, 10, 11, 8, 12, 12, 10, 11, 14];
+        foreach ($widths as $i => $w) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+            $sheet->getColumnDimension($letter)->setWidth($w);
+        }
 
         // 填写说明
         $help = $book->createSheet(); $help->setTitle('填写说明');
         $rules = [
-            ['列名', '是否必填', '填写说明'],
-            ['Sheet 名称', '必填', '每个月份一个 Sheet，名称写成 2026-01 / 2026-02 …（或 1月 / 2月）。本模板已给出一个示例 Sheet，请复制后改名，每月一个'],
-            ['姓名', '必填', '与系统“人员档案”中的姓名完全一致，按“姓名+项目”匹配人员'],
-            ['项目', '必填', '与系统“项目档案”项目名完全一致（如：物业总部 / 临沂万城花开）'],
-            ['应发工资合计', '必填', '该月税前应发合计，元，数值型'],
-            ['五险一金合计', '可空', '该月个人承担的五险一金合计，留空按 0'],
-            ['专项附加扣除', '可空', '该月六项专项附加扣除合计，留空按 0'],
-            ['本月个税', '必填', '该月线下实际代扣的个税金额，元，数值型'],
-            ['实发工资', '可空', '留空时系统按 应发-五险一金-个税 自动计算'],
-            ['年中入职', '说明', '入职日期之前月份的行会自动跳过，无需手工删除；但人员档案的入职日期必须准确（钉钉花名册同步）'],
-            ['', '', ''],
-            ['操作步骤', '', '① 删除示例行；② 每月一个 Sheet 并按月份命名，逐行填入该月工资数据；③ 保存为 .xlsx；④ 在“薪资核算”页点“导入历史工资”上传（可一次包含多个月份 Sheet，也可分月上传）'],
-            ['导入效果', '', '历史月份作为归档行写入，之后核算下一月时系统自动累计这些月份的应发/五险一金/专项附加/已扣税，个税口径即可与线下衔接'],
+            ['项目', '说明'],
+            ['Sheet 命名', '每个月份一个 Sheet，名称写成 2026-01 / 2026-02 …（或 1月 / 2月）。请复制本模板的示例 Sheet 并改名，每月一个；本说明页无需修改'],
+            ['表格结构', '第1行大标题、第2行表头请勿删除或改名；数据从第3行开始，导入前请删除示例行；不要新增/删除/调换列顺序'],
+            ['列格式', '列名与系统“导出当前项目表”的工资表完全一致——如果你线下就是用系统导出表做的工资，整列复制即可'],
+            ['必填列', '项目、姓名、应发工资合计、本月个税；其余列无数据可留空（金额留空按0，序号自动重排可忽略）'],
+            ['项目 / 姓名', '必须与系统完全一致：项目取“项目档案”名称，姓名取“人员档案”姓名，系统按“姓名+项目”匹配人员'],
+            ['部门/岗位/状态/月薪', '部门、岗位、人员状态、固定月薪、基本工资照实填写；留空时部门/岗位/月薪自动取人员档案当前值，状态默认“正式”'],
+            ['五险一金', '养老/医疗/失业/住房公积金/大病 五列与“五险一金合计”列都填写时，计税以“五险一金合计”为准，五个明细列仅用于展示'],
+            ['应发 / 实发', '应发工资合计按线下实际应发填；实发工资留空时系统按 应发-五险一金合计-个税-已发福利 自动计算'],
+            ['年中入职', '入职日期之前月份的行自动跳过，无需手工删除；但人员档案入职日期必须准确（钉钉花名册同步）'],
+            ['', ''],
+            ['操作步骤', '① 复制示例 Sheet 并按月份命名（如1-8月共8个）；② 删除各 Sheet 示例行，从第3行起填入当月工资；③ 保存 .xlsx；④ 在“薪资核算”页点“导入历史工资”上传，可一次含多个月份 Sheet'],
+            ['导入效果', '历史月份作为归档行写入：核算明细页、工资表导出均完整展示35列，汇总页年度累计/预算执行率自动包含历史月，之后核算下一月时个税累计口径与线下衔接'],
         ];
         $help->fromArray($rules, null, 'A1');
-        $help->getStyle('A1:C1')->getFont()->setBold(true);
-        $help->getColumnDimension('A')->setWidth(18); $help->getColumnDimension('B')->setWidth(12); $help->getColumnDimension('C')->setWidth(95);
-        $help->getStyle('C2:C12')->getAlignment()->setWrapText(true);
+        $help->getStyle('A1:B1')->getFont()->setBold(true);
+        $help->getColumnDimension('A')->setWidth(26); $help->getColumnDimension('B')->setWidth(100);
+        $help->getStyle('B2:B12')->getAlignment()->setWrapText(true);
         $book->setActiveSheetIndex(0);
         return $this->xlsxResponse($book, '历史工资导入模板.xlsx');
     }
