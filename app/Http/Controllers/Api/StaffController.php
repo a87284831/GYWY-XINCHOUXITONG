@@ -77,6 +77,19 @@ class StaffController extends ApiController
         'hire_date' => 'hire', 'id_card' => 'idcard', 'bank_card' => 'card', 'recruit_channel' => 'recruit',
     ];
 
+    /** 钉钉同步字段（本地编辑不覆盖，以服务端全量/回调同步为准） */
+    private const DT_SYNC_FIELDS = [
+        // data JSON 字段（applyRosterFields dataMap）
+        'gender', 'id_card', 'education', 'bank_card', 'bank_name',
+        'politics', 'major', 'school', 'nation', 'marital', 'home_addr',
+        'emergency_contact', 'emergency_phone', 'recruit_channel', 'hometown',
+        'pay_grade', 'birth_date', 'level', 'contract_start', 'contract_end',
+        'grad_date', 'certificate',
+        // 系统列字段（applyRosterFields systemMap）
+        'position', 'regular_date', 'hire_date', 'fixed_monthly', 'base_salary',
+        'resign_date',
+    ];
+
     public function bulkUpload(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
@@ -210,35 +223,36 @@ class StaffController extends ApiController
         $added = 0; $updated = 0; $pending = 0;
         $maxId = (int) (DB::table('payroll_staff')->max('legacy_id') ?? 0);
         foreach ($rows as $r) {
-            $input = $r['input'];
+            // 钉钉同步字段以服务端同步为准，Excel 里的这些列不覆盖
+            $input = array_diff_key($r['input'], array_flip(self::DT_SYNC_FIELDS));
             $existing = DB::table('payroll_staff')->where('name', $input['name'])->where('project_name', $r['project'])->first();
             $leaderId = $r['leaderId'];
             if ($existing) {
                 $data = $this->jsonValue($existing->data) ?: [];
                 $data = array_merge($data, $input);
-                if ($r['socialProvided']) $data['social_ref'] = $input['social_ref'];
-                if ($r['deductProvided']) $data['special_deductions'] = $input['special_deductions'];
-                elseif (empty($data['special_deductions'])) $data['special_deductions'] = $input['special_deductions'];
+                if ($r['socialProvided']) $data['social_ref'] = $r['input']['social_ref'];
+                if ($r['deductProvided']) $data['special_deductions'] = $r['input']['special_deductions'];
+                elseif (empty($data['special_deductions'])) $data['special_deductions'] = $r['input']['special_deductions'];
                 unset($data['socialProvided'], $data['deductProvided']);
                 DB::table('payroll_staff')->where('legacy_id', $existing->legacy_id)->update([
-                    'position' => $r['position'],
-                    'status' => \App\Services\StaffStatus::derive($r['resign'] ?: $existing->resign_date, $r['regular'] ?: $existing->regular_date, $today),
-                    'hire_date' => $r['hire'] ?: $existing->hire_date, 'regular_date' => $r['regular'] ?: $existing->regular_date,
-                    'resign_date' => $r['resign'] ?: $existing->resign_date,
+                    'position' => $existing->position,
+                    'status' => \App\Services\StaffStatus::derive($existing->resign_date, $existing->regular_date, $today),
+                    'hire_date' => $existing->hire_date, 'regular_date' => $existing->regular_date,
+                    'resign_date' => $existing->resign_date,
                     'org_id' => $r['orgId'] ?: $existing->org_id, 'dept_path' => $r['deptPath'],
                     'leader_id' => $leaderId ?: $existing->leader_id,
-                    'fixed_monthly' => $r['fixedVal'] ?? $existing->fixed_monthly,
-                    'base_salary' => $r['baseVal'] ?? $existing->base_salary,
+                    'fixed_monthly' => $existing->fixed_monthly,
+                    'base_salary' => $existing->base_salary,
                     'data' => json_encode($data, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
                 ]);
                 $updated++;
             } else {
                 $maxId++;
                 DB::table('payroll_staff')->insert([
-                    'legacy_id' => $maxId, 'name' => $input['name'], 'project_name' => $r['project'], 'position' => $r['position'],
-                    'status' => \App\Services\StaffStatus::derive($r['resign'], $r['regular'], $today),
-                    'fixed_monthly' => $r['fixedVal'] ?? 0, 'base_salary' => $r['baseVal'] ?? 0,
-                    'hire_date' => $r['hire'], 'regular_date' => $r['regular'], 'resign_date' => $r['resign'],
+                    'legacy_id' => $maxId, 'name' => $input['name'], 'project_name' => $r['project'], 'position' => null,
+                    'status' => \App\Services\StaffStatus::derive(null, null, $today),
+                    'fixed_monthly' => 0, 'base_salary' => 0,
+                    'hire_date' => null, 'regular_date' => null, 'resign_date' => null,
                     'org_id' => $r['orgId'] ?: null, 'dept_path' => $r['deptPath'], 'deleted' => false,
                     'leader_id' => $leaderId,
                     'data' => json_encode($input, JSON_UNESCAPED_UNICODE), 'created_at' => now(), 'updated_at' => now(),
@@ -401,6 +415,8 @@ class StaffController extends ApiController
         if (empty($input['birth_date']) && !empty($input['id_card'])) {
             $input['birth_date'] = \App\Services\StaffProfile::birthFromIdCard((string) $input['id_card']);
         }
+        // 钉钉同步字段以服务端同步为准，本地编辑不覆盖
+        $input = array_diff_key($input, array_flip(self::DT_SYNC_FIELDS));
         // 人员分类单选：staff=基层员工 / manager=管理人员 / case=案场人员（与核算三组对应）
 
         return DB::transaction(function () use ($input, $name, $project, $org, $orgService, $account) {

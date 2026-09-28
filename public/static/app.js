@@ -1,4 +1,4 @@
-/* 昊轩云枢 前端 */
+﻿/* 昊轩云枢 前端 */
 "use strict";
 
 const state = { user: null, projects: [], allProjects: [], month: "", page: "", year: "", currentApp: "home" };
@@ -1679,19 +1679,6 @@ async function staffExport() {
   const q = `cat=${encodeURIComponent(stCat)}&project=${encodeURIComponent(document.getElementById("stProj").value)}&status=${encodeURIComponent(document.getElementById("stStatus").value)}&kw=${encodeURIComponent(document.getElementById("stKw").value)}&org_id=${encodeURIComponent(document.getElementById("stOrg").value)}`;
   download("/api/staff/export?" + q, "人员档案.xlsx");
 }
-async function staffBulkUpload() {
-  const f = document.getElementById("stFile").files[0];
-  if (!f) return;
-  const form = new FormData();
-  form.append("file", f);
-  document.getElementById("stMsg").innerHTML = `<div class="msg info">正在校验并导入...</div>`;
-  try {
-    const r = await api("/api/staff/bulk_upload", { form });
-    document.getElementById("stMsg").innerHTML = `<div class="msg ok">导入完成：新增 ${r.added} 人，更新 ${r.updated} 人</div>`;
-    document.getElementById("stFile").value = "";
-    loadStaff();
-  } catch (e) { document.getElementById("stMsg").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
-}
 async function staffBulkDelete() {
   if (!window._stSel.size) return toast("请先勾选人员", false);
   if (!confirm(`确认删除所选 ${window._stSel.size} 人？删除后不参与核算，可在备份中找回。`)) return;
@@ -1750,131 +1737,6 @@ async function bulkTaxModeSave() {
     loadStaff();
   } catch (e) { alert(e.message); }
 }
-async function staffEdit(id) {
-  const s = id ? window._staff.find(x => x.id === id) : null;
-  const isNew = !s;
-  let enums = {}, required = ["name", "project"];
-  try { const fcfg = await api("/api/staff/field_config"); enums = fcfg.enums || {}; required = fcfg.required || []; } catch (e) { /* 字段配置可选 */ }
-  const isReq = k => required.includes(k);
-  const reqMark = k => isReq(k) ? ' <b style="color:#dc2626">*</b>' : "";
-  const v = s || { name: "", project: state.projects[0], position: "", fixed_monthly: "", base_salary: "", hire_date: "", regular_date: "", resign_date: "", bank_card: "", id_card: "", category: "在职", org_id: "", leader_id: "",
-    gender: "", phone: "", birth_date: "", nation: "", marital: "", school: "", major: "", education: "", grad_date: "", certificate: "", politics: "", home_addr: "", emergency_contact: "", emergency_phone: "", recruit_channel: "", hometown: "", level: "", contract_start: "", contract_end: "", person_type: "staff", person_type_since: "" };
-  window._sfOrigType = v.person_type || "staff";
-  if (!ORG_TREE) { try { await loadOrgTree(); } catch (e) { ORG_TREE = []; } }
-  const leaves = orgLeaves();
-  const orgProjects = (ORG_TREE ? orgFlat(ORG_TREE) : []).filter(n => n.type === "project");
-  const curOrgNode = v.org_id ? orgNode(v.org_id) : null;
-  const curProjNode = curOrgNode ? orgProjectOf(v.org_id) : (orgProjects.find(p => p.name === (v.project || "")) || null);
-  const selProjId = curProjNode ? String(curProjNode.id) : "";
-  const projOptions = `<select id="sf_proj" onchange="sfProjChanged()"><option value="">— 请选择项目 —</option>` +
-    orgProjects.map(p => `<option value="${p.id}" ${String(selProjId) === String(p.id) ? "selected" : ""}>${esc(p.name)}</option>`).join("") + `</select>`;
-  const deptLeaves = selProjId ? leaves.filter(n => { const pp = orgProjectOf(n.id); return pp && String(pp.id) === selProjId; }) : [];
-  const deptOptions = `<select id="sf_org" onchange="sfOrgChanged()" ${selProjId ? "" : "disabled"}><option value="">${selProjId ? "— 请选择部门/班组 —" : "请先选择项目"}</option>` +
-    deptLeaves.map(n => `<option value="${n.id}" ${String(v.org_id) === String(n.id) ? "selected" : ""}>${esc(n.path)}</option>`).join("") + `</select>`;
-  let leaderOptions = `<select id="sf_leader"><option value="">— 未设置 —</option>`;
-  if (window._staff) {
-    for (const x of window._staff) {
-      if (x.deleted || (id && x.id === id)) continue;
-      leaderOptions += `<option value="${x.id}" ${String(v.leader_id) === String(x.id) ? "selected" : ""}>${esc(x.name)}（${esc(x.project)}${x.position ? "/" + esc(x.position) : ""}）</option>`;
-    }
-  }
-  leaderOptions += `</select>`;
-  const sel = (key, label, opts) => `<label>${label}${reqMark(key)}<select id="sf_${key}"><option value="">— 请选择 —</option>` +
-    (opts || []).map(o => `<option value="${esc(o)}" ${String(v[key]) === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("") + `</select></label>`;
-  const inp = (key, label, ph, type) => `<label>${label}${reqMark(key)}<input type="${type || "text"}" id="sf_${key}" value="${esc(v[key] || "")}" placeholder="${esc(ph || "")}" ${(key === "name" && !isNew) ? "readonly style='background:#f5f5f5'" : ""}></label>`;
-  const html = `<h3>${isNew ? "新增人员" : "编辑人员档案 — " + esc(s.name)}</h3>
-  <h4 style="margin:0 0 8px;color:#2563eb">基本信息</h4>
-  <div class="form-grid">
-    ${inp("name", "姓名", "")}
-    ${sel("gender", "性别", enums.gender)}
-    <label>所属项目${reqMark("project")}${projOptions}</label>
-    <label>所属部门（末级）${reqMark("dept")}${deptOptions}</label>
-    <label>职位${reqMark("position")}<input type="text" id="sf_position" value="${esc(v.position)}" list="sf_pos_list"><datalist id="sf_pos_list"></datalist></label>
-    <label>直属上级${reqMark("leader")}${leaderOptions}</label>
-    <label>本人联系方式${reqMark("phone")}<input type="text" id="sf_phone" value="${esc(v.phone || "")}" placeholder="11位手机号"></label>
-    <label>档案状态（自动判定）<input type="text" id="sf_category" readonly style="background:#f5f5f5;font-weight:600"></label>
-    <label>加入黑名单<select id="sf_black" onchange="sfStatusUpd()">
-      <option value="0" ${v.category === "黑名单" ? "" : "selected"}>否</option>
-      <option value="1" ${v.category === "黑名单" ? "selected" : ""}>是</option>
-    </select></label>
-    <label>人员状态（自动判定）<input type="text" id="sf_status" readonly style="background:#f5f5f5;font-weight:600"></label>
-    <label>个税扣除模式<select id="sf_taxmode" title="6万扣除模式：年初一次性按全年6万元减除费用扣除（适用于上年度全年收入≤6万且在同一单位的人员）；普通模式：每月5000元累计减除">
-      <option value="0" ${Number(v.tax_mode ?? 0) === 1 ? "" : "selected"}>普通模式（每月5000累计）</option>
-      <option value="1" ${Number(v.tax_mode ?? 0) === 1 ? "selected" : ""}>6万扣除模式（年初一次性扣6万）</option>
-    </select></label>
-    ${isNew ? `<label>固定月薪<input type="number" id="sf_fixed" value="${v.fixed_monthly}"></label>
-    <label>基本工资<input type="number" id="sf_base" value="${v.base_salary}"></label>` : ""}
-  </div>
-  <h4 style="margin:16px 0 8px;color:#2563eb">入职与身份信息</h4>
-  <div class="form-grid">
-    <label>入职时间${reqMark("hire_date")}<input type="date" id="sf_hire" value="${esc(v.hire_date)}" onchange="sfStatusUpd()"></label>
-    <label>实际转正日期<input type="date" id="sf_regular" value="${esc(v.regular_date)}" onchange="sfStatusUpd()"></label>
-    <label>离职日期<input type="date" id="sf_resign" value="${esc(v.resign_date)}" onchange="sfStatusUpd()"></label>
-    <label>证件号码${reqMark("id_card")}<input type="text" id="sf_idcard" value="${esc(v.id_card || "")}" placeholder="18位，用于自助查询工资条" maxlength="18"></label>
-    <label>出生日期${reqMark("birth_date")}<input type="date" id="sf_birth" value="${esc(v.birth_date || "")}"></label>
-    ${sel("nation", "民族", enums.nation)}
-    ${sel("marital", "婚姻状况", enums.marital)}
-    <label>银行卡号${reqMark("bank_card")}<input type="text" id="sf_card" value="${esc(v.bank_card)}"></label>
-  </div>
-  <h4 style="margin:16px 0 8px;color:#2563eb">职级与劳动合同</h4>
-  <div class="form-grid">
-    ${sel("level", "层级", enums.level)}
-    <label>薪酬档位（钉钉同步）<input type="text" id="sf_pay_grade_view" value="${esc(v.pay_grade || "")}" readonly style="background:#f5f5f5" title="由钉钉花名册「薪酬档位」单选字段同步（专员级/主管级/经理级），本地不可修改；空值请在钉钉花名册填写后等待同步"></label>
-    <label>人员分类<select id="sf_person_type" title="决定该人员参与哪套工资核算：基层员工→项目员工核算；管理人员→管理人员核算；案场人员→案场人员核算；所属项目为物业总部的人员一律进总部人员核算">
-      <option value="staff" ${(v.person_type || "staff") === "staff" ? "selected" : ""}>基层员工</option>
-      <option value="manager" ${v.person_type === "manager" ? "selected" : ""}>管理人员</option>
-      <option value="case" ${v.person_type === "case" ? "selected" : ""}>案场人员</option>
-    </select></label>
-    <label>分类生效日期<input type="date" id="sf_person_since" value="${esc(v.person_type_since || "")}" title="该分类自所选日期起生效，之前月份按旧分类核算（例：9月改为管理人员并选2026-10-01生效，则9月仍按原分类，10月起按管理人员核算）"></label>
-    <label>劳动合同开始日期<input type="date" id="sf_contract_start" value="${esc(v.contract_start || "")}"></label>
-    <label>劳动合同结束日期<input type="date" id="sf_contract_end" value="${esc(v.contract_end || "")}"></label>
-  </div>
-  <h4 style="margin:16px 0 8px;color:#2563eb">教育背景</h4>
-  <div class="form-grid">
-    ${inp("school", "毕业院校", "")}
-    ${inp("major", "所学专业", "")}
-    ${sel("education", "学历", enums.education)}
-    ${inp("grad_date", "毕业时间", "YYYY-MM-DD", "date")}
-    ${inp("certificate", "资格证书", "如：物业管理员证/电工证")}
-  </div>
-  <h4 style="margin:16px 0 8px;color:#2563eb">其他信息</h4>
-  <div class="form-grid">
-    ${sel("politics", "政治面貌", enums.politics)}
-    ${inp("home_addr", "家庭住址", "")}
-    ${inp("emergency_contact", "紧急联系人", "")}
-    ${inp("emergency_phone", "紧急联系人电话", "11位手机号")}
-    ${sel("recruit_channel", "招聘渠道", enums.recruit)}
-    ${inp("hometown", "籍贯（市）", "如：山东临沂")}
-  </div>
-  ${isNew ? "" : `<div class="form-grid"><label>调动原因（若调整部门则写入调动记录）<input type="text" id="sf_transfer_reason" placeholder="例：调往客服部"></label></div>`}
-  <div class="hint">人员状态由日期自动判定：离职日期≤今天→离职；未到转正日期→试用；已到转正日期→正式。档案状态同样自动判断：有离职日期（≤今天）→离职；否则→在职；仅在勾选"加入黑名单"时归为黑名单。直属上级用于绩效自动带审批链。带 <b style="color:#dc2626">*</b> 的为必填项（姓名、所属项目固定必填）。钉钉花名册字段（含薪酬档位）以同步为准，本地修改可能在下次同步时被覆盖；社保、专项附加、个税模式等为本地数据。出生日期留空且已填证件号码时，保存将按证件号码自动推算。</div>
-  <div class="row end" style="margin-top:14px"><button class="btn" onclick="closeModal()">取消</button>
-  <button class="btn primary" onclick="staffSave(${id})">保存</button></div>`;
-  modal(html);
-  sfOrgChanged();
-  sfStatusUpd();
-  try {
-    const pd = await api("/api/org/positions?node_id=" + (v.org_id || ""));
-    const dl = document.getElementById("sf_pos_list");
-    if (dl && pd.positions) dl.innerHTML = pd.positions.map(p => `<option value="${esc(p)}">`).join("");
-  } catch (e) { /* 岗位提示可选 */ }
-}
-function sfProjChanged() {
-  const projSel = document.getElementById("sf_proj");
-  const deptSel = document.getElementById("sf_org");
-  if (!projSel || !deptSel) return;
-  const projId = projSel.value;
-  const leaves = orgLeaves();
-  const filtered = projId ? leaves.filter(n => { const pp = orgProjectOf(n.id); return pp && String(pp.id) === String(projId); }) : [];
-  const cur = deptSel.value;
-  deptSel.disabled = !projId;
-  deptSel.innerHTML = `<option value="">${projId ? "— 请选择部门/班组 —" : "请先选择项目"}</option>` +
-    filtered.map(n => `<option value="${n.id}">${esc(n.path)}</option>`).join("");
-  if (cur && !filtered.some(n => String(n.id) === String(cur))) deptSel.value = "";
-  const dl = document.getElementById("sf_pos_list");
-  if (dl) dl.innerHTML = "";
-  sfOrgChanged();
-}
 function sfOrgChanged() {
   const sel = document.getElementById("sf_org");
   const projSel = document.getElementById("sf_proj");
@@ -1888,68 +1750,6 @@ function sfOrgChanged() {
   if (dl && id) api("/api/org/positions?node_id=" + id).then(d => {
     if (d.positions) dl.innerHTML = d.positions.map(p => `<option value="${esc(p)}">`).join("");
   }).catch(() => {});
-}
-function sfDeriveStatus() {
-  const g = x => { const el = document.getElementById(x); return el ? el.value : ""; };
-  const t = new Date();
-  const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-  const h = g("sf_hire"), r = g("sf_regular"), d = g("sf_resign");
-  if (d && d <= today) return "离职";
-  if (r) return r > today ? "试用" : "正式";
-  if (h && h > today) return "试用";
-  return "正式";
-}
-function sfDeriveCategory() {
-  const g = x => document.getElementById(x).value;
-  if (g("sf_black") === "1") return "黑名单";
-  const t = new Date();
-  const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-  const d = g("sf_resign");
-  if (d && d <= today) return "离职";
-  return "在职";
-}
-function sfStatusUpd() {
-  const el = document.getElementById("sf_status");
-  if (el) el.value = sfDeriveStatus();
-  const ce = document.getElementById("sf_category");
-  if (ce) ce.value = sfDeriveCategory();
-}
-async function staffSave(id) {
-  const g = x => { const el = document.getElementById(x); return el ? el.value : ""; };
-  const orgId = g("sf_org");
-  const projSel = document.getElementById("sf_proj");
-  const projId = projSel ? projSel.value : "";
-  let projName = "";
-  if (projId) { const pn = (ORG_TREE ? orgFlat(ORG_TREE) : []).find(n => n.type === "project" && String(n.id) === String(projId)); projName = pn ? pn.name : ""; }
-  else if (orgId) { projName = orgProjectOf(orgId)?.name || ""; }
-  const staff = {
-    id: id || null, name: g("sf_name").trim(), project: projName, position: g("sf_position").trim(),
-    fixed_monthly: document.getElementById("sf_fixed") ? parseFloat(g("sf_fixed") || 0) : undefined,
-    base_salary: document.getElementById("sf_base") ? parseFloat(g("sf_base") || 0) : undefined,
-    hire_date: g("sf_hire"), regular_date: g("sf_regular"), resign_date: g("sf_resign"), bank_card: g("sf_card").trim(),
-    id_card: g("sf_idcard").trim().toUpperCase(), blacklist: g("sf_black") === "1",
-    org_id: orgId ? Number(orgId) : null, leader_id: g("sf_leader") ? Number(g("sf_leader")) : null,
-    gender: g("sf_gender"), phone: g("sf_phone").trim(), birth_date: g("sf_birth"),
-    nation: g("sf_nation"), marital: g("sf_marital"), school: g("sf_school").trim(), major: g("sf_major").trim(),
-    education: g("sf_education"), grad_date: g("sf_grad_date"), certificate: g("sf_certificate").trim(),
-    politics: g("sf_politics"), home_addr: g("sf_home_addr").trim(), emergency_contact: g("sf_emergency_contact").trim(),
-    emergency_phone: g("sf_emergency_phone").trim(), recruit_channel: g("sf_recruit_channel"),
-    hometown: g("sf_hometown").trim(), level: g("sf_level"), contract_start: g("sf_contract_start"),
-    contract_end: g("sf_contract_end"),
-    person_type: document.getElementById("sf_person_type") ? g("sf_person_type") : undefined,
-    person_type_since: document.getElementById("sf_person_since") ? g("sf_person_since") : undefined,
-    tax_mode: document.getElementById("sf_taxmode") ? parseInt(g("sf_taxmode") || 0) : undefined,
-    transfer_reason: g("sf_transfer_reason") || "",
-  };
-  if (!staff.name) return toast("姓名必填", false);
-  if (!projName) return toast("请选择所属项目", false);
-  if (!orgId) return toast("请选择所属部门", false);
-  const sfType = document.getElementById("sf_person_type") ? g("sf_person_type") : "";
-  if (sfType && sfType !== (window._sfOrigType || "staff") && !g("sf_person_since")) return toast("分类变更时请选择生效日期", false);
-  try {
-    await api("/api/staff/save", { body: { staff } });
-    closeModal(); toast("已保存"); loadStaff();
-  } catch (e) { alert(e.message); }
 }
 async function staffTransfers(id) {
   const s = window._staff.find(x => x.id === id);

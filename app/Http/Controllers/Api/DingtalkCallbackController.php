@@ -452,6 +452,10 @@ class DingtalkCallbackController extends ApiController
             '紧急联系人电话' => 'emergency_phone', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
             // 薪酬档位：钉钉花名册单选（专员级/主管级/经理级），字段名需与钉钉逐字一致
             '薪酬档位' => 'pay_grade',
+            // 补充花名册字段（2026-09-28）：人员档案所有字段均以钉钉同步为准，本地不再编辑
+            '出生日期' => 'birth_date', '层级' => 'level',
+            '劳动合同开始日期' => 'contract_start', '劳动合同结束日期' => 'contract_end',
+            '毕业时间' => 'grad_date', '资格证书' => 'certificate',
         ];
 
         $systemMap = [
