@@ -20,6 +20,8 @@
             <button class="btn" @click="calcProjects = auth.projects.slice()">全选</button>
             <button class="btn" @click="calcProjects = []">清空</button>
             <button class="btn primary" @click="doCalc">开始核算（覆盖旧数据）</button>
+            <button class="btn" @click="histFile.click()">导入历史工资</button>
+            <input type="file" ref="histFile" accept=".xlsx,.xls" style="display:none" @change="importHistory" />
             <span v-html="archiveHtml"></span>
           </div>
           <div class="checkbox-list" style="margin-top:10px">
@@ -354,6 +356,7 @@ const TP_META = {
 const payTab = ref('emp')
 const calcProjects = ref(auth.projects.slice())
 const calcMsg = ref('')
+const histFile = ref(null)
 const empRows = ref([])
 const empMeta = ref({})
 const empErr = ref('')
@@ -516,6 +519,24 @@ async function doCalc() {
     calcMsg.value = `<div class="msg ok">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
     loadPayroll()
   } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
+}
+
+async function importHistory(e) {
+  const f = e.target.files[0]
+  if (!f) return
+  const form = new FormData()
+  form.append('file', f)
+  try {
+    const r = await api('/api/payroll/import-history', { form })
+    let msg = `导入完成：处理 ${r.sheets} 个月份，新增 ${r.inserted} 行，更新 ${r.updated} 行`
+    if (r.skipped_before_hire) msg += `，跳过入职前 ${r.skipped_before_hire} 行`
+    if (r.errors && r.errors.length) {
+      msg += '\n⚠ ' + r.errors.slice(0, 15).join('\n')
+      if (r.errors.length > 15) msg += `\n...等共 ${r.errors.length} 条`
+    }
+    calcMsg.value = `<div class="msg ${r.errors && r.errors.length ? 'info' : 'ok'}">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
+  } catch (err) { calcMsg.value = `<div class="msg err">${err.message}</div>` }
+  finally { e.target.value = '' }
 }
 
 async function doCalcType(tp) {

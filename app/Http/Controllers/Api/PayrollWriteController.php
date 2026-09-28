@@ -7,6 +7,7 @@ use App\Services\PayrollCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class PayrollWriteController extends ApiController
 {
@@ -225,5 +226,194 @@ class PayrollWriteController extends ApiController
             'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
         ]);
         return response()->json(['ok' => true, 'row' => $row]);
+    }
+
+    /**
+     * POST /api/payroll/import-history
+     * 导入历史工资表（线下核算的月份），写入 payroll_results 归档行，使后续月份累计个税自洽。
+     * 参数：file（Excel，可多 sheet，sheet 名表示月份如 2026-01 / 1月）；可选 ym（单 sheet 时指定月份）
+     * 表头需包含：姓名、项目、应发工资合计、五险一金合计、专项附加扣除、本月个税
+     */
+    public function importHistory(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅管理员可导入历史工资'], 403);
+        }
+        if (!$request->hasFile('file')) {
+            return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
+        }
+        $paramYm = trim((string) $request->input('ym', ''));
+
+        try {
+            $spreadsheet = IOFactory::load($request->file('file')->getPathname());
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => '文件无法解析：' . $e->getMessage()], 400);
+        }
+
+        $stats = ['sheets' => 0, 'inserted' => 0, 'updated' => 0, 'skipped_before_hire' => 0, 'errors' => []];
+        $staffCache = []; // "name|project" => staff object 或 false
+
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            $sheetName = trim($sheet->getTitle());
+            $ym = $this->parseSheetMonth($sheetName, $paramYm);
+            if ($ym === null) {
+                $stats['errors'][] = "Sheet「{$sheetName}」无法识别月份（命名需为 YYYY-MM 或 M月）";
+                continue;
+            }
+            $stats['sheets']++;
+
+            // 定位表头行（含「姓名」且含「应发」的行）
+            $highestCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
+            $headerRow = null;
+            for ($row = 1; $row <= min(10, $sheet->getHighestRow()); $row++) {
+                $vals = [];
+                for ($c = 1; $c <= min(40, $highestCol); $c++) {
+                    $vals[] = trim((string) $this->cellValue($sheet, $c, $row));
+                }
+                if (in_array('姓名', $vals, true) && preg_grep('/应发/', $vals)) {
+                    $headerRow = $row;
+                    break;
+                }
+            }
+            if (!$headerRow) {
+                $stats['errors'][] = "{$ym} Sheet「{$sheetName}」未找到表头（需含「姓名」「应发工资合计」列）";
+                continue;
+            }
+
+            // 列映射
+            $cols = [];
+            for ($c = 1; $c <= $highestCol; $c++) {
+                $h = trim((string) $this->cellValue($sheet, $c, $headerRow));
+                if ($h === '') continue;
+                if ($h === '姓名') $cols['name'] = $c;
+                elseif (str_contains($h, '项目')) $cols['project'] = $c;
+                elseif (str_contains($h, '应发') && str_contains($h, '合计')) $cols['gross'] = $c;
+                elseif (str_contains($h, '五险一金') && str_contains($h, '合计')) $cols['soc'] = $c;
+                elseif (str_contains($h, '专项附加')) $cols['spec'] = $c;
+                elseif (str_contains($h, '个税')) $cols['tax'] = $c;
+                elseif (str_contains($h, '实发')) $cols['net'] = $c;
+            }
+            foreach (['name', 'gross', 'tax'] as $req) {
+                if (!isset($cols[$req])) {
+                    $stats['errors'][] = "{$ym} 缺少必需列：" . match ($req) {
+                        'name' => '姓名', 'gross' => '应发工资合计', 'tax' => '本月个税',
+                    };
+                    continue 2;
+                }
+            }
+
+            $get = function (string $key, int $row) use ($sheet, $cols) {
+                if (!isset($cols[$key])) return 0.0;
+                $v = $this->cellValue($sheet, $cols[$key], $row);
+                if (is_object($v)) $v = method_exists($v, 'getPlainText') ? $v->getPlainText() : (string) $v;
+                return (float) $v;
+            };
+
+            for ($row = $headerRow + 1; $row <= $sheet->getHighestRow(); $row++) {
+                $name = trim((string) $this->cellValue($sheet, $cols['name'], $row));
+                if ($name === '' || str_contains($name, '合计') || str_contains($name, '总计')) continue;
+                $project = isset($cols['project']) ? trim((string) $this->cellValue($sheet, $cols['project'], $row)) : '';
+                if ($project === '') {
+                    $stats['errors'][] = "{$ym} 第{$row}行「{$name}」缺少项目";
+                    continue;
+                }
+                $cacheKey = $name . '|' . $project;
+                if (!isset($staffCache[$cacheKey])) {
+                    $matches = DB::table('payroll_staff')->where('name', $name)
+                        ->where('project_name', $project)->where('deleted', false)->get();
+                    if ($matches->count() === 0) {
+                        $stats['errors'][] = "{$ym} 「{$name}@{$project}」不在系统人员档案中";
+                        $staffCache[$cacheKey] = false;
+                        continue;
+                    }
+                    if ($matches->count() > 1) {
+                        $stats['errors'][] = "{$ym} 「{$name}@{$project}」存在重名人员，无法匹配";
+                        $staffCache[$cacheKey] = false;
+                        continue;
+                    }
+                    $staffCache[$cacheKey] = $matches->first();
+                }
+                $staff = $staffCache[$cacheKey];
+                if ($staff === false) continue;
+
+                // 入职日前的月份跳过（年中入职员工不累计入职前）
+                if (!empty($staff->hire_date)) {
+                    $hireYm = substr((string) $staff->hire_date, 0, 7);
+                    if ($ym < $hireYm) {
+                        $stats['skipped_before_hire']++;
+                        continue;
+                    }
+                }
+
+                $gross = round($get('gross', $row), 2);
+                $soc = round($get('soc', $row), 2);
+                $spec = round($get('spec', $row), 2);
+                $tax = round($get('tax', $row), 2);
+                $net = isset($cols['net']) ? round($get('net', $row), 2) : round($gross - $soc - $tax, 2);
+
+                $rowData = [
+                    'name' => $staff->name,
+                    'project' => $staff->project_name,
+                    'position' => $staff->position ?: '',
+                    'gross' => $gross,
+                    'soc_total' => $soc,
+                    'spec_total' => $spec,
+                    'actual_tax' => $tax,
+                    'net' => $net,
+                    'imported_history' => true,
+                ];
+
+                $existing = DB::table('payroll_results')
+                    ->where('year_month', $ym)->where('staff_legacy_id', $staff->legacy_id)->first();
+                if ($existing) {
+                    DB::table('payroll_results')->where('id', $existing->id)->update([
+                        'row_data' => json_encode($rowData, JSON_UNESCAPED_UNICODE),
+                        'archived' => true,
+                        'updated_at' => now(),
+                    ]);
+                    $stats['updated']++;
+                } else {
+                    DB::table('payroll_results')->insert([
+                        'year_month' => $ym,
+                        'staff_legacy_id' => $staff->legacy_id,
+                        'project_name' => $staff->project_name,
+                        'row_data' => json_encode($rowData, JSON_UNESCAPED_UNICODE),
+                        'archived' => true,
+                        'is_manager_row' => (int) ($staff->person_type === 'manager'),
+                        'is_case_row' => (int) ($staff->person_type === 'case'),
+                        'is_hq_row' => (int) ($staff->person_type === 'hq'),
+                        'created_at' => now(), 'updated_at' => now(),
+                    ]);
+                    $stats['inserted']++;
+                }
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'sheets' => $stats['sheets'],
+            'inserted' => $stats['inserted'],
+            'updated' => $stats['updated'],
+            'skipped_before_hire' => $stats['skipped_before_hire'],
+            'errors' => $stats['errors'],
+        ]);
+    }
+
+    /** 从 sheet 名解析月份（YYYY-MM 或 M月/MM月）；无法解析时回退到 $fallback */
+    private function parseSheetMonth(string $sheetName, string $fallback): ?string
+    {
+        if (preg_match('/^(\d{4})-(\d{1,2})$/', $sheetName, $m)) {
+            return sprintf('%04d-%02d', (int) $m[1], (int) $m[2]);
+        }
+        if (preg_match('/^(\d{1,2})月$/', $sheetName, $m)) {
+            $year = $fallback !== '' ? (int) substr($fallback, 0, 4) : (int) date('Y');
+            return sprintf('%04d-%02d', $year, (int) $m[1]);
+        }
+        if ($fallback !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $fallback)) {
+            return $fallback;
+        }
+        return null;
     }
 }
