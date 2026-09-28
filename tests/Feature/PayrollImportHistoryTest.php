@@ -170,4 +170,25 @@ class PayrollImportHistoryTest extends TestCase
         $this->assertEquals(3000, $d['base']);
         $this->assertSame('正式', $d['status']);
     }
+
+    public function test_deleted_or_resigned_staff_still_importable_for_history(): void
+    {
+        // 历史月份工资是事实数据：离职、已删档人员当月确实领薪，必须能导入
+        $this->seedStaff(1, '张三', '2026-01-01');
+        DB::table('payroll_staff')->where('legacy_id', 1)
+            ->update(['status' => '离职', 'resign_date' => '2026-03-15']);
+        $this->seedStaff(2, '李四', '2026-01-01');
+        DB::table('payroll_staff')->where('legacy_id', 2)->update(['deleted' => true]);
+
+        $file = $this->makeUpload([
+            '2026-01' => [
+                $this->rowFor('张三', 5100, 1080, 30, 3990),
+                $this->rowFor('李四', 5000, 1000, 0, 4000),
+            ],
+        ]);
+        $resp = $this->post('/api/payroll/import-history', ['file' => $file], ['X-Token' => $this->token]);
+        $resp->assertOk()->assertJsonPath('ok', true)
+            ->assertJsonPath('inserted', 2)
+            ->assertJsonPath('errors', []);
+    }
 }

@@ -372,8 +372,9 @@ class PayrollWriteController extends ApiController
                 }
                 $cacheKey = $name . '|' . $project;
                 if (!isset($staffCache[$cacheKey])) {
+                    // 历史工资是事实数据：离职、已删档人员均可匹配（当月确实领薪）
                     $matches = DB::table('payroll_staff')->where('name', $name)
-                        ->where('project_name', $project)->where('deleted', false)->get();
+                        ->where('project_name', $project)->get();
                     if ($matches->count() === 0) {
                         $stats['errors'][] = "{$ym} 「{$name}@{$project}」不在系统人员档案中";
                         $staffCache[$cacheKey] = false;
