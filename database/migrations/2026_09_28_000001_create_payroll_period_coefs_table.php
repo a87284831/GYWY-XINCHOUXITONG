@@ -16,7 +16,7 @@ return new class extends Migration
             $table->decimal('coef', 5, 2)->default(1.00)->comment('绩效系数');
             $table->timestamps();
 
-            $table->unique(['staff_legacy_id', 'period_type', 'period_key']);
+            $table->unique(['staff_legacy_id', 'period_type', 'period_key'], 'period_coefs_unique');
         });
     }
 
