@@ -471,6 +471,49 @@ class PayrollCalculator
                     // 季度中：绩效为 0
                     $perfPay = 0.0;
                 }
+            } elseif (($payRule['cycle'] ?? '') === 'quarter_grade') {
+                // 季度绩效法：经理级=季度型（季度末按 季度系数×Σ(基数×出勤比例) 全额发放，无比例、无半年度）；
+                // 主管/专员级=月度型（不覆盖常规段当月绩效，不查季度系数）。
+                $year = (int)substr($ym, 0, 4);
+                $month = (int)substr($ym, 5, 2);
+                $isQuarterMode = ($payRule['mode'] ?? 'monthly') === 'quarter';
+                $gradeError = null;
+                if ($payGrade === '') {
+                    $gradeError = 'missing_pay_grade';
+                } elseif (!in_array($payGrade, CalcRules::PAY_GRADES, true)) {
+                    $gradeError = 'invalid_pay_grade';
+                }
+                if ($isQuarterMode) {
+                    if ($this->isQuarterEnd($month)) {
+                        [$qKey, $qYms] = $this->quarterPeriod($year, $month);
+                        if ($gradeError) {
+                            $perfPay = 0.0;
+                            $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
+                        } else {
+                            [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
+                            $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
+                            if ($qCoef === null) {
+                                $perfPay = 0.0;
+                                $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
+                            } else {
+                                $perfPay = round($qBase * $qCoef, 2);
+                                $perfDetail = [
+                                    'period' => $qKey, 'type' => 'quarterly', 'pay_grade' => $payGrade,
+                                    'coef' => $qCoef, 'months' => $qMonths,
+                                ];
+                            }
+                        }
+                    } else {
+                        // 季度型·季度中月份：绩效为 0
+                        $perfPay = 0.0;
+                    }
+                } elseif ($gradeError && $this->isQuarterEnd($month)) {
+                    // 月度型档位异常仅在季度末月挂错（非末月无 perf_detail 展示位，当月按常规段发放）
+                    $perfPay = 0.0;
+                    [$qKey] = $this->quarterPeriod($year, $month);
+                    $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
+                }
+                // 月度型且档位正常：保留常规段 perfPay，无 perf_detail，不查询季度系数
             }
         }
 

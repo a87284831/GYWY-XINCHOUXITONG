@@ -143,8 +143,8 @@ class CalcRules
      * 获取绩效发放规则。
      *
      * @param string $personType 人员类型：staff|manager|case|hq
-     * @param string $payGrade 薪酬档位（专员级|主管级|经理级，仅 quarterly 使用）
-     * @return array{cycle:string, ratio?:float, quarter_ratio?:float, half_year_ratio?:float, configured?:bool}
+     * @param string $payGrade 薪酬档位（专员级|主管级|经理级，quarterly/quarter_grade 使用）
+     * @return array{cycle:string, ratio?:float, quarter_ratio?:float, half_year_ratio?:float, mode?:string, configured?:bool}
      */
     public function getPayRule(string $personType, string $payGrade = ''): array
     {
@@ -158,7 +158,19 @@ class CalcRules
             ];
         }
 
-        // quarterly：必须精确命中已配置档位；无配置时 configured=false（调用方负责显式报错，禁止静默兜底）
+        // quarter_grade（季度绩效法）：按档位 mode 决定 quarter|monthly；无比例参数。
+        // 档位为空/不在三档 → configured=false（调用方标 missing/invalid_pay_grade）；
+        // 档位合法但 mode 缺省 → monthly（当月照常发放）。
+        if (($rule['cycle'] ?? '') === 'quarter_grade') {
+            if ($payGrade === '' || !in_array($payGrade, self::PAY_GRADES, true)) {
+                return ['cycle' => 'quarter_grade', 'mode' => 'monthly', 'configured' => false];
+            }
+            $level = is_array($rule['levels'][$payGrade] ?? null) ? $rule['levels'][$payGrade] : [];
+            $mode = ($level['mode'] ?? 'monthly') === 'quarter' ? 'quarter' : 'monthly';
+            return ['cycle' => 'quarter_grade', 'mode' => $mode, 'configured' => true];
+        }
+
+        // quarterly（分期兑现绩效法）：必须精确命中已配置档位；无配置时 configured=false（调用方负责显式报错，禁止静默兜底）
         $levels = $rule['levels'] ?? [];
         if (isset($levels[$payGrade]) && is_array($levels[$payGrade])) {
             return [
