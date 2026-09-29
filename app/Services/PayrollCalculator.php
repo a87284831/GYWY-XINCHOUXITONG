@@ -813,6 +813,40 @@ class PayrollCalculator
         return in_array($s, ['√', '∨', 'V', 'v', '✓', '✔'], true) ? '√' : $s;
     }
 
+    /**
+     * 符号库保存前的兼容性检查（9/27 符号错位事故防复发）：
+     * 扫描历史考勤 rows.days 里实际出现过的符号字面，返回新符号集无法识别的冲突描述。
+     * 核算端对识别不了的符号是静默跳过（attendanceStats L1000），一旦失配 → 出勤少算 → 工资错误，
+     * 所以必须在保存时拦截，而不是核算时才发现。
+     */
+    public static function symbolConflicts(array $newItems): array
+    {
+        $map = [];
+        foreach ($newItems as $it) {
+            if (is_array($it) && isset($it['symbol'])) $map[trim((string) $it['symbol'])] = $it;
+        }
+        $checked = [];
+        $conflicts = []; // 字面 => [record_key,...]
+        $rows = DB::table('payroll_attendance')->orderBy('year_month')->get(['record_key', 'rows']);
+        foreach ($rows as $r) {
+            $recs = json_decode((string) $r->rows, true) ?: [];
+            foreach ($recs as $rec) {
+                foreach (($rec['days'] ?? []) as $s) {
+                    $s = trim((string) $s);
+                    if ($s === '' || isset($checked[$s])) continue;
+                    $checked[$s] = true;
+                    if (!self::symbolLookup($s, $map)) $conflicts[$s][] = $r->record_key;
+                }
+            }
+        }
+        $out = [];
+        foreach ($conflicts as $sym => $keys) {
+            $u = array_values(array_unique($keys));
+            $out[] = "「{$sym}」出现于 " . implode('、', array_slice($u, 0, 3)) . (count($u) > 3 ? ' 等' . count($u) . '条记录' : '');
+        }
+        return $out;
+    }
+
     private function taxConfig(): array
     {
         $snap = DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();

@@ -17,6 +17,32 @@ class ConfigController extends ApiController
     {
         $items = $request->input('items', []);
         if (!is_array($items)) return response()->json(['ok' => false, 'error' => '符号数据格式错误'], 400);
+
+        // 基础校验：必填、计勤值范围、字面查重（重复符号在 map 构建时后者静默覆盖前者 → 核算错乱）
+        $seen = [];
+        foreach ($items as $i => $it) {
+            if (!is_array($it)) return response()->json(['ok' => false, 'error' => '符号数据格式错误'], 400);
+            $sym = trim((string) ($it['symbol'] ?? ''));
+            $name = trim((string) ($it['name'] ?? ''));
+            if ($sym === '' || $name === '') {
+                return response()->json(['ok' => false, 'error' => '第' . ($i + 1) . '行：符号或名称不能为空'], 400);
+            }
+            if (isset($seen[$sym])) {
+                return response()->json(['ok' => false, 'error' => "符号字面重复：「{$sym}」同时出现在第" . ($seen[$sym] + 1) . '行和第' . ($i + 1) . '行。重复符号会互相覆盖导致核算错乱，请改用不同字面'], 400);
+            }
+            $seen[$sym] = $i;
+            if (!isset($it['value']) || !is_numeric($it['value']) || (float) $it['value'] < 0 || (float) $it['value'] > 1) {
+                return response()->json(['ok' => false, 'error' => "「{$sym}」的计勤值必须是 0~1 的数值（1=全勤、0.5=半天、0=不计勤）"], 400);
+            }
+        }
+
+        // 兼容性检查：历史考勤中出现过的符号字面必须仍能被新符号库识别（含勾号别名容错），
+        // 否则已上传考勤在核算时被静默跳过 → 出勤少算 → 工资错误
+        $conflicts = \App\Services\PayrollCalculator::symbolConflicts($items);
+        if ($conflicts) {
+            return response()->json(['ok' => false, 'error' => "保存被阻止：以下符号在历史考勤中实际使用，但新符号库无法识别（会导致相应月份工资核算错误）：\n" . implode("\n", $conflicts) . "\n请先修正符号库，或先在考勤管理中重新上传使用新符号的考勤表"], 400);
+        }
+
         return $this->saveSnapshot($request, 'symbols.json', ['items' => $items]);
     }
 

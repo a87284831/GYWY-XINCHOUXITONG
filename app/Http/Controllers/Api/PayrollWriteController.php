@@ -6,8 +6,11 @@ use App\Services\CalcRules;
 use App\Services\PayrollCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class PayrollWriteController extends ApiController
 {
@@ -252,7 +255,7 @@ class PayrollWriteController extends ApiController
             return response()->json(['ok' => false, 'error' => '文件无法解析：' . $e->getMessage()], 400);
         }
 
-        $stats = ['sheets' => 0, 'inserted' => 0, 'updated' => 0, 'skipped_before_hire' => 0, 'errors' => []];
+        $stats = ['sheets' => 0, 'inserted' => 0, 'updated' => 0, 'skipped_before_hire' => 0, 'errors' => [], 'error_rows' => []];
         $staffCache = []; // "name|project" => staff object 或 false
 
         foreach ($spreadsheet->getAllSheets() as $sheet) {
@@ -260,6 +263,7 @@ class PayrollWriteController extends ApiController
             $ym = $this->parseSheetMonth($sheetName, $paramYm);
             if ($ym === null) {
                 $stats['errors'][] = "Sheet「{$sheetName}」无法识别月份（命名需为 YYYY-MM 或 M月）";
+                $stats['error_rows'][] = ['ym' => '', 'row' => '', 'name' => '', 'project' => $sheetName, 'reason' => 'Sheet 名无法识别月份（需为 YYYY-MM 或 M月）'];
                 continue;
             }
             $stats['sheets']++;
@@ -279,6 +283,7 @@ class PayrollWriteController extends ApiController
             }
             if (!$headerRow) {
                 $stats['errors'][] = "{$ym} Sheet「{$sheetName}」未找到表头（需含「姓名」「应发工资合计」列）";
+                $stats['error_rows'][] = ['ym' => $ym, 'row' => '', 'name' => '', 'project' => $sheetName, 'reason' => '未找到表头（需含「姓名」「应发工资合计」列）'];
                 continue;
             }
 
@@ -338,9 +343,11 @@ class PayrollWriteController extends ApiController
             }
             foreach (['name', 'gross', 'actual_tax'] as $req) {
                 if (!isset($cols[$req])) {
-                    $stats['errors'][] = "{$ym} 缺少必需列：" . match ($req) {
+                    $missingCn = match ($req) {
                         'name' => '姓名', 'gross' => '应发工资合计', 'actual_tax' => '本月个税',
                     };
+                    $stats['errors'][] = "{$ym} 缺少必需列：{$missingCn}";
+                    $stats['error_rows'][] = ['ym' => $ym, 'row' => '', 'name' => '', 'project' => $sheetName, 'reason' => "缺少必需列：{$missingCn}"];
                     continue 2;
                 }
             }
@@ -368,24 +375,45 @@ class PayrollWriteController extends ApiController
                 $project = isset($cols['project']) ? trim((string) $this->cellValue($sheet, $cols['project'], $row)) : '';
                 if ($project === '') {
                     $stats['errors'][] = "{$ym} 第{$row}行「{$name}」缺少项目";
+                    $stats['error_rows'][] = ['ym' => $ym, 'row' => $row, 'name' => $name, 'project' => '', 'reason' => '缺少项目列'];
                     continue;
                 }
                 $cacheKey = $name . '|' . $project;
                 if (!isset($staffCache[$cacheKey])) {
                     // 历史工资是事实数据：离职、已删档人员均可匹配（当月确实领薪）
-                    $matches = DB::table('payroll_staff')->where('name', $name)
-                        ->where('project_name', $project)->get();
-                    if ($matches->count() === 0) {
+                    // 两级匹配：先按 姓名+项目 精确匹配；失败时按姓名兜底（唯一即匹配，
+                    // 应对线下表项目简称/错写/人员调档导致的项目不一致）
+                    $resolve = function (string $proj) use ($name, $ym): array {
+                        $matches = $proj === ''
+                            ? DB::table('payroll_staff')->where('name', $name)->get()
+                            : DB::table('payroll_staff')->where('name', $name)->where('project_name', $proj)->get();
+                        if ($matches->count() === 1) return [$matches->first(), null];
+                        if ($matches->count() > 1) {
+                            // 重名消歧：同名多条档案（如正式+离职删档）时优先未删档人员
+                            $active = $matches->where('deleted', false);
+                            if ($active->count() === 1) return [$active->first(), null];
+                            return [null, "{$ym} 「{$name}@{$proj}」存在重名人员，无法匹配"];
+                        }
+                        return [null, null];
+                    };
+                    [$staff, $err] = $resolve($project);
+                    if ($staff === null && $err === null) {
+                        [$staff, $err] = $resolve('');
+                        if ($staff !== null) $staff->matched_by_name_only = true;
+                    }
+                    if ($err !== null) {
+                        $stats['errors'][] = $err;
+                        $stats['error_rows'][] = ['ym' => $ym, 'row' => $row, 'name' => $name, 'project' => $project, 'reason' => '存在重名人员，无法匹配，需人工核对'];
+                        $staffCache[$cacheKey] = false;
+                        continue;
+                    }
+                    if ($staff === null) {
                         $stats['errors'][] = "{$ym} 「{$name}@{$project}」不在系统人员档案中";
+                        $stats['error_rows'][] = ['ym' => $ym, 'row' => $row, 'name' => $name, 'project' => $project, 'reason' => '不在系统人员档案中（姓名+项目与姓名兜底均未匹配，需先补建档案）'];
                         $staffCache[$cacheKey] = false;
                         continue;
                     }
-                    if ($matches->count() > 1) {
-                        $stats['errors'][] = "{$ym} 「{$name}@{$project}」存在重名人员，无法匹配";
-                        $staffCache[$cacheKey] = false;
-                        continue;
-                    }
-                    $staffCache[$cacheKey] = $matches->first();
+                    $staffCache[$cacheKey] = $staff;
                 }
                 $staff = $staffCache[$cacheKey];
                 if ($staff === false) continue;
@@ -490,6 +518,9 @@ class PayrollWriteController extends ApiController
             }
         }
 
+        // 有错误时生成错误报告 xlsx，供前端下载核对源表
+        $errorFile = $stats['error_rows'] ? $this->writeImportErrorReport($stats) : null;
+
         return response()->json([
             'ok' => true,
             'sheets' => $stats['sheets'],
@@ -497,7 +528,54 @@ class PayrollWriteController extends ApiController
             'updated' => $stats['updated'],
             'skipped_before_hire' => $stats['skipped_before_hire'],
             'errors' => $stats['errors'],
+            'error_file' => $errorFile,
         ]);
+    }
+
+    /**
+     * 生成导入错误报告 xlsx（月份/行号/姓名/项目/原因），文件名即下载令牌，24 小时有效。
+     */
+    private function writeImportErrorReport(array $stats): string
+    {
+        $book = new Spreadsheet();
+        $s = $book->getActiveSheet();
+        $s->setTitle('导入错误');
+        $s->setCellValue('A1', '历史工资导入错误报告');
+        $s->setCellValue('A2', '生成时间：' . now()->format('Y-m-d H:i')
+            . '　成功入库 ' . ($stats['inserted'] + $stats['updated']) . ' 行'
+            . '　跳过入职前 ' . $stats['skipped_before_hire'] . ' 行'
+            . '　错误 ' . count($stats['error_rows']) . ' 行');
+        $s->fromArray(['序号', '月份', '表内行号', '姓名', '项目', '错误原因'], null, 'A4');
+        $r = 5;
+        foreach ($stats['error_rows'] as $i => $e) {
+            $s->fromArray([$i + 1, $e['ym'], $e['row'], $e['name'], $e['project'], $e['reason']], null, "A{$r}");
+            $r++;
+        }
+        $s->setCellValue('A' . ($r + 1), '说明：在源表中修正对应行后重新上传整个文件即可（同月同人已入库的自动更新，不会重复导入）。');
+        foreach (range('A', 'F') as $col) $s->getColumnDimension($col)->setAutoSize(true);
+
+        $dir = storage_path('app/import-errors');
+        if (!is_dir($dir)) mkdir($dir, 0775, true);
+        $token = bin2hex(random_bytes(16));
+        $path = $dir . '/' . $token . '.xlsx';
+        (new Xlsx($book))->save($path);
+        Cache::put('payroll_import_error_report:' . $token, $path, now()->addDay());
+        return $token;
+    }
+
+    /**
+     * GET /api/payroll/import-history/error-report/{token}
+     * 下载历史工资导入错误报告（token 来自导入响应的 error_file，24 小时有效）。
+     */
+    public function errorReport(Request $request, string $token)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $path = Cache::get('payroll_import_error_report:' . $token);
+        if (!$path || !is_file($path)) {
+            return response()->json(['ok' => false, 'error' => '错误报告不存在或已过期（有效期 24 小时），请重新导入生成'], 404);
+        }
+        return response()->download($path, '历史工资导入错误报告_' . now()->format('Ymd_Hi') . '.xlsx');
     }
 
     /** 从 dept_path（形如 "罗庄春暖花开/客服部"）解析末级部门名；末级等于项目名时回退上一级（与 PayrollCalculator 同逻辑） */

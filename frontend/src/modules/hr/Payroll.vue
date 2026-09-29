@@ -154,29 +154,18 @@
             </div>
             <div class="table-wrap" style="overflow-x:auto">
               <table class="tb" :ref="(el) => (typeTableEls[tp] = el)">
-                <thead><tr><th v-for="h in PAY_HEADS" :key="h">{{ h }}</th></tr></thead>
+                <thead><tr>
+                  <th v-for="h in PAY_HEADS" :key="h">{{ h }}</th>
+                  <th v-for="c in perfCols[tp]" :key="c.key" style="color:#64748b">{{ c.label }}</th>
+                </tr></thead>
                 <tbody>
-                  <template v-for="r in typeDisplay[tp]" :key="r.isSub ? r.key : r.staff_id">
-                    <!-- 逐月绩效明细子行（灰底缩进，不参与筛选/选中/微调） -->
-                    <tr v-if="r.isSub" class="sub-perf">
-                      <td colspan="4" style="padding-left:24px;color:#64748b">{{ r.label }}</td>
-                      <td></td>
-                      <td></td><td class="num" style="color:#64748b">{{ money(r.base) }}</td>
-                      <td></td><td></td>
-                      <td class="num" style="color:#64748b">{{ r.perf_att }}</td><td></td>
-                      <td></td><td class="num" style="color:#64748b">{{ money(r.amount) }}</td>
-                      <td colspan="17"></td><td></td>
-                    </tr>
-                    <!-- 主行 -->
-                    <tr
-                      v-else
-                      :class="{ 'pay-sel': typeSel[tp] === r.staff_id }"
-                      @click="typeSel[tp] = r.staff_id"
-                    >
-                      <td>
-                        {{ r.project }}
-                        <button v-if="r._subs" class="sub-toggle" :title="r._open ? '收起逐月绩效明细' : '展开逐月绩效明细'" @click.stop="toggleSubRows(r)">{{ r._open ? '▾' : '▸' }}{{ r._subs }}条</button>
-                      </td>
+                  <tr
+                    v-for="r in typeFiltered[tp]"
+                    :key="r.staff_id"
+                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id }"
+                    @click="typeSel[tp] = r.staff_id"
+                  >
+                      <td>{{ r.project }}</td>
                       <td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
                       <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
                       <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
@@ -193,9 +182,9 @@
                       <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                       <td class="num">{{ money(r.actual_tax) }}</td>
                       <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
+                      <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
                       <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
                     </tr>
-                  </template>
                 </tbody>
                 <tfoot v-if="typeFiltered[tp].length">
                   <tr style="background:#f0fdf4;font-weight:bold">
@@ -213,6 +202,7 @@
                     <td class="num">{{ money(typeTot[tp].sums.spec_total) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.actual_tax) }}</td>
                     <td class="num" style="color:#16a34a;font-weight:bold">{{ money(typeTot[tp].sums.net) }}</td>
+                    <td v-for="c in perfCols[tp]" :key="'t' + c.key"></td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -315,7 +305,7 @@ import { useUiStore } from '@/stores/ui'
 import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailSubRows } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell } from './payrollLogic'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -371,8 +361,6 @@ const typeErr = reactive({ mgr: '', case: '', hq: '' })
 const typeMsg = reactive({ mgr: '', case: '', hq: '' })
 const typeProjFilter = reactive({ mgr: '', case: '', hq: '' })
 const typeSel = reactive({ mgr: '', case: '', hq: '' })
-// 逐月绩效子行展开状态（默认展开；key=staff_id，false=收起）
-const subExpanded = reactive({})
 const typeTableEls = {}
 const payTable = ref(null)
 const attStatus = ref({ projects: [] })
@@ -402,28 +390,16 @@ const typeTot = computed(() => ({
   hq: payTotalRow(typeFiltered.value.hq),
 }))
 
-// 季度绩效逐月明细子行：主行后插入展开状态的子行（默认展开）
-function withSubRows(rows) {
-  const out = []
-  for (const r of rows) {
-    const subs = perfDetailSubRows(r)
-    if (subs.length) {
-      const open = subExpanded[r.staff_id] !== false
-      out.push({ ...r, _subs: subs.length, _open: open })
-      if (open) for (const s of subs) out.push({ ...r, ...s })
-    } else {
-      out.push(r)
-    }
-  }
-  return out
-}
-const typeDisplay = computed(() => ({
-  mgr: withSubRows(typeFiltered.value.mgr),
-  case: withSubRows(typeFiltered.value.case),
-  hq: withSubRows(typeFiltered.value.hq),
+// 季度绩效逐月明细：横向列（季度末月且有 perf_detail 的行才有），列头/键与 Excel 导出一致
+const perfCols = computed(() => ({
+  mgr: perfDetailCols(typeFiltered.value.mgr),
+  case: perfDetailCols(typeFiltered.value.case),
+  hq: perfDetailCols(typeFiltered.value.hq),
 }))
-function toggleSubRows(r) {
-  subExpanded[r.staff_id] = !(subExpanded[r.staff_id] !== false)
+// 明细单元格：无该月明细显示空（与导出一致），有则显示两位小数金额
+function perfAmt(r, key) {
+  const v = perfDetailCell(r, key)
+  return v === null ? '' : money(v)
 }
 const empLogs = computed(() => (empMeta.value.logs || []).slice(-50).reverse())
 
@@ -540,7 +516,18 @@ async function importHistory(e) {
       msg += '\n⚠ ' + r.errors.slice(0, 15).join('\n')
       if (r.errors.length > 15) msg += `\n...等共 ${r.errors.length} 条`
     }
-    calcMsg.value = `<div class="msg ${r.errors && r.errors.length ? 'info' : 'ok'}">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
+    let msgHtml = msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')
+    if (r.error_file) {
+      msgHtml += `<br><button class="btn" id="dlImpErrBtn" style="margin-top:8px">下载错误报告（${r.errors.length} 条明细）</button>`
+    }
+    calcMsg.value = `<div class="msg ${r.errors && r.errors.length ? 'info' : 'ok'}">${msgHtml}</div>`
+    if (r.error_file) {
+      // v-html 内无法绑定事件，渲染后手动挂下载按钮
+      nextTick(() => {
+        document.getElementById('dlImpErrBtn')?.addEventListener('click', () =>
+          download(`/api/payroll/import-history/error-report/${r.error_file}`, '历史工资导入错误报告.xlsx'))
+      })
+    }
   } catch (err) { calcMsg.value = `<div class="msg err">${err.message}</div>` }
   finally { e.target.value = '' }
 }
@@ -692,25 +679,5 @@ onBeforeUnmount(() => document.removeEventListener('click', onCardClick))
 tr.pay-sel td {
   background: #fff6d6 !important;
   color: #1f2937;
-}
-/* 季度绩效逐月明细子行：灰底、字号略小 */
-tr.sub-perf td {
-  background: #f8fafc;
-  font-size: 12px;
-  border-top: none;
-}
-.sub-toggle {
-  border: 1px solid #cbd5e1;
-  background: #f1f5f9;
-  color: #475569;
-  border-radius: 4px;
-  font-size: 11px;
-  padding: 0 5px;
-  margin-left: 4px;
-  cursor: pointer;
-  line-height: 16px;
-}
-.sub-toggle:hover {
-  background: #e2e8f0;
 }
 </style>

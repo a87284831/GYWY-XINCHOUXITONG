@@ -354,6 +354,11 @@ async function symSave() {
     if (!String(s.symbol).trim()) { toast('存在空符号，请检查', false); return }
     s.value = parseFloat(s.value)
   }
+  const seen = new Set()
+  for (const s of symbols.value) {
+    if (seen.has(s.symbol)) { toast(`符号字面重复：「${s.symbol}」，重复符号会互相覆盖导致核算错乱`, false); return }
+    seen.add(s.symbol)
+  }
   try {
     await api('/api/symbols/save', { body: { items: symbols.value } })
     toast('符号库已保存，考勤表公式已同步')

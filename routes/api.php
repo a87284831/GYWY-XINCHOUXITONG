@@ -47,6 +47,7 @@ Route::post('/payroll/calc-hq', [PayrollWriteController::class, 'calcHq']);
 Route::post('/payroll/archive', [PayrollWriteController::class, 'archive']);
 Route::post('/payroll/adjust', [PayrollWriteController::class, 'adjust']);
 Route::post('/payroll/import-history', [PayrollWriteController::class, 'importHistory']);
+Route::get('/payroll/import-history/error-report/{token}', [PayrollWriteController::class, 'errorReport']);
 Route::get('/staff/template', [TemplateController::class, 'staff']);
 Route::get('/budget/template', [TemplateController::class, 'budget']);
 Route::get('/attendance/template', [TemplateController::class, 'attendance']);
