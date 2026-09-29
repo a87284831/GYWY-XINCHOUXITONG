@@ -10,7 +10,8 @@
  *   prod_calc_rules.json / prod_symbols.json / prod_settings.json / prod_payslip_config.json
  *
  * 说明：生产 calc_rules.json 无 pay_rules 段（9/28 本地新增功能），
- * 脚本补一个三档骨架（比例 0），数值需在「系统设置-薪酬设置」页面人工录入后保存。
+ * 脚本补季度绩效法（quarter_grade）三档骨架：经理级=季度型、主管/专员级=月度型；
+ * 档位类型可在「系统设置-薪酬设置」页面随时调整并保存。
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -31,18 +32,19 @@ $map = [
 $dataDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'data';
 if (!is_dir($dataDir)) mkdir($dataDir, 0777, true);
 
-$level0 = fn() => ['quarter_ratio' => 0, 'half_year_ratio' => 0];
+// 季度绩效法：每档仅 mode（quarter 季度型 / monthly 月度型），无比例、无半年度
+$qgLevels = [
+    '专员级' => ['mode' => 'monthly'],
+    '主管级' => ['mode' => 'monthly'],
+    '经理级' => ['mode' => 'quarter'],
+];
 $payRulesSkeleton = [
     // 员工/案场固定按月全额，不开放编辑（与前端保存逻辑一致）
     'staff'   => ['cycle' => 'monthly', 'ratio' => 1.0],
     'case'    => ['cycle' => 'monthly', 'ratio' => 1.0],
-    // 管理/总部三档比例骨架，数值待设置页录入
-    'manager' => ['cycle' => 'quarterly', 'levels' => [
-        '专员级' => $level0(), '主管级' => $level0(), '经理级' => $level0(),
-    ]],
-    'hq'      => ['cycle' => 'quarterly', 'levels' => [
-        '专员级' => $level0(), '主管级' => $level0(), '经理级' => $level0(),
-    ]],
+    // 管理/总部整体季度绩效法：经理级季度末发、主管/专员级按月发
+    'manager' => ['cycle' => 'quarter_grade', 'levels' => $qgLevels],
+    'hq'      => ['cycle' => 'quarter_grade', 'levels' => $qgLevels],
 ];
 
 $restored = 0;
