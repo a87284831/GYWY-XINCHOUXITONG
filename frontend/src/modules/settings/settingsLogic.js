@@ -101,3 +101,49 @@ export function visibleTabs(tabs, can) { return tabs.filter((t) => can(t.perm)) 
 
 /* ---- 备份文件大小 ---- */
 export function fmtSize(bytes) { return (bytes / 1024).toFixed(1) + ' KB' }
+
+/* ---- 薪酬设置：管理/总部绩效发放规则（pay_rules.manager / .hq） ----
+ * monthly       月度绩效法
+ * quarterly     分期兑现绩效法（三档配 季度比例/半年度比例）
+ * quarter_grade 季度绩效法（三档仅选 季度型/月度型，无比例、无半年度）
+ * 薪酬档位与后端 CalcRules::PAY_GRADES 逐字一致 */
+export const PAY_GRADES = ['专员级', '主管级', '经理级']
+const PAY_CYCLES = ['monthly', 'quarterly', 'quarter_grade']
+
+// 后端配置 → 设置页编辑态
+export function payRuleToDraft(src) {
+  const cycle = PAY_CYCLES.includes(src?.cycle) ? src.cycle : 'monthly'
+  const levels = (src && src.levels) || {}
+  const ratios = {}
+  const modes = {}
+  for (const g of PAY_GRADES) {
+    ratios[g] = {
+      quarter_ratio: Number(levels[g]?.quarter_ratio ?? 0),
+      half_year_ratio: Number(levels[g]?.half_year_ratio ?? 0),
+    }
+    modes[g] = levels[g]?.mode === 'quarter' ? 'quarter' : 'monthly'
+  }
+  return { cycle, ratios, modes }
+}
+
+// 设置页编辑态 → 后端保存结构
+export function draftToPayRule(d) {
+  if (d.cycle === 'quarterly') {
+    const levels = {}
+    for (const g of PAY_GRADES) {
+      levels[g] = {
+        quarter_ratio: parseFloat(d.ratios[g].quarter_ratio) || 0,
+        half_year_ratio: parseFloat(d.ratios[g].half_year_ratio) || 0,
+      }
+    }
+    return { cycle: 'quarterly', levels }
+  }
+  if (d.cycle === 'quarter_grade') {
+    const levels = {}
+    for (const g of PAY_GRADES) {
+      levels[g] = { mode: d.modes[g] === 'quarter' ? 'quarter' : 'monthly' }
+    }
+    return { cycle: 'quarter_grade', levels }
+  }
+  return { cycle: 'monthly', ratio: 1.0 }
+}

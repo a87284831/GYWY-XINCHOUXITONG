@@ -47,14 +47,15 @@
               <label class="fld"><input type="checkbox" v-model="fm.perf_on"> 启用绩效工资</label>
               <label class="fld" style="margin-left:16px"><input type="checkbox" v-model="fm.perf_prob"> 试用期不参与</label>
             </div>
-            <div class="hint" style="margin:8px 0 4px">绩效发放周期：员工/案场人员固定采用月度绩效法；管理/总部人员可配置为分期兑现绩效法（季度末月按本季度逐月绩效累计 × 周期系数 × 职级比例发放，7月/1月同时发半年度部分）。</div>
+            <div class="hint" style="margin:8px 0 4px">绩效发放周期：员工/案场人员固定采用月度绩效法；管理/总部人员可在三种方式间选择——月度绩效法、分期兑现绩效法（季度末月按本季度逐月绩效累计 × 周期系数 × 职级比例发放，7月/1月同时发半年度部分）、季度绩效法（按薪酬档位选季度型/月度型，季度型季度末月按季度系数全额发放，无比例与半年度）。</div>
             <div v-for="t in ['mgr', 'hq']" :key="t" style="margin-top:8px;padding:8px;border:1px dashed #cbd5e1;border-radius:6px">
               <div class="row">
                 <b>{{ t === 'mgr' ? '管理人员' : '总部人员' }}</b>
                 <label class="fld" style="margin-left:12px">发放周期
-                  <select v-model="payRules[t].cycle" style="width:150px">
+                  <select :value="payRules[t].cycle" style="width:150px" @change="onCycleChange(t, $event)">
                     <option value="monthly">月度绩效法</option>
                     <option value="quarterly">分期兑现绩效法</option>
+                    <option value="quarter_grade">季度绩效法</option>
                   </select></label>
               </div>
               <template v-if="payRules[t].cycle === 'quarterly'">
@@ -66,6 +67,21 @@
                       <td>{{ g }}</td>
                       <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].quarter_ratio" style="width:90px"></td>
                       <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].half_year_ratio" style="width:90px"></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+              </template>
+              <template v-else-if="payRules[t].cycle === 'quarter_grade'">
+                <div class="hint" style="margin:6px 0">按人员档案「薪酬档位」逐档选择发放类型（三档固定）。<b>季度型</b>：季度中月份绩效为 0，季度末月（4/7/10/1月）按「季度系数 × Σ(月绩效基数 × 出勤比例)」全额发放，无比例、无半年度；<b>月度型</b>：每月按出勤比例 × 当月月度系数发放，不查季度系数。档位类型可随时切换，但只影响之后核算、不追溯历史，季度型人员建议在季度初切换。</div>
+                <div class="table-wrap" style="margin-top:6px"><table class="tb" style="min-width:380px">
+                  <thead><tr><th>薪酬档位</th><th>发放类型（每档单选）</th></tr></thead>
+                  <tbody>
+                    <tr v-for="g in PAY_GRADES" :key="g">
+                      <td>{{ g }}</td>
+                      <td>
+                        <label class="fld" style="margin-right:16px"><input type="radio" :value="'quarter'" v-model="payRules[t].modes[g]"> 季度型（季度末发全额）</label>
+                        <label class="fld"><input type="radio" :value="'monthly'" v-model="payRules[t].modes[g]"> 月度型（按月发放）</label>
+                      </td>
                     </tr>
                   </tbody>
                 </table></div>
@@ -201,7 +217,7 @@
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { cnFormula, enFormula, GROSS_DEFAULT, NET_DEFAULT, BUILTIN_VARS, STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize, evalFormulaSafe, normalizeCustomFields, SYM_CATEGORIES, SYM_FORMULA_CN } from './settingsLogic'
+import { cnFormula, enFormula, GROSS_DEFAULT, NET_DEFAULT, BUILTIN_VARS, STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize, evalFormulaSafe, normalizeCustomFields, SYM_CATEGORIES, SYM_FORMULA_CN, PAY_GRADES, payRuleToDraft, draftToPayRule } from './settingsLogic'
 
 const rules = ref(null)
 const fields = ref([])
@@ -217,12 +233,26 @@ const fm = reactive({ seg: false, prorate: 'required', perf_on: false, perf_prob
 const paramSections = ['① 应发基本工资', '② 绩效工资', '③ 病假工资', '④ 补贴发放', '⑤ 奖惩', '⑥ 考勤扣款', '⑦ 个人所得税', '⑧ 五险一金 / 专项附加']
 // 管理/总部绩效发放规则（对应 calc_rules.pay_rules.manager / .hq）
 // 薪酬档位为钉钉花名册「薪酬档位」单选字段，三档固定，与后端 CalcRules::PAY_GRADES 逐字一致
-const PAY_GRADES = ['专员级', '主管级', '经理级']
-const emptyGradeRatios = () => Object.fromEntries(PAY_GRADES.map((g) => [g, { quarter_ratio: 0, half_year_ratio: 0 }]))
 const payRules = reactive({
-  mgr: { cycle: 'monthly', ratios: emptyGradeRatios() },
-  hq: { cycle: 'monthly', ratios: emptyGradeRatios() },
+  mgr: payRuleToDraft(undefined),
+  hq: payRuleToDraft(undefined),
 })
+// 切换发放方式：仅影响之后核算，不追溯历史；取消则回滚选择
+const CYCLE_NAMES = { monthly: '月度绩效法', quarterly: '分期兑现绩效法', quarter_grade: '季度绩效法' }
+function onCycleChange(t, e) {
+  const next = e.target.value
+  if (next === payRules[t].cycle) return
+  const ok = confirm(
+    `确认将${t === 'mgr' ? '管理人员' : '总部人员'}的绩效发放方式切换为「${CYCLE_NAMES[next]}」？\n\n` +
+    '· 仅影响切换后新核算的工资，已生成的历史结果不追溯；\n' +
+    '· 季度型人员建议在季度初切换，避免季度中途变更导致发放口径混乱。',
+  )
+  if (ok) {
+    payRules[t].cycle = next
+  } else {
+    e.target.value = payRules[t].cycle
+  }
+}
 
 const customVars = computed(() => fields.value.filter((f) => f.enabled).map((f) => f.name))
 function inFormula(name, which) {
@@ -258,18 +288,10 @@ function initFm() {
   fm.net = cnFormula((R.formula || {}).net) || NET_DEFAULT
   const src = (R.tax && Array.isArray(R.tax.brackets) && R.tax.brackets.length) ? R.tax.brackets : STD_TAX_BRACKETS
   taxDraft.value = src.map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
-  // 管理/总部绩效规则（三档固定比例）
+  // 管理/总部绩效规则（monthly / quarterly 三档比例 / quarter_grade 三档季度型|月度型）
   const pr = R.pay_rules || {}
   for (const t of ['mgr', 'hq']) {
-    const s = pr[t === 'mgr' ? 'manager' : 'hq'] || {}
-    payRules[t].cycle = s.cycle === 'quarterly' ? 'quarterly' : 'monthly'
-    const lv = s.levels || {}
-    for (const g of PAY_GRADES) {
-      payRules[t].ratios[g] = {
-        quarter_ratio: Number(lv[g]?.quarter_ratio ?? 0),
-        half_year_ratio: Number(lv[g]?.half_year_ratio ?? 0),
-      }
-    }
+    Object.assign(payRules[t], payRuleToDraft(pr[t === 'mgr' ? 'manager' : 'hq']))
   }
 }
 function setCap(b, e) { b[0] = e.target.value === '' ? 99999999999 : parseFloat(e.target.value) }
@@ -403,19 +425,7 @@ async function saveAll() {
     R.pay_rules.staff = R.pay_rules.staff && R.pay_rules.staff.cycle ? R.pay_rules.staff : { cycle: 'monthly', ratio: 1.0 }
     R.pay_rules.case = R.pay_rules.case && R.pay_rules.case.cycle ? R.pay_rules.case : { cycle: 'monthly', ratio: 1.0 }
     for (const t of ['mgr', 'hq']) {
-      const key = t === 'mgr' ? 'manager' : 'hq'
-      if (payRules[t].cycle === 'quarterly') {
-        const levels = {}
-        for (const g of PAY_GRADES) {
-          levels[g] = {
-            quarter_ratio: parseFloat(payRules[t].ratios[g].quarter_ratio) || 0,
-            half_year_ratio: parseFloat(payRules[t].ratios[g].half_year_ratio) || 0,
-          }
-        }
-        R.pay_rules[key] = { cycle: 'quarterly', levels }
-      } else {
-        R.pay_rules[key] = { cycle: 'monthly', ratio: 1.0 }
-      }
+      R.pay_rules[t === 'mgr' ? 'manager' : 'hq'] = draftToPayRule(payRules[t])
     }
     // BUG-3 修复：保存前把中文变量名转回英文键，后端 Expr 只支持英文标识符
     R.formula.gross = enFormula((fm.gross || '').trim())

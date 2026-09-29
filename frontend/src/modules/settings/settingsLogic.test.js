@@ -4,6 +4,7 @@ import {
   roleIcon, roleColor, cnFormula, GROSS_DEFAULT, NET_DEFAULT,
   STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize,
   evalFormulaSafe, normalizeCustomFields, visibleTabs,
+  payRuleToDraft, draftToPayRule, PAY_GRADES,
 } from './settingsLogic'
 
 describe('roleIcon / roleColor', () => {
@@ -110,5 +111,55 @@ describe('visibleTabs', () => {
   const can = (perm) => perm === 'users' || perm === 'rules'
   it('按 can 过滤 tab', () => {
     expect(visibleTabs(TABS, can).map((t) => t.key)).toEqual(['perm', 'salarySettings'])
+  })
+})
+
+describe('绩效发放规则 payRuleToDraft / draftToPayRule', () => {
+  it('PAY_GRADES 三档固定且与后端逐字一致', () => {
+    expect(PAY_GRADES).toEqual(['专员级', '主管级', '经理级'])
+  })
+  it('缺省/未知 cycle 回落 monthly，并初始化全部档位编辑态', () => {
+    const d = payRuleToDraft(undefined)
+    expect(d.cycle).toBe('monthly')
+    expect(Object.keys(d.ratios)).toEqual(PAY_GRADES)
+    expect(Object.keys(d.modes)).toEqual(PAY_GRADES)
+    expect(payRuleToDraft({ cycle: 'weird' }).cycle).toBe('monthly')
+  })
+  it('quarterly 往返：比例逐档保留', () => {
+    const src = { cycle: 'quarterly', levels: { 经理级: { quarter_ratio: 0.8, half_year_ratio: 0.5 } } }
+    const d = payRuleToDraft(src)
+    expect(d.cycle).toBe('quarterly')
+    expect(d.ratios['经理级']).toEqual({ quarter_ratio: 0.8, half_year_ratio: 0.5 })
+    expect(d.ratios['主管级']).toEqual({ quarter_ratio: 0, half_year_ratio: 0 })
+    const out = draftToPayRule(d)
+    expect(out).toEqual({
+      cycle: 'quarterly',
+      levels: {
+        专员级: { quarter_ratio: 0, half_year_ratio: 0 },
+        主管级: { quarter_ratio: 0, half_year_ratio: 0 },
+        经理级: { quarter_ratio: 0.8, half_year_ratio: 0.5 },
+      },
+    })
+  })
+  it('quarter_grade：仅 mode 单选，往返不含任何比例键；mode 缺省按 monthly', () => {
+    const src = { cycle: 'quarter_grade', levels: { 经理级: { mode: 'quarter' } } }
+    const d = payRuleToDraft(src)
+    expect(d.cycle).toBe('quarter_grade')
+    expect(d.modes['经理级']).toBe('quarter')
+    expect(d.modes['主管级']).toBe('monthly')
+    expect(d.modes['专员级']).toBe('monthly')
+    const out = draftToPayRule(d)
+    expect(out.cycle).toBe('quarter_grade')
+    expect(out.levels['经理级']).toEqual({ mode: 'quarter' })
+    expect(out.levels['主管级']).toEqual({ mode: 'monthly' })
+    // 后端契约：季度绩效法 levels 内绝不允许出现比例键
+    for (const g of PAY_GRADES) {
+      expect(out.levels[g]).not.toHaveProperty('quarter_ratio')
+      expect(out.levels[g]).not.toHaveProperty('half_year_ratio')
+    }
+  })
+  it('monthly 序列化保持 ratio:1.0（旧配置字节语义不变）', () => {
+    expect(draftToPayRule(payRuleToDraft({ cycle: 'monthly', ratio: 0.5 })))
+      .toEqual({ cycle: 'monthly', ratio: 1.0 })
   })
 })
