@@ -54,7 +54,7 @@
           </div>
           <div class="table-wrap">
             <table class="tb" ref="payTable">
-              <thead><tr><th v-for="h in PAY_HEADS" :key="h">{{ h }}</th></tr></thead>
+              <thead><tr><th v-for="h in PAY_HEADS" :key="h">{{ h }}</th><th>备注</th></tr></thead>
               <tbody>
                 <tr
                   v-for="r in empFiltered"
@@ -79,6 +79,7 @@
                   <td class="num">{{ money(r.actual_tax) }}</td>
                   <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
                   <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
+                  <td class="remark-cell">{{ r.remark || '' }}</td>
                 </tr>
               </tbody>
               <tfoot v-if="empFiltered.length">
@@ -97,7 +98,7 @@
                   <td class="num">{{ money(tot.sums.spec_total) }}</td>
                   <td class="num">{{ money(tot.sums.actual_tax) }}</td>
                   <td class="num" style="color:#16a34a;font-weight:bold">{{ money(tot.sums.net) }}</td>
-                  <td></td>
+                  <td></td><td></td>
                 </tr>
               </tfoot>
             </table>
@@ -155,8 +156,10 @@
             <div class="table-wrap" style="overflow-x:auto">
               <table class="tb" :ref="(el) => (typeTableEls[tp] = el)">
                 <thead><tr>
-                  <th v-for="h in PAY_HEADS" :key="h">{{ h }}</th>
+                  <th v-for="h in payHeadsData" :key="h">{{ h }}</th>
                   <th v-for="c in perfCols[tp]" :key="c.key" style="color:#64748b">{{ c.label }}</th>
+                  <th>操作</th>
+                  <th>备注</th>
                 </tr></thead>
                 <tbody>
                   <tr
@@ -184,6 +187,7 @@
                       <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
                       <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
                       <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
+                      <td class="remark-cell">{{ r.remark || '' }}</td>
                     </tr>
                 </tbody>
                 <tfoot v-if="typeFiltered[tp].length">
@@ -203,7 +207,7 @@
                     <td class="num">{{ money(typeTot[tp].sums.actual_tax) }}</td>
                     <td class="num" style="color:#16a34a;font-weight:bold">{{ money(typeTot[tp].sums.net) }}</td>
                     <td v-for="c in perfCols[tp]" :key="'t' + c.key"></td>
-                    <td></td>
+                    <td></td><td></td>
                   </tr>
                 </tfoot>
               </table>
@@ -315,6 +319,8 @@ const STATUS_TAG = { 正式: 'green', 新聘: 'blue', 转正: 'purple', 试用: 
 const PAY_HEADS = ['项目', '部门', '职位', '姓名', '员工状态', '固定月薪', '基本工资', '应出勤', '出勤', '绩效计薪', '系数',
   '基本工资(折算)', '绩效工资', '病假天数', '病假工资', '夜班/话费', '餐补', '其他补贴', '奖励', '福利',
   '扣罚', '迟早扣', '缺卡扣', '其他扣', '工装扣', '应发合计', '社保合计', '附加扣除', '本月个税', '实发工资', '操作']
+// 管理/案场/总部表：固定数据列（不含末列「操作」，操作列在模板中固定渲染于季度明细列之后，避免列错位）
+const payHeadsData = PAY_HEADS.slice(0, -1)
 // 微调弹窗字段组（出勤四项之后），顺序复刻 openAdjust
 const ADJ_TAIL_GROUPS = ADJUST_GROUPS.slice(1)
 const TP_META = {
@@ -679,5 +685,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onCardClick))
 tr.pay-sel td {
   background: #fff6d6 !important;
   color: #1f2937;
+}
+.remark-cell {
+  max-width: 180px;
+  white-space: normal;
+  word-break: break-all;
+  color: #64748b;
+  font-size: 12px;
 }
 </style>

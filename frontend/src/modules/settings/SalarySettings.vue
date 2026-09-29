@@ -47,14 +47,14 @@
               <label class="fld"><input type="checkbox" v-model="fm.perf_on"> 启用绩效工资</label>
               <label class="fld" style="margin-left:16px"><input type="checkbox" v-model="fm.perf_prob"> 试用期不参与</label>
             </div>
-            <div class="hint" style="margin:8px 0 4px">绩效发放周期：员工/案场人员固定按月发放；管理/总部人员可配置为季度末累计发放（季度末月按本季度逐月绩效累计 × 周期系数 × 职级比例发放，7月/1月同时发半年度部分）。</div>
+            <div class="hint" style="margin:8px 0 4px">绩效发放周期：员工/案场人员固定采用月度绩效法；管理/总部人员可配置为分期兑现绩效法（季度末月按本季度逐月绩效累计 × 周期系数 × 职级比例发放，7月/1月同时发半年度部分）。</div>
             <div v-for="t in ['mgr', 'hq']" :key="t" style="margin-top:8px;padding:8px;border:1px dashed #cbd5e1;border-radius:6px">
               <div class="row">
                 <b>{{ t === 'mgr' ? '管理人员' : '总部人员' }}</b>
                 <label class="fld" style="margin-left:12px">发放周期
                   <select v-model="payRules[t].cycle" style="width:150px">
-                    <option value="monthly">按月发放</option>
-                    <option value="quarterly">季度末累计发放</option>
+                    <option value="monthly">月度绩效法</option>
+                    <option value="quarterly">分期兑现绩效法</option>
                   </select></label>
               </div>
               <template v-if="payRules[t].cycle === 'quarterly'">

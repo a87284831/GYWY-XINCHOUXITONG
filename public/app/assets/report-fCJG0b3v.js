@@ -1,0 +1,1 @@
+import{J as t}from"./index-Cm5huMF8.js";const a=t("report",{state:()=>{const e=new Date;return{year:e.getFullYear(),ym:e.getFullYear()+"-"+String(e.getMonth()+1).padStart(2,"0"),annual:!1}}});export{a as u};
