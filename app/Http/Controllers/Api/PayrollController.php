@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\CalcRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -264,23 +265,40 @@ class PayrollController extends ApiController
         if ($qKey === null) {
             return response()->json(['ok' => false, 'error' => '当前月份不是季度末月，无需录入季度系数'], 422);
         }
+        // 半年度系数仅「分期兑现绩效法(quarterly)」使用；季度绩效法(quarter_grade)/月度法均无半年度
+        $calcRules = app(CalcRules::class);
+        $cycles = [
+            'manager' => $calcRules->raw('pay_rules.manager.cycle', 'monthly') ?: 'monthly',
+            'hq' => $calcRules->raw('pay_rules.hq.cycle', 'monthly') ?: 'monthly',
+        ];
+        $effectiveHKey = in_array('quarterly', $cycles, true) ? $hKey : null;
         $staff = DB::table('payroll_staff')->where('deleted', false)
             ->whereIn('person_type', ['manager', 'hq'])
             ->get()
             // 周期开始前已离职的人员无需录入
             ->filter(fn ($s) => empty($s->resign_date) || substr((string)$s->resign_date, 0, 7) >= $qFirstYm)
+            // 季度绩效法下仅「季度型」档位人员需要季度系数；月度型档位直接当月发放，不进名单
+            ->filter(function ($s) use ($calcRules, $cycles) {
+                if (($cycles[$s->person_type] ?? 'monthly') !== 'quarter_grade') {
+                    return true;
+                }
+                $data = $this->jsonValue($s->data) ?: [];
+                $grade = trim((string)($data['pay_grade'] ?? ''));
+                $rule = $calcRules->getPayRule($s->person_type, $grade);
+                return ($rule['configured'] ?? false) && ($rule['mode'] ?? 'monthly') === 'quarter';
+            })
             ->values();
         $coefs = DB::table('payroll_period_coefs')
             ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all() ?: [0])
-            ->where(function ($q) use ($qKey, $hKey) {
+            ->where(function ($q) use ($qKey, $effectiveHKey) {
                 $q->where(fn ($w) => $w->where('period_type', 'quarterly')->where('period_key', $qKey));
-                if ($hKey) {
-                    $q->orWhere(fn ($w) => $w->where('period_type', 'half_year')->where('period_key', $hKey));
+                if ($effectiveHKey) {
+                    $q->orWhere(fn ($w) => $w->where('period_type', 'half_year')->where('period_key', $effectiveHKey));
                 }
             })->get();
         $qCoefs = $coefs->where('period_type', 'quarterly')->keyBy('staff_legacy_id');
         $hCoefs = $coefs->where('period_type', 'half_year')->keyBy('staff_legacy_id');
-        $items = $staff->map(function ($s) use ($qCoefs, $hCoefs) {
+        $items = $staff->map(function ($s) use ($qCoefs, $hCoefs, $effectiveHKey) {
             $data = $this->jsonValue($s->data) ?: [];
             return [
                 'staff_legacy_id' => (int)$s->legacy_id,
@@ -288,9 +306,9 @@ class PayrollController extends ApiController
                 'person_type' => $s->person_type,
                 'pay_grade' => (string)($data['pay_grade'] ?? ''),
                 'coef' => isset($qCoefs[$s->legacy_id]) ? (float)$qCoefs[$s->legacy_id]->coef : null,
-                'half_coef' => isset($hCoefs[$s->legacy_id]) ? (float)$hCoefs[$s->legacy_id]->coef : null,
+                'half_coef' => $effectiveHKey && isset($hCoefs[$s->legacy_id]) ? (float)$hCoefs[$s->legacy_id]->coef : null,
             ];
         })->values();
-        return response()->json(['ok' => true, 'ym' => $ym, 'period' => $qKey, 'half_period' => $hKey, 'items' => $items]);
+        return response()->json(['ok' => true, 'ym' => $ym, 'period' => $qKey, 'half_period' => $effectiveHKey, 'items' => $items]);
     }
 }

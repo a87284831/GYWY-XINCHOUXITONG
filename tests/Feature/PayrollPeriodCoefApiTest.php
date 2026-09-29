@@ -101,4 +101,29 @@ class PayrollPeriodCoefApiTest extends TestCase
         $resp2 = $this->getJson('/api/payroll/period-coef/pending?ym=2026-05', ['X-Token' => $this->token]);
         $resp2->assertJson(['ok' => false]);
     }
+
+    public function test_pending_coef_quarter_grade_lists_only_quarter_modes_and_no_half_period(): void
+    {
+        // manager 走季度绩效法：经理级=季度型（进名单），主管级=月度型（不进名单）
+        DB::table('legacy_json_snapshots')->updateOrInsert(
+            ['file_name' => 'calc_rules.json'],
+            ['payload' => json_encode(['rules' => ['pay_rules' => [
+                'manager' => ['cycle' => 'quarter_grade', 'levels' => [
+                    '经理级' => ['mode' => 'quarter'],
+                    '主管级' => ['mode' => 'monthly'],
+                    '专员级' => ['mode' => 'monthly'],
+                ]],
+            ]]], JSON_UNESCAPED_UNICODE)]
+        );
+        $this->seedStaff(1, '张三', 'manager', '经理级');
+        $this->seedStaff(2, '李四', 'manager', '主管级');
+        $resp = $this->getJson('/api/payroll/period-coef/pending?ym=2026-04', ['X-Token' => $this->token]);
+        $resp->assertOk()->assertJson(['ok' => true, 'period' => '2026-Q1', 'half_period' => null]);
+        $items = collect($resp->json('items'));
+        $this->assertSame(['张三'], $items->pluck('name')->all(), '季度绩效法下仅季度型档位人员需录系数');
+        // 7 月（天然带半年度周期的月份）在季度绩效法下也不得返回半年度
+        $resp7 = $this->getJson('/api/payroll/period-coef/pending?ym=2026-07', ['X-Token' => $this->token]);
+        $resp7->assertOk()->assertJson(['half_period' => null]);
+        $this->assertSame(['张三'], collect($resp7->json('items'))->pluck('name')->all());
+    }
 }
