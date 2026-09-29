@@ -45,65 +45,6 @@ function handle_projects_delete($id) {
     return ['ok' => false, 'msg' => '项目由主系统人力组织架构统一管理，请到主系统组织架构中停用/删除项目'];
 }
 
-// ---------- 账号 ----------
-function handle_users_list() {
-    require_admin();
-    $st = db()->query(
-        "SELECT u.id, u.username, u.name, u.role, u.project_id, u.status, u.created_at, p.name AS project_name
-         FROM users u LEFT JOIN projects p ON u.project_id=p.id ORDER BY u.id"
-    );
-    return ['ok' => true, 'data' => $st->fetchAll()];
-}
-
-function handle_users_create() {
-    require_admin();
-    $in = json_decode(file_get_contents('php://input'), true) ?? [];
-    $username = trim($in['username'] ?? '');
-    $password = (string)($in['password'] ?? '');
-    $name = trim($in['name'] ?? '');
-    $role = ($in['role'] ?? 'project') === 'admin' ? 'admin' : 'project';
-    $project_id = (int)($in['project_id'] ?? 0);
-    if ($username === '' || $password === '' || $name === '') return ['ok' => false, 'msg' => '账号、姓名、密码必填'];
-    if ($role === 'project' && $project_id <= 0) return ['ok' => false, 'msg' => '项目账号必须选择项目'];
-    if (strlen($password) < 6) return ['ok' => false, 'msg' => '密码至少6位'];
-    try {
-        db()->prepare("INSERT INTO users (username, password, name, role, project_id) VALUES (?,?,?,?,?)")
-            ->execute([$username, password_hash($password, PASSWORD_DEFAULT), $name, $role, $role === 'project' ? $project_id : null]);
-    } catch (PDOException $e) {
-        return ['ok' => false, 'msg' => '登录名已存在'];
-    }
-    return ['ok' => true, 'msg' => '账号已开设'];
-}
-
-function handle_users_update($id) {
-    require_admin();
-    $in = json_decode(file_get_contents('php://input'), true) ?? [];
-    $fields = ['name', 'role', 'project_id', 'status'];
-    $sets = []; $params = [];
-    foreach ($fields as $f) {
-        if (array_key_exists($f, $in)) {
-            $sets[] = "{$f}=?";
-            $params[] = is_int($in[$f]) ? $in[$f] : trim((string)$in[$f]);
-        }
-    }
-    if (!empty($in['password'])) {
-        if (strlen($in['password']) < 6) return ['ok' => false, 'msg' => '密码至少6位'];
-        $sets[] = 'password=?';
-        $params[] = password_hash($in['password'], PASSWORD_DEFAULT);
-    }
-    if (!$sets) return ['ok' => false, 'msg' => '无更新内容'];
-    $params[] = $id;
-    db()->prepare("UPDATE users SET " . implode(',', $sets) . " WHERE id=?")->execute($params);
-    return ['ok' => true, 'msg' => '已更新'];
-}
-
-function handle_users_delete($id) {
-    require_admin();
-    if ((int)$id === (int)auth_user()['id']) return ['ok' => false, 'msg' => '不能删除当前登录账号'];
-    db()->prepare("DELETE FROM users WHERE id=?")->execute([$id]);
-    return ['ok' => true, 'msg' => '已删除'];
-}
-
 // ---------- 填报窗口 ----------
 function handle_windows_list() {
     require_admin();

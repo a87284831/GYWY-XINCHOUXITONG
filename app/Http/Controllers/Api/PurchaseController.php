@@ -102,7 +102,7 @@ class PurchaseController extends ApiController
         if ($this->loaded) {
             return;
         }
-        foreach (['auth', 'log', 'products', 'fill', 'admin', 'export_import', 'dashboard', 'system', 'budget', 'summary'] as $h) {
+        foreach (['log', 'products', 'fill', 'admin', 'export_import', 'dashboard', 'system', 'budget', 'summary'] as $h) {
             require_once app_path("Purchase/handlers/{$h}.php");
         }
         $this->loaded = true;
@@ -169,9 +169,6 @@ class PurchaseController extends ApiController
         if ($uri === '') {
             return ['ok' => true, 'msg' => '广盈物业采购管理系统 API 运行中', 'time' => date('Y-m-d H:i:s')];
         }
-        if ($uri === 'login' && $method === 'POST') return handle_auth_login();
-        if ($uri === 'logout' && $method === 'POST') return handle_auth_logout();
-        if ($uri === 'me' && $method === 'GET') return handle_auth_me();
 
         // 商品库
         if ($uri === 'products/lines' && $method === 'GET') return handle_products_lines();

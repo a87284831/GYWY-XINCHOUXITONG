@@ -216,7 +216,7 @@ staff 写入的额外状态机约束（fill 模块）：
 | `projects/{id}` | PUT | 任意 | 恒定失败（同上） | admin | 同上 |
 | `projects/{id}` | DELETE | — | 恒定失败（同上） | admin | 同上 |
 
-> `handle_users_list/create/update/delete` 在 system.php 中存在但 **dispatch 未注册任何 `users` 路由**——死代码，账号跟随平台，前端无需实现。
+> `handle_users_list/create/update/delete` 曾存在于 system.php 且从未注册路由（死代码），2026-09-30 已随 gy_procurement.users 废弃一并删除；采购旧登录 handlers/auth.php（login/logout/me）同批删除。账号统一走平台 /api/login。
 
 ### 3.9 导出导入（export_import.php）
 
@@ -340,7 +340,7 @@ staff 写入的额外状态机约束（fill 模块）：
 7. **`windows/gen` 是 POST 但参数 `from/count` 走 query**。
 8. **`projects` POST/PUT/DELETE 是恒定失败的占位端点**（项目由主系统组织架构管理）。
 9. **`dashboard/all` 中 `top` 组的统计窗口终点固定为服务器当前月**，不随所选 month 变化（单独调用时可传 `end_month` 控制）。
-10. **system.php 的 `handle_users_*` 未注册路由**，为死代码。
+10. ~~system.php 的 `handle_users_*` 未注册路由，为死代码~~（2026-09-30 已删除，连同 handlers/auth.php）。
 11. **删除 returned 状态的填报记录会连带删除 archived_purchases 中匹配行**。
 12. **导入报价会回写 purchase_items.price**（submitted/confirmed/returned 且原 price 为空的记录），员工可在 my-items 看到退回记录的单价。
 13. **双重（实为三道）鉴权**：控制器 requireAccount → handler require_auth → require_admin；staff 的项目过滤在 SQL 层强制（`dash_scope`、`project_id` 覆盖），前端传参无法越权。
