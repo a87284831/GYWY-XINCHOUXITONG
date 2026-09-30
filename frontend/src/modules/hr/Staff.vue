@@ -52,8 +52,8 @@
         <table class="tb" style="min-width:1500px">
           <thead><tr>
             <th><input type="checkbox" style="width:auto" :checked="allChecked" @change="toggleAll" /></th>
-            <th>分类</th><th>姓名</th><th>项目</th><th>部门</th><th>职位</th><th>岗位职级</th><th>薪酬档位</th><th>直属上级</th><th>员工状态</th>
-            <th>性别</th><th>学历</th><th>籍贯</th><th>联系方式</th>
+            <th>分类</th><th>姓名</th><th>项目</th><th>部门</th><th>职位</th><th>岗位职级</th><th>薪酬档位</th><th>员工状态</th>
+            <th>性别</th><th>学历</th><th>籍贯</th><th>手机号</th>
             <th>固定月薪</th><th>基本工资</th><th>个税模式</th>
             <th>入职时间</th><th>实际转正日期</th><th>离职日期</th><th>银行卡号</th><th>证件号码</th><th>操作</th>
           </tr></thead>
@@ -62,13 +62,12 @@
               <td style="text-align:center"><input type="checkbox" class="stChk" style="width:auto" :checked="sel.has(s.id)" @change="toggle(s.id, $event.target.checked)" /></td>
               <td><span :class="'tag ' + (CAT_TAG[s.category] || 'gray')">{{ s.category || '-' }}</span></td>
               <td><b>{{ s.name }}</b></td><td>{{ s.project }}</td><td>{{ s.dept_path || '未分配' }}</td><td>{{ s.position }}</td>
-              <td><span :class="s.person_type === 'case' ? 'tag green' : (s.person_type === 'manager' ? 'tag purple' : 'tag gray')">{{ personTypeLabel(s.person_type) }}</span></td>
+              <td><span :class="s.person_type === 'case' ? 'tag green' : (s.person_type === 'manager' ? 'tag purple' : (s.person_type === 'hq' ? 'tag blue' : 'tag gray'))">{{ personTypeLabel(s.person_type) }}</span></td>
               <td>
                 <span v-if="s.pay_grade" class="tag blue">{{ s.pay_grade }}</span>
                 <span v-else-if="s.person_type === 'manager' || s.person_type === 'hq'" class="tag orange" title="钉钉花名册「薪酬档位」未同步，季度绩效将无法核算">未同步</span>
                 <span v-else>-</span>
               </td>
-              <td>{{ leaderName(s) }}</td>
               <td><span :class="'tag ' + (STATUS_TAG[s.status] || 'gray')">{{ s.status }}</span></td>
               <td>{{ s.gender || '-' }}</td><td>{{ s.education || '-' }}</td><td>{{ s.hometown || '-' }}</td><td>{{ s.phone || '-' }}</td>
               <td class="num">{{ money(s.fixed_monthly) }}</td><td class="num">{{ money(s.base_salary) }}</td>
@@ -202,7 +201,7 @@ const CAT_DEFS = [['在职', '#16a34a'], ['离职', '#64748b'], ['黑名单', '#
 const CAT_TAG = { '在职': 'green', '离职': 'gray', '黑名单': 'red' }
 const STATUS_TAG = { '正式': 'green', '新聘': 'blue', '转正': 'purple', '试用': 'orange', '离职': 'gray' }
 const DEDUCT_ITEMS = ['租房租金', '住房贷款利息', '子女教育', '赡养老人', '继续教育', '婴幼儿照护']
-const personTypeLabel = (t) => (t === 'case' ? '案场人员' : t === 'manager' ? '管理人员' : '基层员工')
+const personTypeLabel = (t) => (t === 'case' ? '案场人员' : t === 'manager' ? '管理人员' : t === 'hq' ? '总部人员' : '基层员工')
 
 const cat = ref('在职')
 const counts = ref({})
@@ -230,7 +229,7 @@ const transferRows = ref([])
 
 const allChecked = computed(() => staff.value.length > 0 && sel.size === staff.value.length)
 const leaders = computed(() => new Map(staff.value.filter((x) => x.id).map((x) => [x.id, x.name])))
-const leaderName = (s) => (s.leader_id ? leaders.value.get(s.leader_id) || '—' : '—')
+const leaderName = (s) => (s.leader_id ? leaders.value.get(s.leader_id) || '—' : '—') // 保留：编辑弹窗仍用
 
 // 部门下拉：选了项目只保留该项目下的部门/班组（复刻 fillOrgDeptFilter）
 const deptOptions = computed(() => {

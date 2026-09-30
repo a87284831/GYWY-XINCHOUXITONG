@@ -342,7 +342,7 @@ class DingtalkCallbackController extends ApiController
                 if ($rec['mobile']) {
                     $row = DB::table('payroll_staff')->where('dingtalk_userid', $uid)->first(['id', 'data']);
                     $dataArr = json_decode($row->data ?? '{}', true) ?: [];
-                    $dataArr['mobile'] = $rec['mobile'];
+                    $dataArr['phone'] = $rec['mobile'];
                     $upd['data'] = json_encode($dataArr, JSON_UNESCAPED_UNICODE);
                 }
                 [$proj, $deptPath, $orgLocalId] = $resolveDimDept($uid);
@@ -518,13 +518,13 @@ class DingtalkCallbackController extends ApiController
                     $updates[$k] = $v;
                 }
             }
-            // mobile 不在主表列，存 data JSON；getUserDetail 的 mobile 字段更新
-            $mobile = $u['mobile'] ?? '';
-            if ($mobile) {
+            // phone 不在主表列，存 data JSON；getUserDetail 的 mobile 字段更新
+            $phone = $u['mobile'] ?? '';
+            if ($phone) {
                 $row = DB::table('payroll_staff')->where('id', $existing->id)->first(['data']);
                 $dataArr = json_decode($row->data ?? '{}', true) ?: [];
-                if (($dataArr['mobile'] ?? '') !== $mobile) {
-                    $dataArr['mobile'] = $mobile;
+                if (($dataArr['phone'] ?? '') !== $phone) {
+                    $dataArr['phone'] = $phone;
                     $updates['data'] = json_encode($dataArr, JSON_UNESCAPED_UNICODE);
                     $changed = true;
                 }
@@ -557,7 +557,7 @@ class DingtalkCallbackController extends ApiController
             'is_manager' => false, 'is_case_field' => $ctx['isCase'],
             'person_type' => $ctx['isCase'] ? 'case' : 'staff',
             'deleted' => false,
-            'data' => json_encode(['mobile' => $u['mobile'] ?? ''], JSON_UNESCAPED_UNICODE),
+            'data' => json_encode(['phone' => $u['mobile'] ?? ''], JSON_UNESCAPED_UNICODE),
             'created_at' => $now, 'updated_at' => $now,
         ]);
         return 'new';
@@ -573,7 +573,7 @@ class DingtalkCallbackController extends ApiController
             '所学专业' => 'major', '毕业院校' => 'school', '民族' => 'nation',
             '婚姻状况' => 'marital', '住址' => 'home_addr', '紧急联系人' => 'emergency_contact',
             '紧急联系人电话' => 'emergency_phone', '联系人电话' => 'emergency_phone_alt',
-            '手机号' => 'mobile', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
+            '手机号' => 'phone', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
             // 薪酬档位：钉钉花名册单选（专员级/主管级/经理级），字段名需与钉钉逐字一致
             '薪酬档位' => 'pay_grade',
             // 补充花名册字段（2026-09-28）：人员档案所有字段均以钉钉同步为准，本地不再编辑
@@ -716,7 +716,7 @@ class DingtalkCallbackController extends ApiController
                     'is_manager' => false,
                     'person_type' => $ctx['isCase'] ? 'case' : 'staff',
                     'deleted' => false,
-                    'data' => json_encode(['mobile' => $detail['mobile'] ?? ''], JSON_UNESCAPED_UNICODE),
+                    'data' => json_encode(['phone' => $detail['mobile'] ?? ''], JSON_UNESCAPED_UNICODE),
                     'created_at' => $now,
                 ]));
             }
