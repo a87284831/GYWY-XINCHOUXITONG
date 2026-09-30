@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\DingtalkCrypto;
+use App\Services\DingtalkCryptoException;
 use App\Services\DingtalkService;
 
 class DingtalkCallbackController extends ApiController
@@ -34,6 +36,11 @@ class DingtalkCallbackController extends ApiController
             $cfg['app_secret_masked'] = substr($cfg['app_secret'], 0, 6) . '****' . substr($cfg['app_secret'], -4);
             unset($cfg['app_secret']);
         }
+        if (!empty($cfg['callback_aes_key'])) {
+            // 43 字符 AES 密钥只展示首尾，避免完整泄露
+            $cfg['callback_aes_key_masked'] = substr($cfg['callback_aes_key'], 0, 6) . '****' . substr($cfg['callback_aes_key'], -4);
+            unset($cfg['callback_aes_key']);
+        }
         return response()->json(['ok' => true, 'config' => $cfg]);
     }
 
@@ -45,7 +52,7 @@ class DingtalkCallbackController extends ApiController
             return response()->json(['ok' => false, 'error' => '仅管理员可操作'], 403);
         }
 
-        $allowed = ['app_key', 'app_secret', 'agent_id'];
+        $allowed = ['app_key', 'app_secret', 'agent_id', 'callback_token', 'callback_aes_key'];
         $config = [];
         foreach ($allowed as $key) {
             $val = $request->input($key);
@@ -108,21 +115,47 @@ class DingtalkCallbackController extends ApiController
         }
     }
 
+    /**
+     * 钉钉回调入口（P0 安全修复 2026-09-30）。
+     * 钉钉推送为 AES 加密报文（{"encrypt":...}），请求 query 携带签名；
+     * 必须验签+解密后才分发事件，并以加密 success 应答（钉钉 1500ms 内校验）。
+     * 验签失败/解密失败 → 403 拒绝并记日志；未配置回调密钥 → 503。
+     */
     public function handle(Request $request): JsonResponse
     {
-        $body = json_decode($request->getContent(), true);
-
-        if (isset($body['type']) && $body['type'] === 'url_check') {
-            return response()->json([
-                'success' => true,
-                'data' => ['challenge' => $body['challenge'] ?? ''],
-            ]);
+        $cfg = $this->dt->getConfig();
+        $token = (string) ($cfg['callback_token'] ?? '');
+        $aesKey = (string) ($cfg['callback_aes_key'] ?? '');
+        $appKey = (string) ($cfg['app_key'] ?? '');
+        if ($token === '' || $aesKey === '' || $appKey === '') {
+            Log::warning('钉钉回调被拒绝: 回调配置不完整（需 callback_token/callback_aes_key/app_key）', ['ip' => $request->ip()]);
+            return response()->json(['ok' => false, 'error' => 'callback not configured'], 503);
         }
 
-        $eventType = $body['EventType'] ?? $body['event_type'] ?? '';
+        $signature = (string) ($request->query('msg_signature') ?? $request->query('signature') ?? '');
+        $timestamp = (string) ($request->query('timestamp') ?? $request->query('timeStamp') ?? '');
+        $nonce = (string) $request->query('nonce', '');
+        $encrypt = (string) (json_decode($request->getContent(), true)['encrypt'] ?? '');
+        if ($signature === '' || $timestamp === '' || $nonce === '' || $encrypt === '') {
+            Log::warning('钉钉回调被拒绝: 缺少回调参数', ['ip' => $request->ip()]);
+            return response()->json(['ok' => false, 'error' => 'missing callback params'], 400);
+        }
+
+        try {
+            $crypto = new DingtalkCrypto($token, $aesKey, $appKey);
+            $plain = $crypto->decryptMsg($signature, $timestamp, $nonce, $encrypt);
+        } catch (DingtalkCryptoException $e) {
+            Log::warning('钉钉回调被拒绝: ' . $e->getMessage(), ['code' => $e->getCode(), 'ip' => $request->ip()]);
+            return response()->json(['ok' => false, 'error' => 'invalid callback'], 403);
+        }
+
+        $body = json_decode($plain, true) ?: [];
+        $eventType = (string) ($body['EventType'] ?? '');
 
         try {
             switch ($eventType) {
+                case 'check_url':
+                    break; // URL 有效性验证，仅需加密 success 应答
                 case 'user_add_org':
                 case 'user_modify_org':
                     $this->handleUserChange($body);
@@ -133,30 +166,52 @@ class DingtalkCallbackController extends ApiController
                 case 'org_dept_create':
                 case 'org_dept_modify':
                 case 'org_dept_remove':
+                    Cache::forget('dingtalk_depts_tree'); // P1-4: 使部门树缓存失效
                     $this->handleDeptChange($body);
                     break;
+                default:
+                    Log::info('钉钉回调: 未订阅的事件类型', ['event' => $eventType]);
             }
         } catch (\Throwable $e) {
-            Log::error('钉钉回调处理异常: ' . $e->getMessage(), ['event' => $eventType]);
-            return response()->json(['success' => false]);
+            // 业务处理失败不影响加密 success 应答；钉钉侧超时会重试，处理逻辑幂等
+            Log::error('钉钉回调处理异常: ' . $e->getMessage(), ['event' => $eventType, 'trace' => $e->getTraceAsString()]);
         }
 
-        return response()->json(['success' => true]);
+        return response()->json(json_decode($crypto->encryptMsg('success'), true));
     }
 
     // ─── 全量同步 ────────────────────────────────────────────
 
     public function runFullSync(): array
     {
+        // P1-2: 先完成全部钉钉 API 拉取，再开事务写库；中途失败整体回滚，避免半同步状态。
         $stats = ['new' => 0, 'updated' => 0, 'skip' => 0, 'offboard' => 0, 'offboard_new' => 0, 'roster' => 0];
-        $changedUserIds = [];
-        $newOffboardUids = [];
         $maxId = (int) DB::table('payroll_staff')->max('legacy_id');
 
         $depts = $this->dt->getAllDepartments();
-        $this->syncOrgTree($depts);
-
         $users = $this->dt->getAllUsers($depts);
+        $dismissed = $this->dt->getDismissedUsers();
+        // dimInfos: uid => ['name','last_work_date','main_dept_id'] (real resignation data)
+        $dimInfos = $this->dt->getDismissedUserInfos(array_keys($dismissed));
+
+        DB::beginTransaction();
+        try {
+            $this->syncFullSyncInTransaction($stats, $maxId, $depts, $users, $dismissed, $dimInfos);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+
+        return $stats;
+    }
+
+    private function syncFullSyncInTransaction(array &$stats, int $maxId, array $depts, array $users, array $dismissed, array $dimInfos): void
+    {
+        $changedUserIds = [];
+        $newOffboardUids = [];
+
+        $this->syncOrgTree($depts);
 
         foreach ($users as $uid => $u) {
             $result = $this->syncOneUser($uid, $u, $depts, $maxId);
@@ -166,9 +221,6 @@ class DingtalkCallbackController extends ApiController
             }
         }
 
-        $dismissed = $this->dt->getDismissedUsers();
-        // dimInfos: uid => ['name','last_work_date','main_dept_id'] (real resignation data)
-        $dimInfos = $this->dt->getDismissedUserInfos(array_keys($dismissed));
         $today = date('Y-m-d');
         $resolveDimDept = function ($uid) use ($dimInfos, $depts) {
             $mdid = $dimInfos[$uid]['main_dept_id'] ?? null;
@@ -270,8 +322,6 @@ class DingtalkCallbackController extends ApiController
         $stats['dingtalk_users'] = count($users);
         $stats['dingtalk_depts'] = count($depts);
         $stats['dingtalk_dismissed'] = count($dismissed);
-
-        return $stats;
     }
 
     // ─── 组织树同步 ──────────────────────────────────────────
@@ -529,13 +579,22 @@ class DingtalkCallbackController extends ApiController
 
     private function handleUserChange(array $body): void
     {
-        $userId = $body['UserId'] ?? $body['userid'] ?? '';
-        if (!$userId) return;
+        // 官方协议 user_add_org/user_modify_org 的 UserId 为数组（单事件多人）
+        $userIds = $body['UserId'] ?? $body['userid'] ?? [];
+        $userIds = is_array($userIds) ? $userIds : [$userIds];
+        foreach ($userIds as $userId) {
+            if ((string) $userId === '') continue;
+            $this->syncOneUserByCallback((string) $userId);
+        }
+    }
 
+    private function syncOneUserByCallback(string $userId): void
+    {
         $detail = $this->dt->getUserDetail($userId);
         if (!$detail) return;
 
-        $depts = $this->dt->getAllDepartments();
+        // P1-4: 部门树缓存 30 分钟；部门变更回调时已 forget，全量同步不走缓存
+        $depts = Cache::remember('dingtalk_depts_tree', 1800, fn () => $this->dt->getAllDepartments());
         $deptIds = $detail['dept_id_list'] ?? [];
         $ctx = $this->resolveDeptContext($deptIds[0] ?? 0, $depts);
         $hireDate = $this->parseHireDate($detail['hired_date'] ?? 0);
@@ -589,9 +648,17 @@ class DingtalkCallbackController extends ApiController
 
     private function handleUserLeave(array $body): void
     {
-        $userId = $body['UserId'] ?? $body['userid'] ?? '';
-        if (!$userId) return;
+        // 官方协议 user_leave_org 的 UserId 为数组
+        $userIds = $body['UserId'] ?? $body['userid'] ?? [];
+        $userIds = is_array($userIds) ? $userIds : [$userIds];
+        foreach ($userIds as $userId) {
+            if ((string) $userId === '') continue;
+            $this->markUserLeft((string) $userId);
+        }
+    }
 
+    private function markUserLeft(string $userId): void
+    {
         $existing = DB::table('payroll_staff')
             ->where('dingtalk_userid', $userId)
             ->where('deleted', false)

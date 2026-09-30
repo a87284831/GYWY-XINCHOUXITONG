@@ -93,6 +93,7 @@ export const SETTINGS_TABS = [
   { key: 'approvalFlow', label: '✅ 审批权责设置', perm: 'users' },
   { key: 'salarySettings', label: '💰 薪酬设置', perm: 'rules' },
   { key: 'company', label: '🏢 公司信息', perm: 'settings' },
+  { key: 'dingtalk', label: '🔔 钉钉同步', perm: 'settings' },
   { key: 'security', label: '🔒 登录安全', perm: 'settings' },
   { key: 'backup', label: '💾 数据备份', perm: 'backup' },
   { key: 'logs', label: '📜 操作日志', perm: 'logs' },

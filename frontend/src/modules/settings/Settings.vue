@@ -10,6 +10,7 @@
         <TabApprovalFlow v-else-if="tab === 'approvalFlow'" />
         <SalarySettings v-else-if="tab === 'salarySettings'" />
         <TabCompany v-else-if="tab === 'company'" />
+        <TabDingtalk v-else-if="tab === 'dingtalk'" />
         <TabSecurity v-else-if="tab === 'security'" />
         <TabBackup v-else-if="tab === 'backup'" />
         <TabLogs v-else-if="tab === 'logs'" />
@@ -29,6 +30,7 @@ import TabPerm from './TabPerm.vue'
 import TabApprovalFlow from './TabApprovalFlow.vue'
 import SalarySettings from './SalarySettings.vue'
 import TabCompany from './TabCompany.vue'
+import TabDingtalk from './TabDingtalk.vue'
 import TabSecurity from './TabSecurity.vue'
 import TabBackup from './TabBackup.vue'
 import TabLogs from './TabLogs.vue'

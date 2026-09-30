@@ -42,11 +42,14 @@ class DingtalkService
         return $this->agentId;
     }
 
-    private function tokenCachePath(): string
+    protected function tokenCachePath(): string
     {
         return storage_path('app/dt_token.cache');
     }
 
+    /**
+     * 取 accessToken：内存 → 文件缓存 → 远程获取（失败自动重试 1 次，P1-3）。
+     */
     public function getAccessToken(): ?string
     {
         if ($this->token && strlen($this->token) > 10) return $this->token;
@@ -60,6 +63,23 @@ class DingtalkService
             }
         }
 
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $token = $this->fetchAccessToken();
+            if ($token) {
+                $this->token = $token;
+                $dir = dirname($cacheFile);
+                if (!is_dir($dir)) @mkdir($dir, 0755, true);
+                @file_put_contents($cacheFile, $this->token);
+                return $this->token;
+            }
+            if ($attempt === 1) usleep(300000);
+        }
+        return null;
+    }
+
+    /** 单次远程获取 token（网络失败或响应无效返回 null），protected 以便测试注入 */
+    protected function fetchAccessToken(): ?string
+    {
         $ch = curl_init('https://api.dingtalk.com/v1.0/oauth2/accessToken');
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -82,11 +102,7 @@ class DingtalkService
 
         if (empty($resp['accessToken'])) return null;
 
-        $this->token = $resp['accessToken'];
-        $dir = dirname($cacheFile);
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
-        @file_put_contents($cacheFile, $this->token);
-        return $this->token;
+        return $resp['accessToken'];
     }
 
     public function api(string $url, array $body = []): array
@@ -329,7 +345,12 @@ class DingtalkService
 
     public function saveConfig(array $config): void
     {
-        $allowed = ['app_key', 'app_secret', 'agent_id', 'sync_status', 'last_sync_at', 'last_sync_count'];
+        $allowed = [
+            'app_key', 'app_secret', 'agent_id',
+            // 钉钉后台「事件订阅」配置的 Token 与数据加密密钥（AES），P0 回调验签解密所需
+            'callback_token', 'callback_aes_key',
+            'sync_status', 'last_sync_at', 'last_sync_count',
+        ];
         foreach ($config as $key => $value) {
             if (!in_array($key, $allowed, true)) continue;
             DB::table('sys_dingtalk_config')->updateOrInsert(
