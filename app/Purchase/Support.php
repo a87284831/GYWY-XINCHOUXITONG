@@ -146,14 +146,14 @@ namespace {
         // 同步写平台消息（主页顶栏铃铛可见）；link 指向采购系统对应页面
         if ($link === '') {
             $link = match ($type) {
-                'fill_submitted', 'budget_over' => '#/overview',
-                'returned', 'confirmed', 'price_imported' => '#/my-items',
+                'fill_submitted', 'budget_over' => '/app/purchase/overview',
+                'returned', 'confirmed', 'price_imported' => '/app/purchase/fill',
                 default => '',
             };
         }
         if ($link !== '') {
             try {
-                $full = 'https://oa.haoxuanyunshu.cn/purchase/index.html' . $link;
+                $full = 'https://oa.haoxuanyunshu.cn' . $link;
                 db()->prepare("INSERT INTO payroll.app_messages (account_id, type, title, content, link, project_name, `read`, created_at, updated_at) VALUES (?,?,?,?,?,?,0,NOW(),NOW())")
                     ->execute([$user_id, $type, $title, mb_substr($content, 0, 500), $full, '']);
             } catch (Throwable $e) {}
