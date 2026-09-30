@@ -240,5 +240,35 @@ class DingtalkCallbackSecurityTest extends TestCase
         $this->assertSame('男', $data['gender'] ?? null);
     }
 
+    public function test_runFullSync_repairs_pending_placeholder_rows(): void
+    {
+        // 历史「待同步」占位行：详情接口报错期间落库的离职人员
+        DB::table('payroll_staff')->insert([
+            'legacy_id' => 1, 'dingtalk_userid' => 'u9', 'name' => '待同步',
+            'project_name' => '未分配项目', 'status' => '离职', 'resign_date' => null,
+            'fixed_monthly' => 0, 'base_salary' => 0,
+            'deleted' => false, 'is_manager' => false, 'is_case_field' => false, 'person_type' => 'staff',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
+        $this->dt->method('getAllUsers')->willReturn([]);
+        $this->dt->method('getDismissedUsers')->willReturn(['u9' => true]);
+        // 详情接口修复后能返回真实姓名与最后工作日
+        $this->dt->method('getDismissedUserInfos')->willReturn([
+            'u9' => ['name' => '王五', 'last_work_date' => '2026-09-15', 'main_dept_id' => 2],
+        ]);
+        $this->dt->method('getRosterData')->willReturn([]);
+
+        $report = app(\App\Http\Controllers\Api\DingtalkCallbackController::class)->runFullSync();
+
+        $this->assertSame(1, $report['repair']);
+        $row = DB::table('payroll_staff')->where('dingtalk_userid', 'u9')->first();
+        $this->assertSame('王五', $row->name);
+        $this->assertSame('2026-09-15', substr((string) $row->resign_date, 0, 10));
+        $this->assertSame('测试项目A', $row->project_name);
+    }
+
 
 }

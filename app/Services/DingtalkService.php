@@ -237,8 +237,13 @@ class DingtalkService
 
         $out = [];
         foreach (array_chunk(array_values(array_unique($userIds)), 50) as $batch) {
-            $url = 'https://api.dingtalk.com/v1.0/hrm/employees/dimissionInfos?userIdList='
-                . urlencode(json_encode($batch, JSON_UNESCAPED_UNICODE));
+            // 官方文档要求：数组元素需为 JSON 引号字符串（双重编码），如 ["\"uid1\"","\"uid2\""]，
+            // 普通编码 ["uid1","uid2"] 会被网关报 MissinguserIdList/JSON parsing error
+            $encoded = json_encode(
+                array_map(fn($u) => json_encode($u, JSON_UNESCAPED_UNICODE), $batch),
+                JSON_UNESCAPED_UNICODE
+            );
+            $url = 'https://api.dingtalk.com/v1.0/hrm/employees/dimissionInfos?userIdList=' . urlencode($encoded);
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,

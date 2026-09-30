@@ -294,6 +294,25 @@ class DingtalkCallbackController extends ApiController
             $newOffboardUids[] = $uid;
         }
 
+        // 自愈修复：历史上因详情接口报错落成「待同步」占位的离职行，
+        // 详情接口恢复正常后，重跑同步即补全姓名/离职日期/项目归属
+        foreach ($existing as $row) {
+            $uid = $row->dingtalk_userid;
+            if ($row->name !== '待同步' || !isset($dimInfos[$uid])) continue;
+            $info = $dimInfos[$uid];
+            $upd = ['updated_at' => now()];
+            if (($info['name'] ?? '') !== '') $upd['name'] = $info['name'];
+            if (!empty($info['last_work_date'])) $upd['resign_date'] = $info['last_work_date'];
+            [$proj, $deptPath, $orgLocalId] = $resolveDimDept($uid);
+            if ($proj !== '未分配项目') {
+                $upd['project_name'] = $proj;
+                if ($deptPath) $upd['dept_path'] = $deptPath;
+                if ($orgLocalId) $upd['org_id'] = $orgLocalId;
+            }
+            DB::table('payroll_staff')->where('id', $row->id)->update($upd);
+            $stats['repair'] = ($stats['repair'] ?? 0) + 1;
+        }
+
         $allActiveUids = DB::table('payroll_staff')
             ->where('deleted', false)->where('status', '!=', '离职')
             ->whereNotNull('dingtalk_userid')->where('dingtalk_userid', '!=', '')
