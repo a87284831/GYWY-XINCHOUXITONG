@@ -335,6 +335,55 @@ class DingtalkService
         return $r['result'] ?? null;
     }
 
+    /**
+     * 查询离职记录列表（通讯录接口，覆盖管理员删除/注销/主动离职等全类型）
+     * 含 name、leaveTime（ISO 8601）、mobile。dimissionInfos 查不到的离职人员可从这里兜底。
+     * 注意：startTime 距今不能超过 365 天（钉钉限制），endTime 参数会触发 400 故不传。
+     * @return array<string,array{ name:string, leave_time:string, mobile:string }>
+     */
+    public function getLeaveRecords(string $startIso): array
+    {
+        $token = $this->getAccessToken();
+        if (!$token) return [];
+
+        $out = [];
+        $next = '0';
+        do {
+            $url = 'https://api.dingtalk.com/v1.0/contact/empLeaveRecords?startTime=' . urlencode($startIso)
+                . '&nextToken=' . urlencode($next) . '&maxResults=50';
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['x-acs-dingtalk-access-token: ' . $token],
+                CURLOPT_TIMEOUT => 30,
+            ]);
+            $raw = curl_exec($ch);
+            curl_close($ch);
+            $res = json_decode((string)$raw, true);
+            foreach ($res['records'] ?? [] as $rec) {
+                $uid = $rec['userId'] ?? '';
+                if (!$uid) continue;
+                $lt = $rec['leaveTime'] ?? '';
+                // leaveTime 是 UTC ISO，转 PRC 日期
+                try {
+                    $d = new \DateTime($lt, new \DateTimeZone('Asia/Shanghai'));
+                    $date = $d->format('Y-m-d');
+                } catch (\Throwable) {
+                    $date = substr($lt, 0, 10);
+                }
+                $out[$uid] = [
+                    'name' => $rec['name'] ?? '',
+                    'leave_time' => $date,
+                    'mobile' => $rec['mobile'] ?? '',
+                ];
+            }
+            $next = $res['nextToken'] ?? '';
+            usleep(100000);
+        } while ($next !== '' && $next !== null);
+
+        return $out;
+    }
+
     public function getDeptPath(int $deptId, array $depts): array
     {
         $names = [];

@@ -313,6 +313,49 @@ class DingtalkCallbackController extends ApiController
             $stats['repair'] = ($stats['repair'] ?? 0) + 1;
         }
 
+        // empLeaveRecords 兜底：dimissionInfos 查不到的离职人员（管理员删除/注销），
+        // 走通讯录 empLeaveRecords 接口补全姓名+离职日期+手机号
+        $stillPending = DB::table('payroll_staff')
+            ->where('name', '待同步')->where('deleted', false)
+            ->whereNotNull('dingtalk_userid')->where('dingtalk_userid', '!=', '')
+            ->pluck('dingtalk_userid')->toArray();
+        if (!empty($stillPending)) {
+            // empLeaveRecords 的 startTime 距今不能超过 365 天（钉钉限制）
+            // 从 365 天前开始拉取全量记录，用 uid 集合做命中过滤
+            $pendingSet = array_flip($stillPending);
+            $leaveRecords = [];
+            // 从 365 天前开始，一次拉全量（分页 maxResults=50）
+            $startIso = now()->subDays(360)->format('Y-m-d\T00:00:00\Z');
+            $records = $this->dt->getLeaveRecords($startIso);
+            foreach ($records as $uid => $rec) {
+                if (isset($pendingSet[$uid])) {
+                    $leaveRecords[$uid] = $rec;
+                }
+            }
+            foreach ($stillPending as $uid) {
+                if (!isset($leaveRecords[$uid])) continue;
+                $rec = $leaveRecords[$uid];
+                $upd = ['updated_at' => now()];
+                if ($rec['name']) $upd['name'] = $rec['name'];
+                if ($rec['leave_time']) $upd['resign_date'] = $rec['leave_time'];
+                // 手机号写入 data JSON
+                if ($rec['mobile']) {
+                    $row = DB::table('payroll_staff')->where('dingtalk_userid', $uid)->first(['id', 'data']);
+                    $dataArr = json_decode($row->data ?? '{}', true) ?: [];
+                    $dataArr['mobile'] = $rec['mobile'];
+                    $upd['data'] = json_encode($dataArr, JSON_UNESCAPED_UNICODE);
+                }
+                [$proj, $deptPath, $orgLocalId] = $resolveDimDept($uid);
+                if ($proj !== '未分配项目') {
+                    $upd['project_name'] = $proj;
+                    if ($deptPath) $upd['dept_path'] = $deptPath;
+                    if ($orgLocalId) $upd['org_id'] = $orgLocalId;
+                }
+                DB::table('payroll_staff')->where('dingtalk_userid', $uid)->where('deleted', false)->update($upd);
+                $stats['leave_repair'] = ($stats['leave_repair'] ?? 0) + 1;
+            }
+        }
+
         $allActiveUids = DB::table('payroll_staff')
             ->where('deleted', false)->where('status', '!=', '离职')
             ->whereNotNull('dingtalk_userid')->where('dingtalk_userid', '!=', '')
@@ -475,6 +518,17 @@ class DingtalkCallbackController extends ApiController
                     $updates[$k] = $v;
                 }
             }
+            // mobile 不在主表列，存 data JSON；getUserDetail 的 mobile 字段更新
+            $mobile = $u['mobile'] ?? '';
+            if ($mobile) {
+                $row = DB::table('payroll_staff')->where('id', $existing->id)->first(['data']);
+                $dataArr = json_decode($row->data ?? '{}', true) ?: [];
+                if (($dataArr['mobile'] ?? '') !== $mobile) {
+                    $dataArr['mobile'] = $mobile;
+                    $updates['data'] = json_encode($dataArr, JSON_UNESCAPED_UNICODE);
+                    $changed = true;
+                }
+            }
             if (!$changed) return 'skip';
             DB::table('payroll_staff')->where('id', $existing->id)->update($updates);
             return 'updated';
@@ -518,7 +572,8 @@ class DingtalkCallbackController extends ApiController
             '银行卡号' => 'bank_card', '开户行' => 'bank_name', '政治面貌' => 'politics',
             '所学专业' => 'major', '毕业院校' => 'school', '民族' => 'nation',
             '婚姻状况' => 'marital', '住址' => 'home_addr', '紧急联系人' => 'emergency_contact',
-            '紧急联系人电话' => 'emergency_phone', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
+            '紧急联系人电话' => 'emergency_phone', '联系人电话' => 'emergency_phone_alt',
+            '手机号' => 'mobile', '招聘渠道' => 'recruit_channel', '籍贯' => 'hometown',
             // 薪酬档位：钉钉花名册单选（专员级/主管级/经理级），字段名需与钉钉逐字一致
             '薪酬档位' => 'pay_grade',
             // 补充花名册字段（2026-09-28）：人员档案所有字段均以钉钉同步为准，本地不再编辑
@@ -559,9 +614,14 @@ class DingtalkCallbackController extends ApiController
         if (isset($systemUpdate['resign_date'])) {
             $v = trim((string)$systemUpdate['resign_date']);
             if (ctype_digit($v) && strlen($v) >= 10) {
-                $systemUpdate['resign_date'] = date('Y-m-d', (int)($v > 9999999999 ? $v / 1000 : $v));
+                $sec = (int)($v > 9999999999 ? $v / 1000 : $v);
+                // 钉钉时间戳为 UTC 毫秒，须按 Asia/Shanghai 转日期（PHP 默认 UTC 会早一天）
+                $d = new \DateTime('@' . $sec, new \DateTimeZone('Asia/Shanghai'));
+                $systemUpdate['resign_date'] = $d->format('Y-m-d');
             } else {
-                $systemUpdate['resign_date'] = substr($v, 0, 10);
+                // ISO 8601 日期字符串同样按 PRC 解析截取
+                $d = new \DateTime($v, new \DateTimeZone('Asia/Shanghai'));
+                $systemUpdate['resign_date'] = $d->format('Y-m-d');
             }
         }
 
