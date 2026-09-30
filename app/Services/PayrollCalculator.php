@@ -75,7 +75,7 @@ class PayrollCalculator
     }
 
     /**
-     * 计算并写库。返回 ['count'=>int,'skipped'=>array,'preserved_archived'=>int,'missing'=>array]
+     * 计算并写库。返回 ['count'=>int,'skipped'=>array,'preserved_archived'=>int,'missing'=>array,'warnings'=>array]
      * 项目员工核算：限定项目清单，类别=staff。
      */
     public function calculate(string $ym, array $projects): array
@@ -133,7 +133,7 @@ class PayrollCalculator
      * @param string     $category 类别键（staff/manager/case/hq），来自 categoryMap
      * @param array      $flags    [is_manager_row, is_case_row, is_hq_row]
      * @param array|null $projects 仅项目核算（staff）用：限定项目清单；其余三类汇总全部项目
-     * @return array{count:int,skipped:array,preserved_archived:int,missing:array}
+     * @return array{count:int,skipped:array,preserved_archived:int,missing:array,warnings:array}
      */
     private function calculateGroup(string $ym, string $category, array $flags, ?array $projects = null): array
     {
@@ -159,15 +159,15 @@ class PayrollCalculator
         if ($category === 'staff') {
             $anyAttendance = false;
             foreach ($projects as $p) { if (isset($attBlocks[$p])) { $anyAttendance = true; break; } }
-            if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
+            if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         } elseif ($isHq) {
             // 总部人员考勤统一取"物业总部"考勤块（总部考勤表单独上传）
-            if (!isset($attBlocks['物业总部'])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
+            if (!isset($attBlocks['物业总部'])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         } elseif ($attBlocks->isEmpty()) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => []];
+            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         }
 
-        $rows = []; $missing = [];
+        $rows = []; $missing = []; $warnings = [];
         foreach ($staff as $person) {
             $block   = $attBlocks[$isHq ? '物业总部' : $person->project_name] ?? null;
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
@@ -182,10 +182,24 @@ class PayrollCalculator
                 ];
                 continue;
             }
+            // 核算护栏：离职人员当月有出勤但薪资基数全空（钉钉离职占位行未补录花名册薪资）
+            // → 不得静默出 0 工资单，生成显式警告清单，提示补录后重算
+            if (trim((string)$person->status) === '离职'
+                && (float)$person->fixed_monthly == 0.0 && (float)$person->base_salary == 0.0) {
+                $st = self::attendanceStats($att['days'] ?? [], $symbols);
+                $actual = (float)($att['act_attend'] ?? 0);
+                if ($actual <= 0) $actual = (float)$st['attend'];
+                if ($actual > 0) {
+                    $warnings[] = [
+                        'name' => $person->name, 'project' => $person->project_name,
+                        'reason' => '离职人员本月有出勤但固定月薪与基本工资均为0，工资将计为0；请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算',
+                    ];
+                }
+            }
             $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect(), $category);
         }
 
-        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing];
+        if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing, 'warnings' => $warnings];
 
         // 统一按 项目→部门→岗位→姓名 排序后落库，列表与导出顺序一致
         $rows = self::orderRows($rows);
@@ -249,7 +263,7 @@ class PayrollCalculator
             });
         });
 
-        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved, 'missing' => $missing];
+        return ['count' => count($rows), 'skipped' => [], 'preserved_archived' => $preserved, 'missing' => $missing, 'warnings' => $warnings];
     }
 
     /**

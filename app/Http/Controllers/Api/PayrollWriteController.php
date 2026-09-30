@@ -44,7 +44,7 @@ class PayrollWriteController extends ApiController
             if (!empty($result['skipped'])) {
                 \Illuminate\Support\Facades\Log::info('payroll.calc.skipped', ['ym' => $ym, 'projects' => $projects, 'reason' => $result['skipped']]);
             }
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'] ?? [], 'missing' => $result['missing'] ?? []]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'] ?? [], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '核算失败：' . $e->getMessage()], 500);
@@ -69,7 +69,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateManagers($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '管理人员核算失败：' . $e->getMessage()], 500);
@@ -94,7 +94,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateCaseStaff($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '案场人员核算失败：' . $e->getMessage()], 500);
@@ -119,7 +119,7 @@ class PayrollWriteController extends ApiController
         }
         try {
             $result = $calc->calculateHq($ym);
-            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? []]);
+            return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['ok' => false, 'error' => '总部人员核算失败：' . $e->getMessage()], 500);

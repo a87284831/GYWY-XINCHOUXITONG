@@ -359,7 +359,14 @@ class StaffController extends ApiController
         if (!is_array($input)) {
             return response()->json(['ok' => false, 'error' => '人员数据格式错误'], 400);
         }
-        $name = trim((string) ($input['name'] ?? ''));
+        // 钉钉为唯一权威源：有 dingtalk_userid 绑定的行，同步字段（含姓名/岗位职级/手机号）
+        // 不得通过本地编辑/API 直调覆盖；无绑定的历史行/本地行仍允许本地维护（调薪走「调薪与记录」留痕）
+        $legacyId = isset($input['id']) ? (int) $input['id'] : null;
+        $existing = $legacyId ? DB::table('payroll_staff')->where('legacy_id', $legacyId)->first() : null;
+        if ($existing && !empty($existing->dingtalk_userid)) {
+            $input = array_diff_key($input, array_flip(array_merge(self::DT_SYNC_FIELDS, ['name', 'person_type', 'person_type_since', 'phone'])));
+        }
+        $name = trim((string) ($input['name'] ?? ($existing->name ?? '')));
         // 部门 → 自动带项目（不再手选）；未选部门时保留原 project
         $org = null;
         if (!empty($input['org_id'])) {
@@ -393,9 +400,14 @@ class StaffController extends ApiController
         // 档案扩展字段校验（必填项按管理员配置、枚举、身份证/手机、出生日期推算）
         $required = \App\Services\StaffProfile::requiredFields();
         foreach ($required as $fk) {
-            // 部门/直属上级在表单中分别以 org_id / leader_id 提交
-            $checkKey = match ($fk) { 'dept' => 'org_id', 'leader' => 'leader_id', default => $fk };
-            $v = trim((string) ($input[$checkKey] ?? ''));
+            // 部门/直属上级在表单中分别以 org_id / leader_id 提交；绑定行 name/project 已剥离，用解析值校验
+            $v = match ($fk) {
+                'dept' => trim((string) ($input['org_id'] ?? '')),
+                'leader' => trim((string) ($input['leader_id'] ?? '')),
+                'name' => $name,
+                'project' => $project,
+                default => trim((string) ($input[$fk] ?? '')),
+            };
             if ($v === '') return response()->json(['ok' => false, 'error' => (\App\Services\StaffProfile::REQUIRABLE[$fk] ?? $fk) . '必填'], 400);
         }
         $enums = \App\Services\StaffProfile::enums();
@@ -415,13 +427,9 @@ class StaffController extends ApiController
         if (empty($input['birth_date']) && !empty($input['id_card'])) {
             $input['birth_date'] = \App\Services\StaffProfile::birthFromIdCard((string) $input['id_card']);
         }
-        // 钉钉同步字段以服务端同步为准，本地编辑不覆盖
-        $input = array_diff_key($input, array_flip(self::DT_SYNC_FIELDS));
         // 人员分类单选：staff=基层员工 / manager=管理人员 / case=案场人员（与核算三组对应）
 
-        return DB::transaction(function () use ($input, $name, $project, $org, $orgService, $account) {
-            $legacyId = isset($input['id']) ? (int) $input['id'] : null;
-            $existing = $legacyId ? DB::table('payroll_staff')->where('legacy_id', $legacyId)->first() : null;
+        return DB::transaction(function () use ($input, $name, $project, $org, $orgService, $account, $existing, $legacyId) {
             $duplicate = DB::table('payroll_staff')->where('name', $name)->where('project_name', $project)
                 ->when($legacyId, fn ($query) => $query->where('legacy_id', '!=', $legacyId))->where('deleted', false)->exists();
             if ($duplicate) {

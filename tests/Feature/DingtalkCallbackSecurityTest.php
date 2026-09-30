@@ -270,5 +270,26 @@ class DingtalkCallbackSecurityTest extends TestCase
         $this->assertSame('测试项目A', $row->project_name);
     }
 
+    public function test_runFullSync_offboard_new_row_keeps_person_type_null(): void
+    {
+        // 离职列表新建行：从未经历在职花名册同步，岗位职级未知，不得伪造为 'staff'
+        $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
+        $this->dt->method('getAllUsers')->willReturn([]);
+        $this->dt->method('getDismissedUsers')->willReturn(['u9' => true]);
+        $this->dt->method('getDismissedUserInfos')->willReturn([
+            'u9' => ['name' => '张传彩', 'last_work_date' => '2026-09-21', 'main_dept_id' => 2],
+        ]);
+        $this->dt->method('getRosterData')->willReturn([]);
+
+        $report = app(\App\Http\Controllers\Api\DingtalkCallbackController::class)->runFullSync();
+
+        $this->assertSame(1, $report['offboard_new']);
+        $row = DB::table('payroll_staff')->where('dingtalk_userid', 'u9')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('离职', $row->status);
+        $this->assertNull($row->person_type);
+    }
+
 
 }

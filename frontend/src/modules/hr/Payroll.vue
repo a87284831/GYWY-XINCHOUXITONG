@@ -499,7 +499,8 @@ async function doCalc() {
     let msg = `核算完成，共 ${r.count} 人。`
     if (r.missing && r.missing.length) msg += `\n⚠ ${r.missing.length} 人无考勤记录未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
     if (r.warning) msg += '\n⚠ ' + r.warning
-    calcMsg.value = `<div class="msg ok">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
+    if (r.warnings && r.warnings.length) msg += `\n🚨 ${r.warnings.length} 名离职人员有出勤但固定月薪/基本工资均为0（工资按0计）：` + r.warnings.map((w) => `${w.name}(${w.project})`).join('、') + `\n请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算。`
+    calcMsg.value = `<div class="msg ${r.warnings && r.warnings.length ? 'info' : 'ok'}">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
     loadPayroll()
   } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
 }
@@ -547,7 +548,11 @@ async function doCalcType(tp) {
     const missTxt = r.missing && r.missing.length
       ? `<br>⚠ 无考勤未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
       : ''
-    typeMsg[tp] = `<div class="msg ok">${label}完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? '（' + r.skipped.join('、') + '）' : ''}${missTxt}</div>`
+    const warnTxt = r.warnings && r.warnings.length
+      ? `<br>🚨 ${r.warnings.length} 名离职人员有出勤但固定月薪/基本工资均为0（工资按0计）：` + r.warnings.map((w) => `${w.name}(${w.project})`).join('、')
+        + `<br>请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算。`
+      : ''
+    typeMsg[tp] = `<div class="msg ${warnTxt ? 'info' : 'ok'}">${label}完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? '（' + r.skipped.join('、') + '）' : ''}${missTxt}${warnTxt}</div>`
     loadType(tp)
     loadPayroll()
   } catch (e) { typeMsg[tp] = `<div class="msg err">${e.message}</div>` }

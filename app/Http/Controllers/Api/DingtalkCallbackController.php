@@ -286,7 +286,8 @@ class DingtalkCallbackController extends ApiController
                 'deleted' => false,
                 'is_manager' => false,
                 'is_case_field' => false,
-                'person_type' => 'staff',
+                // 岗位职级未知（离职花名册无此字段），不得伪造为 'staff'，前端显示「—」
+                'person_type' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

@@ -201,7 +201,7 @@ const CAT_DEFS = [['在职', '#16a34a'], ['离职', '#64748b'], ['黑名单', '#
 const CAT_TAG = { '在职': 'green', '离职': 'gray', '黑名单': 'red' }
 const STATUS_TAG = { '正式': 'green', '新聘': 'blue', '转正': 'purple', '试用': 'orange', '离职': 'gray' }
 const DEDUCT_ITEMS = ['租房租金', '住房贷款利息', '子女教育', '赡养老人', '继续教育', '婴幼儿照护']
-const personTypeLabel = (t) => (t === 'case' ? '案场人员' : t === 'manager' ? '管理人员' : t === 'hq' ? '总部人员' : '基层员工')
+const personTypeLabel = (t) => (t === 'case' ? '案场人员' : t === 'manager' ? '管理人员' : t === 'hq' ? '总部人员' : (t ? '基层员工' : '—'))
 
 const cat = ref('在职')
 const counts = ref({})
