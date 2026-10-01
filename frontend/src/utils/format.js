@@ -7,3 +7,8 @@ export function money(x) {
 export function pct(x) {
   return (Number(x || 0) * 100).toFixed(2) + '%'
 }
+
+/** 空值占位符：null/undefined/'' → '—'；其余原样返回（0 不转换） */
+export function fmtEmpty(v) {
+  return v === null || v === undefined || v === '' ? '—' : v
+}

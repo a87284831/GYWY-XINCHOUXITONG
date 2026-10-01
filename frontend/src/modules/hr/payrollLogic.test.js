@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { summaryTotals, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows } from './payrollLogic'
+import {
+  summaryTotals, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows,
+  isZeroPayRow, groupNotices, archiveBlockerText,
+} from './payrollLogic'
 
 describe('summaryTotals（复刻 renderSummary 合计口径）', () => {
   it('累加各项目数值并按预算计算执行率', () => {
@@ -132,5 +135,78 @@ describe('filterPayRows（复刻项目+部门筛选）', () => {
   })
   it('无筛选返回全部', () => {
     expect(filterPayRows(rows, '', '')).toHaveLength(3)
+  })
+})
+
+describe('isZeroPayRow（0 工资/负工资行高亮判断）', () => {
+  it('net 为 0 时高亮', () => {
+    expect(isZeroPayRow({ net: 0 })).toBe(true)
+  })
+  it('net 为负数时高亮', () => {
+    expect(isZeroPayRow({ net: -120.5 })).toBe(true)
+  })
+  it('net 为正数时不高亮', () => {
+    expect(isZeroPayRow({ net: 0.01 })).toBe(false)
+  })
+  it('net 缺失时不高亮（避免误伤）', () => {
+    expect(isZeroPayRow({})).toBe(false)
+  })
+  it('row 为 null 时不高亮（防御性）', () => {
+    expect(isZeroPayRow(null)).toBe(false)
+  })
+})
+
+describe('groupNotices（缺失/警告条目按 level 分组）', () => {
+  it('danger 与 info 各归其组并保持原顺序', () => {
+    const missing = [{ name: 'A', project: 'P', reason: 'r1', level: 'danger' }]
+    const warnings = [{ name: 'B', project: 'P', reason: 'r2', level: 'info' }]
+    const { danger, info } = groupNotices(missing, warnings)
+    expect(danger).toHaveLength(1)
+    expect(danger[0].name).toBe('A')
+    expect(info).toHaveLength(1)
+    expect(info[0].name).toBe('B')
+  })
+
+  it('无 level 键的旧条目一律归 info', () => {
+    const { danger, info } = groupNotices([], [{ name: 'C', reason: 'r3' }])
+    expect(danger).toEqual([])
+    expect(info).toHaveLength(1)
+    expect(info[0].name).toBe('C')
+  })
+
+  it('空入参返回两个空数组', () => {
+    const { danger, info } = groupNotices([], [])
+    expect(danger).toEqual([])
+    expect(info).toEqual([])
+  })
+
+  it('danger 两条按输入顺序排列', () => {
+    const missing = [
+      { name: 'D1', project: 'P', reason: 'r1', level: 'danger' },
+      { name: 'D2', project: 'P', reason: 'r2', level: 'danger' },
+    ]
+    const { danger } = groupNotices(missing, [])
+    expect(danger.map((x) => x.name)).toEqual(['D1', 'D2'])
+  })
+})
+
+describe('archiveBlockerText（归档确认文案）', () => {
+  it('单条带项目：首行条数 + 姓名（项目）：reason + 末尾确认句', () => {
+    const text = archiveBlockerText([{ name: '张三', project: '测试项目', reason: '缺系数' }])
+    expect(text).toContain('以下 1 条薪资异常未处理：')
+    expect(text).toContain('张三（测试项目）：缺系数')
+    expect(text).toContain('确认仍要归档吗？忽略异常可能导致错误工资发放。')
+  })
+
+  it('project 为空时只写姓名：reason（不带括号）', () => {
+    const text = archiveBlockerText([{ name: '李四', project: '', reason: '缺基数' }])
+    expect(text).toContain('李四：缺基数')
+    expect(text).not.toContain('（')
+  })
+
+  it('空数组：含「以下 0 条」+ 末尾确认句', () => {
+    const text = archiveBlockerText([])
+    expect(text).toContain('以下 0 条薪资异常未处理：')
+    expect(text).toContain('确认仍要归档吗？忽略异常可能导致错误工资发放。')
   })
 })

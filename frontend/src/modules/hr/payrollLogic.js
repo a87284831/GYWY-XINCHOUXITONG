@@ -157,3 +157,47 @@ export function perfDetailCell(row, key) {
   const m = src.find((x) => x.ym === ym)
   return m ? m.amount : null
 }
+
+// ---------------- 数据缺口防护（Task 4 纯函数） ----------------
+
+/** 判断是否为 0 工资/负工资行（用于表格高亮）。
+ * net 缺失 → Number(undefined)=NaN<=0 为 false（避免误伤）；row 为 null/undefined → false（防御性）。 */
+export function isZeroPayRow(row) {
+  if (row == null) return false
+  return Number(row.net) <= 0
+}
+
+/**
+ * 将 missing 与 warnings 两组合并扁平，按 level 分组。
+ * 无 level 键一律归 info（前向兼容旧条目）。danger/info 各自保持原始相对顺序。
+ * @returns {{ danger: Array, info: Array }}
+ */
+export function groupNotices(missing, warnings) {
+  const all = [...(missing || []), ...(warnings || [])]
+  const danger = []
+  const info = []
+  for (const e of all) {
+    if (e && e.level === 'danger') danger.push(e)
+    else info.push(e)
+  }
+  return { danger, info }
+}
+
+/**
+ * 生成归档前异常确认文案。
+ * 首行：「以下 N 条薪资异常未处理：」；每条一行：「姓名（项目）：reason」（project 为空则只写「姓名：reason」）；
+ * 末行固定：「确认仍要归档吗？忽略异常可能导致错误工资发放。」
+ */
+export function archiveBlockerText(blockers) {
+  const list = Array.isArray(blockers) ? blockers : []
+  const lines = [`以下 ${list.length} 条薪资异常未处理：`]
+  for (const b of list) {
+    const name = b && b.name != null ? b.name : ''
+    const project = b && b.project != null ? b.project : ''
+    const reason = b && b.reason != null ? b.reason : ''
+    const head = project ? `${name}（${project}）` : name
+    lines.push(`${head}：${reason}`)
+  }
+  lines.push('确认仍要归档吗？忽略异常可能导致错误工资发放。')
+  return lines.join('\n')
+}
