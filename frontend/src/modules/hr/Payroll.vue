@@ -59,7 +59,7 @@
                 <tr
                   v-for="r in empFiltered"
                   :key="r.staff_id"
-                  :class="{ 'pay-sel': paySel === r.staff_id }"
+                  :class="{ 'pay-sel': paySel === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
                   @click="paySel = r.staff_id"
                 >
                   <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
@@ -77,7 +77,7 @@
                   <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
                   <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                   <td class="num">{{ money(r.actual_tax) }}</td>
-                  <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
+                  <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
                   <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
                   <td class="remark-cell">{{ r.remark || '' }}</td>
                 </tr>
@@ -165,7 +165,7 @@
                   <tr
                     v-for="r in typeFiltered[tp]"
                     :key="r.staff_id"
-                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id }"
+                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
                     @click="typeSel[tp] = r.staff_id"
                   >
                       <td>{{ r.project }}</td>
@@ -184,7 +184,7 @@
                       <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
                       <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                       <td class="num">{{ money(r.actual_tax) }}</td>
-                      <td class="num" style="font-weight:bold;color:#16a34a">{{ money(r.net) }}</td>
+                      <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
                       <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
                       <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
                       <td class="remark-cell">{{ r.remark || '' }}</td>
@@ -309,7 +309,7 @@ import { useUiStore } from '@/stores/ui'
 import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText } from './payrollLogic'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -491,16 +491,27 @@ function toggleCalcProj(p, on) {
   if (!on) calcProjects.value = calcProjects.value.filter((x) => x !== p)
 }
 
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')
+}
+
 async function doCalc() {
   if (!calcProjects.value.length) return toast('请至少选择一个项目', false)
   if (!confirm(`确认核算 ${ui.month}：${calcProjects.value.length} 个项目？同月重复核算将自动覆盖旧数据。`)) return
   try {
     const r = await api('/api/payroll/calc', { body: { ym: ui.month, projects: calcProjects.value } })
+    const notices = groupNotices(r.missing || [], r.warnings || [])
+    const dangerTxt = notices.danger.length
+      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
+      : ''
+    const infoTxt = notices.info.length
+      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
+      : ''
     let msg = `核算完成，共 ${r.count} 人。`
-    if (r.missing && r.missing.length) msg += `\n⚠ ${r.missing.length} 人无考勤记录未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
-    if (r.warning) msg += '\n⚠ ' + r.warning
-    if (r.warnings && r.warnings.length) msg += `\n🚨 ${r.warnings.length} 名离职人员有出勤但固定月薪/基本工资均为0（工资按0计）：` + r.warnings.map((w) => `${w.name}(${w.project})`).join('、') + `\n请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算。`
-    calcMsg.value = `<div class="msg ${r.warnings && r.warnings.length ? 'info' : 'ok'}">${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
+    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
+    msg += dangerTxt ? `\n${dangerTxt}` : ''
+    msg += infoTxt ? `\n${infoTxt}` : ''
+    calcMsg.value = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
     loadPayroll()
   } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
 }
@@ -545,36 +556,48 @@ async function doCalcType(tp) {
   if (!confirm(`确认核算 ${ui.month} ${label}${scope}？同月重复核算将覆盖旧数据。`)) return
   try {
     const r = await api(TP_META[tp].calcApi, { body: { ym: ui.month } })
-    const missTxt = r.missing && r.missing.length
-      ? `<br>⚠ 无考勤未核算：` + r.missing.map((m) => `${m.name}(${m.project})`).join('、')
+    const notices = groupNotices(r.missing || [], r.warnings || [])
+    const dangerTxt = notices.danger.length
+      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
       : ''
-    const warnTxt = r.warnings && r.warnings.length
-      ? `<br>🚨 ${r.warnings.length} 名离职人员有出勤但固定月薪/基本工资均为0（工资按0计）：` + r.warnings.map((w) => `${w.name}(${w.project})`).join('、')
-        + `<br>请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算。`
+    const infoTxt = notices.info.length
+      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
       : ''
-    typeMsg[tp] = `<div class="msg ${warnTxt ? 'info' : 'ok'}">${label}完成，共 ${r.count} 人。${r.skipped && r.skipped.length ? '（' + r.skipped.join('、') + '）' : ''}${missTxt}${warnTxt}</div>`
+    let msg = `${label}完成，共 ${r.count} 人。`
+    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
+    msg += dangerTxt ? `\n${dangerTxt}` : ''
+    msg += infoTxt ? `\n${infoTxt}` : ''
+    typeMsg[tp] = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
     loadType(tp)
     loadPayroll()
   } catch (e) { typeMsg[tp] = `<div class="msg err">${e.message}</div>` }
 }
 
-async function setArchive(locked) {
+async function postArchive(body) {
   try {
-    await api('/api/payroll/archive', { body: { ym: ui.month, locked } })
-    toast(locked ? '已归档锁定' : '已解锁')
-    loadPayroll()
-  } catch (e) { alert(e.message) }
+    await api('/api/payroll/archive', { body })
+    toast(body.locked ? '已归档锁定' : '已解锁')
+  } catch (e) {
+    if (e.status === 409 && e.payload && e.payload.need_confirm) {
+      if (confirm(archiveBlockerText(e.payload.blockers || []))) {
+        try {
+          await api('/api/payroll/archive', { body: { ...body, force: true } })
+          toast('已归档锁定（已确认忽略异常）')
+        } catch (e2) { alert(e2.message); return }
+      } else { return }
+    } else { alert(e.message); return }
+  }
+  reloadActive()
+}
+
+async function setArchive(locked) {
+  postArchive({ ym: ui.month, locked })
 }
 
 async function setArchiveType(tp, locked) {
   const scope = tp === 'mgr' ? '管理人员' : tp === 'case' ? '案场人员' : '总部人员'
   if (!confirm(locked ? `确认归档锁定${scope}工资表？锁定后禁止修改/重算，仅超管可解锁。` : '确认解锁归档？')) return
-  try {
-    await api('/api/payroll/archive', { body: { ym: ui.month, locked, type: tp === 'mgr' ? 'manager' : tp } })
-    toast(locked ? '已归档锁定' : '已解锁')
-    loadType(tp)
-    loadPayroll()
-  } catch (e) { alert(e.message) }
+  postArchive({ ym: ui.month, locked, type: tp === 'mgr' ? 'manager' : tp })
 }
 
 // 归档按钮通过事件委托响应（v-html 内无法绑定 Vue 事件）
@@ -690,6 +713,17 @@ onBeforeUnmount(() => document.removeEventListener('click', onCardClick))
 tr.pay-sel td {
   background: #fff6d6 !important;
   color: #1f2937;
+}
+tr.row-zero-pay td {
+  background: #fff7ed;
+}
+td.zero-pay {
+  font-weight: bold;
+  color: #c2410c !important;
+}
+td.pay-pos {
+  font-weight: bold;
+  color: #16a34a;
 }
 .remark-cell {
   max-width: 180px;

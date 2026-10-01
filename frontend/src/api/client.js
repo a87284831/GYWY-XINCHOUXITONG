@@ -26,7 +26,12 @@ export async function api(path, opts = {}) {
       router.push('/login')
       throw new Error('未登录')
     }
-    if (!data.ok) throw new Error(data.error || data.msg || '操作失败')
+    if (!data.ok) {
+      const err = new Error(data.error || data.msg || '操作失败')
+      err.status = res.status
+      err.payload = data
+      throw err
+    }
     return data
   }
   if (!res.ok) throw new Error('下载失败')
