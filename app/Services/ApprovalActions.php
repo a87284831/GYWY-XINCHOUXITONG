@@ -75,6 +75,16 @@ class ApprovalActions
         $staff = self::resolveStaff($formData, $project);
         if (!$staff) return ['error' => '人员档案中未找到：' . $name];
 
+        // 钉钉为唯一权威源（2026-10-01 用户决策 A）：已绑定人员的转正/定薪/调岗
+        // 以钉钉智能人事/花名册为准，由同步回写；OA 转正审批照常通过，仅不联动写档。
+        if (!empty($staff->dingtalk_userid)) {
+            return [
+                'skipped' => 'dingtalk_authoritative', 'regular' => false,
+                'staff_id' => $staff->legacy_id,
+                'reason' => '该人员已绑定钉钉，转正/定薪/调岗以钉钉花名册为准，系统不联动写档',
+            ];
+        }
+
         $payload = [
             'regular_date' => substr($regularDate, 0, 10),
             'status' => StaffStatus::derive($staff->resign_date, substr($regularDate, 0, 10), date('Y-m-d')),
@@ -138,15 +148,27 @@ class ApprovalActions
         $staff = self::resolveStaff($formData, $project);
         if (!$staff) return ['error' => '人员档案中未找到：' . $name];
 
+        // 停用绑定账号（系统访问安全事务，与钉钉权威源无关，绑定/未绑定都执行）
+        DB::table('payroll_accounts')->where('staff_id', $staff->legacy_id)->update(['enabled' => false, 'updated_at' => now()]);
+
+        // 钉钉为唯一权威源（2026-10-01 用户决策 A）：已绑定人员的离职日期/状态
+        // 以钉钉离职信息为准，由同步回写；OA 离职审批照常通过，仅不联动写档。
+        if (!empty($staff->dingtalk_userid)) {
+            return [
+                'skipped' => 'dingtalk_authoritative', 'resign' => false,
+                'staff_id' => $staff->legacy_id, 'resign_date' => substr($resignDate, 0, 10),
+                'account_disabled' => true,
+                'reason' => '该人员已绑定钉钉，离职日期/状态以钉钉离职信息为准；系统登录账号已停用',
+            ];
+        }
+
         $payload = [
             'resign_date' => substr($resignDate, 0, 10),
             'status' => StaffStatus::derive(substr($resignDate, 0, 10), $staff->regular_date, date('Y-m-d')),
             'updated_at' => now(),
         ];
         DB::table('payroll_staff')->where('legacy_id', $staff->legacy_id)->update($payload);
-        // 停用绑定账号
-        DB::table('payroll_accounts')->where('staff_id', $staff->legacy_id)->update(['enabled' => false, 'updated_at' => now()]);
-        return ['resign' => true, 'staff_id' => $staff->legacy_id, 'resign_date' => substr($resignDate, 0, 10)];
+        return ['resign' => true, 'staff_id' => $staff->legacy_id, 'resign_date' => substr($resignDate, 0, 10), 'account_disabled' => true];
     }
 
     /** 入职清单完成 → 正式新增人员 + 可选开通账号 */
