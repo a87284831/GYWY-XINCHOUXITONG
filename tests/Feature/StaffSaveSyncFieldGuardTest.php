@@ -13,7 +13,8 @@ use Tests\TestCase;
  * （姓名/职位/入职/转正/离职日期/固定月薪/基本工资/岗位职级/个人信息）
  * 不得通过 /api/staff/save 本地覆盖（防 API 直调）；
  * 无绑定的历史导入行/本地行仍允许本地维护。
- * 工资标准变更的合法本地路径是「调薪与记录」（留痕）。
+ * 绑定人员的工资标准变更同样禁止（见 SalaryAdjustGuardTest：/api/salary_adjust 直接 403），
+ * 一律回钉钉花名册发起；仅未绑定历史行保留「调薪与记录」本地留痕路径。
  */
 class StaffSaveSyncFieldGuardTest extends TestCase
 {

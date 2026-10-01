@@ -11,12 +11,18 @@
         <template v-else>
           <span
             v-for="s in picks" :key="s.id"
-            class="tag blue" style="cursor:pointer;margin:3px"
-            @click="pick(s)"
-          >{{ s.name }}（{{ s.project }}·{{ s.status }}）</span>
+            :class="s.bound ? 'tag' : 'tag blue'"
+            :style="s.bound ? 'margin:3px;background:#e5e7eb;color:#6b7280;cursor:not-allowed' : 'cursor:pointer;margin:3px'"
+            :title="s.bound ? '该人员由钉钉花名册管理，调薪/转正定薪请在钉钉发起' : ''"
+            @click="s.bound ? blockedPick(s) : pick(s)"
+          >{{ s.name }}（{{ s.project }}·{{ s.status }}）{{ s.bound ? ' 🔒钉钉' : '' }}</span>
         </template>
       </div>
       <div v-if="sel" style="margin-top:10px">
+        <div v-if="sel.bound" class="msg err">
+          🔒 <b>{{ sel.name }}</b> 已绑定钉钉，薪资以钉钉花名册为唯一权威源。请在钉钉发起调薪/转正定薪，同步后自动生效，系统内不再受理调薪。
+        </div>
+        <template v-else>
         <div class="msg info">已选择：<b>{{ sel.name }}</b>（{{ sel.project }}，{{ sel.status }}）　现有薪资：固定 {{ money(sel.fixed) }} / 基本 {{ money(sel.base) }}</div>
         <div class="form-grid" style="max-width:680px">
           <label>变更类型<select v-model="fType"><option>调薪</option><option>转正</option></select></label>
@@ -29,6 +35,7 @@
         <div class="row" style="margin-top:10px">
           <button class="btn primary" @click="submit">提交调薪</button>
         </div>
+        </template>
       </div>
     </div>
     <div class="card">
@@ -88,6 +95,7 @@ async function searchGo() {
     if (!(data.staff || []).length) { picks.value = []; pickErr.value = '未找到匹配人员'; return }
     picks.value = data.staff.slice(0, 12).map((s) => ({
       id: s.id, name: s.name, project: s.project, status: s.status, fixed: s.fixed_monthly, base: s.base_salary,
+      bound: !!s.dingtalk_bound,
     }))
   } catch (e) { pickErr.value = e.message }
 }
@@ -101,8 +109,15 @@ function pick(s) {
   fNote.value = ''
 }
 
+function blockedPick(s) {
+  // 绑定人员置灰标签被点击时仍允许选中（展示权威源说明），但不出现调薪表单
+  sel.value = s
+  toast(`${s.name} 由钉钉花名册管理，调薪请在钉钉发起`)
+}
+
 async function submit() {
   const s = sel.value
+  if (s.bound) return
   try {
     await api('/api/salary_adjust', { body: { staff_id: s.id, type: fType.value, effective_date: fDate.value, fixed_monthly: fFixed.value, base_salary: fBase.value, note: fNote.value } })
     toast('调薪已记录')

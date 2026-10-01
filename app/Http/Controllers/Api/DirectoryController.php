@@ -88,6 +88,8 @@ class DirectoryController extends ApiController
             $legacy['fixed_monthly'] = (float) $row->fixed_monthly;
             $legacy['base_salary'] = (float) $row->base_salary;
             $legacy['deleted'] = (bool) $row->deleted;
+            // 钉钉绑定标记（布尔，不暴露 userid 本体）：前端据此禁用调薪等钉钉权威源字段的本地入口
+            $legacy['dingtalk_bound'] = !empty($row->dingtalk_userid);
             $legacy['org_id'] = $row->org_id;
             $legacy['dept_path'] = $row->dept_path;
             $legacy['leader_id'] = $row->leader_id;

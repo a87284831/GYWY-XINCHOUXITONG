@@ -544,6 +544,12 @@ class StaffController extends ApiController
         if ($this->isProjectScope($account) && $staff->project_name !== $account->project_name) {
             return response()->json(['ok' => false, 'error' => '无权操作其他项目人员'], 403);
         }
+        // 钉钉为唯一权威源（2026-10-01 用户决策：系统内不允许调薪）：
+        // 已绑定钉钉的人员，调薪/转正定薪必须在钉钉花名册发起并由同步回写，
+        // 系统接口直接拒绝（防页面/API 绕过）；未绑定的历史行/本地行仍允许本地调薪留痕。
+        if (!empty($staff->dingtalk_userid)) {
+            return response()->json(['ok' => false, 'error' => '该人员已绑定钉钉，薪资以钉钉花名册「月度薪资标准/月度基本工资」为唯一权威源；请在钉钉发起调薪/转正定薪，同步后自动生效，系统内不再受理'], 403);
+        }
         $effective = $this->dateValue($request->input('effective_date'));
         $fixed = (float) $request->input('fixed_monthly', 0);
         $base = (float) $request->input('base_salary', 0);
