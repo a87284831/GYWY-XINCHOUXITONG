@@ -368,15 +368,39 @@ class DingtalkCallbackController extends ApiController
                 ->get(['id', 'dingtalk_userid']);
             $idMap = array_column($rosterStaff->all(), 'id', 'dingtalk_userid');
 
+            $rosterReturned = [];
             foreach (array_chunk($rosterUids, 50) as $batch) {
                 $roster = $this->dt->getRosterData($batch);
                 foreach ($roster as $uid => $fields) {
+                    $rosterReturned[$uid] = true;
                     $dbId = $idMap[$uid] ?? null;
                     if (!$dbId) continue;
                     $this->applyRosterFields($dbId, $fields);
                     $stats['roster']++;
                 }
                 usleep(100000);
+            }
+
+            // 可观测性（2026-10-01）：在职人员必须在花名册接口有返回，
+            // 无返回多半是未在钉钉智能人事办理入职登记/花名册未启用，字段将静默缺失
+            $stats['roster_total'] = count($rosterUids);
+            $diffUids = array_diff($rosterUids, array_keys($rosterReturned));
+            $missingUids = [];
+            if (!empty($diffUids)) {
+                $statusMap = DB::table('payroll_staff')
+                    ->whereIn('dingtalk_userid', $diffUids)
+                    ->pluck('status', 'dingtalk_userid');
+                foreach ($diffUids as $uid) {
+                    // 离职人员在花名册无返回是已知行为，不算缺失
+                    if (($statusMap[$uid] ?? '') !== '离职') $missingUids[] = $uid;
+                }
+            }
+            $stats['roster_missing'] = count($missingUids);
+            if (!empty($missingUids)) {
+                $missingNames = DB::table('payroll_staff')
+                    ->whereIn('dingtalk_userid', $missingUids)
+                    ->pluck('name')->all();
+                Log::warning('钉钉花名册同步：以下在职人员在花名册接口无字段返回（多半未在钉钉智能人事办理入职登记），岗位职级/薪资/证件等花名册字段不会被同步', ['names' => $missingNames]);
             }
         }
 
@@ -635,12 +659,20 @@ class DingtalkCallbackController extends ApiController
         }
 
         if (!empty($fields['岗位职级'])) {
-            $systemUpdate['person_type'] = match ($fields['岗位职级']) {
+            // trim 后精确匹配；未知值不得静默降级为 staff（防止管理/总部人员被错算为基层）
+            $pt = trim((string) $fields['岗位职级']);
+            $mapped = match ($pt) {
                 '管理人员' => 'manager',
+                '基层人员' => 'staff',
                 '案场人员' => 'case',
                 '总部人员' => 'hq',
-                default => 'staff',
+                default => null,
             };
+            if ($mapped !== null) {
+                $systemUpdate['person_type'] = $mapped;
+            } else {
+                Log::warning('钉钉花名册「岗位职级」出现未知值，本次同步不更新 person_type', ['staff_id' => $dbId, 'value' => $pt]);
+            }
         }
 
         if ($systemUpdate) {

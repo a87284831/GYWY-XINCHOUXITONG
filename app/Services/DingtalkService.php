@@ -302,12 +302,18 @@ class DingtalkService
             CURLOPT_TIMEOUT => 30,
         ]);
         $raw = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = $raw === false ? curl_error($ch) : '';
+        curl_close($ch);
         if ($raw === false) {
-            Log::warning('DingTalk roster API error: ' . curl_error($ch));
-            curl_close($ch);
+            Log::warning('DingTalk roster API error: ' . $curlErr);
             return [];
         }
-        curl_close($ch);
+        if ($httpCode >= 400) {
+            // 新版 API 失败时 body 是 {code,message} 且无 result 字段，必须显式记录，否则静默丢整批
+            Log::warning("DingTalk roster API HTTP {$httpCode}: " . substr((string) $raw, 0, 300));
+            return [];
+        }
         $res = json_decode($raw, true);
 
         $result = [];
@@ -316,9 +322,12 @@ class DingtalkService
             $fields = [];
             foreach ($userInfo['fieldDataList'] ?? [] as $field) {
                 $name = $field['fieldName'];
-                $val = $field['fieldValueList'][0]['label']
-                    ?? $field['fieldValueList'][0]['value']
-                    ?? '';
+                // label 非空字符串才优先取（?? 只跳过 null；数值型自定义字段 label 常为空串，
+                // 若被采用将把金额/日期整字段丢掉），空串/null 回退 value
+                $val = $field['fieldValueList'][0]['label'] ?? null;
+                if ($val === null || $val === '') {
+                    $val = $field['fieldValueList'][0]['value'] ?? '';
+                }
                 if ($name && $val) $fields[$name] = $val;
             }
             $result[$uid] = $fields;
