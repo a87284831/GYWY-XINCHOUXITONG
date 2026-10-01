@@ -139,6 +139,80 @@ class PayrollCalculator
     }
 
     /**
+     * 归档异常清单（danger 类）：locked=true 归档前调用，返回范围内需用户确认的异常名单。
+     * 仅含两类：缺基数未核算者（missing_base）与绩效配置错误行（perf_error）；
+     * info 类（net≤0）不在此列，不拦截归档。
+     *
+     * 与 calculateGroup 同源（同一份 symbols / categoryMap / 考勤块 / 行类型 where），
+     * 防止两处口径漂移。findAttRow 保持 private，本方法作为同类实例方法用 $this 调用。
+     *
+     * @param string $ym    核算月 YYYY-MM
+     * @param string $scope 'staff'|'manager'|'case'|'hq'
+     * @return array<int,array{name:string,project:string,reason:string,kind:string}>
+     */
+    public function archiveBlockers(string $ym, string $scope): array
+    {
+        [$isManager, $isCase, $isHq] = match ($scope) {
+            'manager' => [true, false, false],
+            'case'    => [false, true, false],
+            'hq'      => [false, false, true],
+            default   => [false, false, false], // staff
+        };
+
+        $symbols   = self::symbols();
+        $attBlocks = DB::table('payroll_attendance')->where('year_month', $ym)->where('locked', true)->get()->keyBy('project_name');
+        $catMap    = self::categoryMap($ym);
+        $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
+            ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $scope);
+
+        $blockers = [];
+
+        // 1) missing_base：薪资基数为 0 且当月有实际出勤的人员（核算时已被跳过，无 results 行）
+        foreach ($staff as $p) {
+            $block = $attBlocks[$isHq ? '物业总部' : $p->project_name] ?? null;
+            if (!$block) continue; // 无考勤块无从判出勤，与核算 no_attendance 护栏一致
+            $attRows = $this->jsonValue($block->rows) ?: [];
+            $att = $this->findAttRow($attRows, $p);
+            if ($att === null) continue; // 无考勤行属 info missing，不拦截归档
+            $actual = self::actualAttendance($att, $symbols);
+            if (self::hasMissingBase($p) && $actual > 0) {
+                $isResigned = trim((string)$p->status) === '离职';
+                $blockers[] = [
+                    'name' => $p->name, 'project' => $p->project_name,
+                    'reason' => $isResigned
+                        ? "离职人员本月有出勤{$actual}天但固定月薪/基本工资均为0，未生成工资行；请补录钉钉花名册薪资并同步后重算"
+                        : '薪资数据缺失（固定月薪/基本工资均为0），未生成工资行；请检查钉钉花名册同步后重算',
+                    'kind' => 'missing_base',
+                ];
+            }
+        }
+
+        // 2) perf_error：已落库但绩效配置错误的 results 行（仅未归档范围；行类型 where 与 archive update 完全一致）
+        $resQ = DB::table('payroll_results')->where('year_month', $ym)->where('archived', false);
+        if ($isManager) {
+            $resQ->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($isCase) {
+            $resQ->where('is_case_row', true);
+        } elseif ($isHq) {
+            $resQ->where('is_hq_row', true);
+        } else {
+            $resQ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+        }
+        foreach ($resQ->get() as $r) {
+            $row = $this->jsonValue($r->row_data) ?: [];
+            $code = self::perfErrorCode($row);
+            if ($code === null) continue;
+            $blockers[] = [
+                'name' => $row['name'] ?? '', 'project' => $row['project'] ?? $r->project_name,
+                'reason' => '绩效工资未计入：' . (self::PERF_ERROR_CN[$code] ?? $code) . '，请补录后重算',
+                'kind' => 'perf_error',
+            ];
+        }
+
+        return $blockers;
+    }
+
+    /**
      * 四类人员共用的核算主体：取考勤 → 逐人计算 → 命名锁下事务内删旧插新（chunk）。
      *
      * @param string     $category 类别键（staff/manager/case/hq），来自 categoryMap

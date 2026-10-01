@@ -125,7 +125,7 @@ class PayrollWriteController extends ApiController
             return response()->json(['ok' => false, 'error' => '总部人员核算失败：' . $e->getMessage()], 500);
         }
     }
-    public function archive(Request $request): JsonResponse
+    public function archive(Request $request, PayrollCalculator $calc): JsonResponse
     {
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
@@ -143,6 +143,21 @@ class PayrollWriteController extends ApiController
             $query->where('is_hq_row', true);
         } else {
             $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+        }
+        // 锁定归档前的 danger 异常防线：缺基数未核算者 / 绩效配置错误行 → 首次 409 名单，force 确认放行
+        if ($locked === true) {
+            $scope = match ($request->input('type')) {
+                'manager' => 'manager', 'case' => 'case', 'hq' => 'hq', default => 'staff',
+            };
+            $blockers = $calc->archiveBlockers($ym, $scope);
+            if ($blockers && !(bool)$request->input('force')) {
+                return response()->json(['ok' => false, 'need_confirm' => true, 'blockers' => $blockers], 409);
+            }
+            if ($blockers) {
+                \Illuminate\Support\Facades\Log::warning('payroll.archive.forced', [
+                    'ym' => $ym, 'scope' => $scope, 'blockers' => count($blockers),
+                ]);
+            }
         }
         $query->update(['archived' => $locked, 'updated_at' => now()]);
         return response()->json(['ok' => true]);
