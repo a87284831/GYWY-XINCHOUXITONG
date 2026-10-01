@@ -153,7 +153,11 @@ class PayrollResignGuardTest extends TestCase
         $this->assertSame(1, $r['result']['count']);
         $this->assertSame([], $r['result']['missing']);
         $this->assertArrayHasKey(1, $r['rows']);
-        // 注意：不断言 warnings 为空（下一任务会让该场景产生 1 条 info warning）
+        // Task 2：整月全公休 net=0 → 1 条 info warning，reason 含「实发」
+        $warnings = $r['result']['warnings'];
+        $this->assertCount(1, $warnings);
+        $this->assertSame('info', $warnings[0]['level']);
+        $this->assertStringContainsString('实发', $warnings[0]['reason']);
     }
 
     public function test_active_staff_zero_base_with_attendance_is_skipped_to_missing(): void

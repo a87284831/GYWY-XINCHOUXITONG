@@ -35,6 +35,17 @@ class PayrollCalculator
     // 若在系统设置里自定义公式，必须成对同步调整，勿只改其一。
     private const DEFAULT_GROSS = 'base_pay + perf_pay + sick_pay + night + meal + title_sub + reward + welfare - punish - miss_d - late_d - other_d - uniform_d';
 
+    /**
+     * 绩效配置缺失错误码 → 中文文案。Task 3 归档检查将消费 perfErrorCode()
+     * 据此决定是否拦截归档；文案需与 warnings danger reason 保持一致。
+     */
+    public const PERF_ERROR_CN = [
+        'missing_coef'       => '季度/半年度绩效系数未录入',
+        'missing_pay_grade'  => '薪酬档位缺失',
+        'invalid_pay_grade'  => '薪酬档位不在专员级/主管级/经理级范围内',
+        'missing_pay_rule'   => '该档位未配置绩效发放规则',
+    ];
+
     /** 国家综合所得年度累计预扣率表（7 级），存储级距不全时的兜底 */
     public const DEFAULT_TAX_BRACKETS = [
         [36000, 0.03, 0], [144000, 0.10, 2520], [300000, 0.20, 16920],
@@ -198,7 +209,25 @@ class PayrollCalculator
                 ];
                 continue;
             }
-            $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect(), $category);
+            $row = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect(), $category);
+            // 行级 warnings（Task 2）：合法 0/负实发（info）与绩效配置缺失（danger）。
+            // 行照常生成落库（只有 Task 1 基数缺失才跳过）；顺序：先 net info 再 perf danger。
+            if ((float)($row['net'] ?? 0) <= 0.0) {
+                $warnings[] = [
+                    'name' => $row['name'], 'project' => $row['project'],
+                    'reason' => '实发' . $row['net'] . '元（出勤' . $row['act_att'] . '天），请确认是否为产假/停薪等合法情形',
+                    'level' => 'info',
+                ];
+            }
+            $code = self::perfErrorCode($row);
+            if ($code !== null) {
+                $warnings[] = [
+                    'name' => $row['name'], 'project' => $row['project'],
+                    'reason' => '绩效工资未计入：' . (self::PERF_ERROR_CN[$code] ?? $code) . '，请补录后重算',
+                    'level' => 'danger',
+                ];
+            }
+            $rows[] = $row;
         }
 
         if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing, 'warnings' => $warnings];
@@ -306,6 +335,24 @@ class PayrollCalculator
             $actual = (float)self::attendanceStats($att['days'] ?? [], $symbols)['attend'];
         }
         return $actual;
+    }
+
+    /**
+     * 提取行的绩效错误码：顶层 perf_detail.error 优先；为空再取嵌套
+     * perf_detail.half_year.error；均无或 perf_detail 不存在返回 null。
+     */
+    public static function perfErrorCode(array $rowData): ?string
+    {
+        $detail = $rowData['perf_detail'] ?? null;
+        if (!is_array($detail)) return null;
+        $top = trim((string)($detail['error'] ?? ''));
+        if ($top !== '') return $top;
+        $half = $detail['half_year'] ?? null;
+        if (is_array($half)) {
+            $h = trim((string)($half['error'] ?? ''));
+            if ($h !== '') return $h;
+        }
+        return null;
     }
 
     /**
