@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * 核算护栏（2026-10-01）：离职人员当月有出勤但薪资基数为空
- * （fixed_monthly==0 && base_salary==0，典型成因：钉钉离职列表新建占位行
- * 从未同步花名册薪资字段）→ 不得静默出 0 工资单，结果必须携带显式
- * warnings 清单（姓名+项目），提示去钉钉花名册补录后重算。
+ * 核算护栏（2026-10-01，Task 1）：薪资基数缺失（fixed_monthly==0 &&
+ * base_salary==0）且当月有实际出勤的人员，不再静默生成 0 工资行——
+ * 适用范围由「仅离职」扩展到所有人员：跳过核算并进入 missing danger
+ * 清单（姓名+项目），提示去钉钉花名册补录/检查同步后重算。
+ * 仅有考勤行但实际出勤为 0（整月公休）者不在跳过范围，正常出行。
  */
 class PayrollResignGuardTest extends TestCase
 {
@@ -111,21 +112,23 @@ class PayrollResignGuardTest extends TestCase
         return ['rows' => $out, 'result' => $result];
     }
 
-    public function test_resigned_with_attendance_but_zero_base_produces_warning(): void
+    public function test_resigned_with_attendance_but_zero_base_is_skipped_to_missing(): void
     {
         $this->seedRules();
         $this->seedStaff(1, '张传彩', 0, 0);
 
         $r = $this->calc(['张传彩' => $this->makeAtt($this->workedDays())]);
 
-        // 工资单仍生成（计0），但必须显式警告，不得静默
-        $this->assertSame(1, $r['result']['count']);
-        $this->assertNotEmpty($r['result']['warnings']);
-        $w = $r['result']['warnings'][0];
-        $this->assertSame('张传彩', $w['name']);
-        $this->assertSame('测试项目', $w['project']);
-        $this->assertStringContainsString('钉钉花名册', $w['reason']);
-        $this->assertArrayHasKey(1, $r['rows']);
+        // 基数缺失且有出勤：不得生成工资行，进 missing danger 清单提示补录钉钉花名册
+        $this->assertSame(0, $r['result']['count']);
+        $this->assertNotEmpty($r['result']['missing']);
+        $m = $r['result']['missing'][0];
+        $this->assertSame('张传彩', $m['name']);
+        $this->assertSame('测试项目', $m['project']);
+        $this->assertSame('danger', $m['level']);
+        $this->assertStringContainsString('钉钉花名册', $m['reason']);
+        $this->assertArrayNotHasKey(1, $r['rows']);
+        $this->assertSame([], $r['result']['warnings']);
     }
 
     public function test_resigned_with_normal_base_has_no_warning(): void
@@ -139,25 +142,36 @@ class PayrollResignGuardTest extends TestCase
         $this->assertSame([], $r['result']['warnings']);
     }
 
-    public function test_resigned_zero_base_but_no_actual_attendance_has_no_warning(): void
+    public function test_resigned_zero_base_no_attendance_produces_no_danger_warning(): void
     {
-        // 整月无出勤（全公休/空）：计0是合理结果，不触发警告噪音
+        // 有考勤行但整月全公休（actual=0）：不属于「无考勤行」missing 路径，正常出行
         $this->seedRules();
         $this->seedStaff(1, '王五', 0, 0);
 
         $r = $this->calc(['王五' => $this->makeAtt(array_fill(0, 30, '休'))]);
 
-        $this->assertSame([], $r['result']['warnings']);
+        $this->assertSame(1, $r['result']['count']);
+        $this->assertSame([], $r['result']['missing']);
+        $this->assertArrayHasKey(1, $r['rows']);
+        // 注意：不断言 warnings 为空（下一任务会让该场景产生 1 条 info warning）
     }
 
-    public function test_active_staff_zero_base_is_out_of_guard_scope(): void
+    public function test_active_staff_zero_base_with_attendance_is_skipped_to_missing(): void
     {
-        // 护栏范围为离职人员；在职人员薪资缺失走钉钉同步兜底，不在本次护栏内
+        // 护栏范围扩展到在职人员：0/0 且有出勤同样跳过并进 danger 清单
         $this->seedRules();
         $this->seedStaff(1, '赵六', 0, 0, '正式', 'staff');
 
         $r = $this->calc(['赵六' => $this->makeAtt($this->workedDays())]);
 
+        $this->assertSame(0, $r['result']['count']);
+        $this->assertNotEmpty($r['result']['missing']);
+        $m = $r['result']['missing'][0];
+        $this->assertSame('赵六', $m['name']);
+        $this->assertSame('danger', $m['level']);
+        $this->assertStringContainsString('钉钉', $m['reason']);
+        $this->assertStringNotContainsString('离职', $m['reason']);
+        $this->assertArrayNotHasKey(1, $r['rows']);
         $this->assertSame([], $r['result']['warnings']);
     }
 }

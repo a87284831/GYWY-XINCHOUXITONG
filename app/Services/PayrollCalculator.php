@@ -173,28 +173,30 @@ class PayrollCalculator
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
             $att = $this->findAttRow($attRows, $person);
             if (!$att) {
-                // 考勤缺人不再静默跳过：汇总进 missing，由调用方透传前端提示
+                // 考勤缺人不再静默跳过：汇总进 missing（info），由调用方透传前端提示
                 $missing[] = [
                     'name' => $person->name, 'project' => $person->project_name,
                     'reason' => trim((string)$person->status) === '离职'
                         ? '离职人员，本月无考勤记录（已跳过）'
                         : '考勤表中无此人的记录（已跳过）',
+                    'level' => 'info',
                 ];
                 continue;
             }
-            // 核算护栏：离职人员当月有出勤但薪资基数全空（钉钉离职占位行未补录花名册薪资）
-            // → 不得静默出 0 工资单，生成显式警告清单，提示补录后重算
-            if (trim((string)$person->status) === '离职'
-                && (float)$person->fixed_monthly == 0.0 && (float)$person->base_salary == 0.0) {
-                $st = self::attendanceStats($att['days'] ?? [], $symbols);
-                $actual = (float)($att['act_attend'] ?? 0);
-                if ($actual <= 0) $actual = (float)$st['attend'];
-                if ($actual > 0) {
-                    $warnings[] = [
-                        'name' => $person->name, 'project' => $person->project_name,
-                        'reason' => '离职人员本月有出勤但固定月薪与基本工资均为0，工资将计为0；请先到钉钉花名册补录「月度薪资标准/月度基本工资」，同步后重算',
-                    ];
-                }
+            // 数据缺失护栏（适用所有人员）：薪资基数固定月薪/基本工资均为 0 且当月有实际出勤
+            // → 不得静默出 0 工资行：跳过本行并进 missing danger 清单，提示补录/同步钉钉花名册后重算。
+            // 有考勤行但实际出勤为 0（整月公休等）不在此列，正常核算出行。
+            $actual = self::actualAttendance($att, $symbols);
+            if (self::hasMissingBase($person) && $actual > 0) {
+                $isResigned = trim((string)$person->status) === '离职';
+                $missing[] = [
+                    'name' => $person->name, 'project' => $person->project_name,
+                    'reason' => $isResigned
+                        ? "离职人员本月有出勤{$actual}天但固定月薪/基本工资均为0，未生成工资行；请补录钉钉花名册薪资并同步后重算"
+                        : '薪资数据缺失（固定月薪/基本工资均为0），未生成工资行；请检查钉钉花名册同步后重算',
+                    'level' => 'danger',
+                ];
+                continue;
             }
             $rows[] = $this->computeRow($person, $att, $symbols, $ym, $historyByStaff[$person->legacy_id] ?? collect(), $category);
         }
@@ -282,6 +284,28 @@ class PayrollCalculator
             if ((int)($row['staff_id'] ?? 0) === (int)$person->legacy_id) return $row;
         }
         return $attRows[$person->name] ?? null;
+    }
+
+    /**
+     * 薪资基数缺失判定：固定月薪与基本工资均为 0（松散比较，null/''/0 均视为 0）。
+     * 仅缺一项（如固定月薪有值、基本工资为 0）不算缺失，正常核算。
+     */
+    public static function hasMissingBase(object $person): bool
+    {
+        return (float)$person->fixed_monthly == 0.0 && (float)$person->base_salary == 0.0;
+    }
+
+    /**
+     * 实际出勤天数：优先取考勤行汇总值 act_attend；其 <=0（含缺失）时，
+     * 按考勤符号回退统计 days 的出勤天数（与 computeRow 内口径一致）。
+     */
+    public static function actualAttendance(array $att, array $symbols): float
+    {
+        $actual = (float)($att['act_attend'] ?? 0);
+        if ($actual <= 0) {
+            $actual = (float)self::attendanceStats($att['days'] ?? [], $symbols)['attend'];
+        }
+        return $actual;
     }
 
     /**
