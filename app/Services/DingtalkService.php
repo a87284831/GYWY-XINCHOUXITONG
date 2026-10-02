@@ -118,6 +118,39 @@ class DingtalkService
             $headers[] = 'x-acs-dingtalk-access-token: ' . $token;
         }
 
+        // 钉钉共享 QPS 限流（90002/qps：整点/半点所有企业应用扎堆触发，平台级秒级
+        // 窗口，1 秒即解除）自动退避重试，避免手动"立即同步"在拉部门第一步就整场失败
+        $resp = ['errcode' => -1, 'errmsg' => '请求失败'];
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            [$raw, $err] = $this->sendApiRequest($fullUrl, $headers, $body);
+            if ($raw === false) {
+                Log::warning("DingTalk API error [{$url}]: {$err}");
+                return ['errcode' => -1, 'errmsg' => $err];
+            }
+            $resp = json_decode($raw, true) ?: ['errcode' => -1, 'errmsg' => '请求失败'];
+            $rateLimited = (int) ($resp['errcode'] ?? 0) === 90002
+                || (int) ($resp['subcode'] ?? 0) === 90002
+                || str_contains((string) ($resp['errmsg'] ?? ''), 'qps');
+            if (!$rateLimited || $attempt === 3) return $resp;
+            $wait = $this->rateLimitBackoff($attempt);
+            Log::warning("DingTalk API 共享QPS限流，退避 {$wait}s 后重试 " . ($attempt + 1) . "/3 [{$url}]: " . substr((string) ($resp['errmsg'] ?? ''), 0, 200));
+            sleep($wait);
+        }
+        return $resp;
+    }
+
+    /** 限流退避秒数（attempt 从 1 起），protected 以便测试覆写为 0 */
+    protected function rateLimitBackoff(int $attempt): int
+    {
+        return $attempt * 5;
+    }
+
+    /**
+     * 单次 oapi/api 请求。protected 以便测试注入响应序列。
+     * @return array{0:string|false,1:string} [rawBody, curlError]；curl 失败时 rawBody 为 false
+     */
+    protected function sendApiRequest(string $fullUrl, array $headers, array $body): array
+    {
         $ch = curl_init($fullUrl);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -127,16 +160,9 @@ class DingtalkService
             CURLOPT_TIMEOUT => 30,
         ]);
         $raw = curl_exec($ch);
-        if ($raw === false) {
-            $err = curl_error($ch);
-            curl_close($ch);
-            Log::warning("DingTalk API error [{$url}]: {$err}");
-            return ['errcode' => -1, 'errmsg' => $err];
-        }
+        $err = $raw === false ? curl_error($ch) : '';
         curl_close($ch);
-        $resp = json_decode($raw, true);
-
-        return $resp ?: ['errcode' => -1, 'errmsg' => '请求失败'];
+        return [$raw, $err];
     }
 
     public function getAllDepartments(): array
