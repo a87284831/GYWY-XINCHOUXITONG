@@ -18,7 +18,7 @@
       <template v-else>
         <div class="rpt-kpi-row">
           <RCard v-for="k in d.kpis" :key="k.key" :label="k.label"
-            :value="k.money ? rMoney(k.value) : (k.unit === '%' ? k.value + '%' : k.value)"
+            :value="k.money ? rMoneyOrDash(k.value) : (k.unit === '%' ? k.value + '%' : k.value)"
             :delta="k.delta !== null && k.delta !== undefined ? k.delta : null"
             :color="colorOf(k.key)" />
         </div>
@@ -48,7 +48,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { api } from '@/api/client'
 import { useReportStore } from '@/stores/report'
-import { rMoney } from './reportLogic'
+import { rMoneyOrDash } from './reportLogic'
 import { createCharts, rBar, rHBar, rLine, fmtWan } from './chartKit'
 import RCard from './RCard.vue'
 import RSection from './RSection.vue'

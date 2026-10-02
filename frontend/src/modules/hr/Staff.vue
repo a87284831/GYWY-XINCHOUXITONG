@@ -70,8 +70,8 @@
               </td>
               <td><span :class="'tag ' + (STATUS_TAG[s.status] || 'gray')">{{ s.status }}</span></td>
               <td>{{ s.gender || '-' }}</td><td>{{ s.education || '-' }}</td><td>{{ s.hometown || '-' }}</td><td>{{ s.phone || '-' }}</td>
-              <td class="num">{{ money(s.fixed_monthly) }}</td><td class="num">{{ money(s.base_salary) }}</td>
-              <td><span :class="Number(s.tax_mode ?? 0) === 1 ? 'tag blue' : 'tag gray'">{{ Number(s.tax_mode ?? 0) === 1 ? '6万扣除' : '普通' }}</span></td>
+              <td class="num">{{ moneyOrDash(s.fixed_monthly) }}</td><td class="num">{{ moneyOrDash(s.base_salary) }}</td>
+              <td><span :class="s.tax_mode === null || s.tax_mode === undefined ? 'tag gray' : (Number(s.tax_mode) === 1 ? 'tag blue' : 'tag gray')">{{ s.tax_mode === null || s.tax_mode === undefined ? '未知' : (Number(s.tax_mode) === 1 ? '6万扣除' : '普通') }}</span></td>
               <td>{{ s.hire_date || '-' }}</td><td>{{ s.regular_date || '-' }}</td><td>{{ s.resign_date || '-' }}</td>
               <td>{{ maskBankCard(s.bank_card) || '-' }}</td>
               <td>{{ maskIdCard(s.id_card) || '-' }}</td>
@@ -145,11 +145,11 @@
   <!-- 薪资历史弹窗 -->
   <div v-if="dlg === 'history'" class="modal-mask" @mousedown.self="dlg = ''">
     <div class="modal" style="width:760px;max-height:82vh;overflow:auto">
-      <h3>薪资历史 — {{ historyStaff && historyStaff.name }}（当前：固定{{ money(historyStaff && historyStaff.fixed_monthly) }} / 基本{{ money(historyStaff && historyStaff.base_salary) }}）</h3>
+      <h3>薪资历史 — {{ historyStaff && historyStaff.name }}（当前：固定{{ moneyOrDash(historyStaff && historyStaff.fixed_monthly) }} / 基本{{ moneyOrDash(historyStaff && historyStaff.base_salary) }}）</h3>
       <table class="tb"><thead><tr><th>生效日期</th><th>类型</th><th>固定月薪</th><th>基本工资</th><th>说明</th></tr></thead>
         <tbody>
           <tr v-for="(h, i) in historyRows" :key="i">
-            <td>{{ h.effective_date || '—' }}</td><td>{{ h.type }}</td><td class="num">{{ money(h.fixed_monthly) }}</td><td class="num">{{ money(h.base_salary) }}</td><td>{{ h.note || '' }}</td>
+            <td>{{ h.effective_date || '—' }}</td><td>{{ h.type }}</td><td class="num">{{ moneyOrDash(h.fixed_monthly) }}</td><td class="num">{{ moneyOrDash(h.base_salary) }}</td><td>{{ h.note || '' }}</td>
           </tr>
         </tbody>
       </table>
@@ -159,8 +159,8 @@
           <tbody>
             <tr v-for="(a, i) in adjustRows" :key="i">
               <td>{{ a.ts }}</td><td>{{ a.by }}</td><td>{{ a.type }}</td><td>{{ a.effective_date }}</td>
-              <td class="num">{{ money(a.old_fixed) }} / {{ money(a.old_base) }}</td><td class="num">{{ money(a.new_fixed) }} / {{ money(a.new_base) }}</td>
-              <td class="num">{{ a.delta_fixed >= 0 ? '+' : '' }}{{ money(a.delta_fixed) }}</td><td>{{ a.note }}</td>
+              <td class="num">{{ moneyOrDash(a.old_fixed) }} / {{ moneyOrDash(a.old_base) }}</td><td class="num">{{ moneyOrDash(a.new_fixed) }} / {{ moneyOrDash(a.new_base) }}</td>
+              <td class="num">{{ a.delta_fixed >= 0 ? '+' : '' }}{{ moneyOrDash(a.delta_fixed) }}</td><td>{{ a.note }}</td>
             </tr>
           </tbody>
         </table>
@@ -191,7 +191,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 import { dingtalkSyncNow } from '@/utils/dingtalk'
 import { maskBankCard, maskIdCard } from './staffLogic'
 import { loadOrgTree, orgLeaves, orgProjectOf } from './orgStore'

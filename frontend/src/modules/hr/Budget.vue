@@ -19,7 +19,7 @@
       <h3>{{ it.project }} · {{ year }}年度预算　<span :class="it.status === '启用' ? 'tag green' : 'tag gray'">{{ it.status }}</span></h3>
       <div class="row" style="margin-bottom:10px">
         <label class="fld">年度总预算(元) <input type="number" step="0.01" style="width:150px" v-model.number="it.annual" /></label>
-        <span class="hint" style="margin:0">年度总预算自动 = 各月预算之和；年度执行率 = 本年累计实发 ÷ 年度总预算 = <b>{{ pct(it.annual_rate) }}</b></span>
+        <span class="hint" style="margin:0">年度总预算自动 = 各月预算之和；年度执行率 = 本年累计实发 ÷ 年度总预算 = <b>{{ pctOrDash(it.annual_rate) }}</b></span>
       </div>
       <div class="table-wrap">
         <table class="tb">
@@ -33,11 +33,11 @@
             </tr>
             <tr>
               <td>当月实发</td>
-              <td v-for="m in 12" :key="m" class="num">{{ money(it.months_actual[String(m)]) }}</td>
+              <td v-for="m in 12" :key="m" class="num">{{ moneyOrDash(it.months_actual[String(m)]) }}</td>
             </tr>
             <tr>
               <td>月度执行率</td>
-              <td v-for="m in 12" :key="m" class="num">{{ pct(it.month_rates[String(m)]) }}</td>
+              <td v-for="m in 12" :key="m" class="num">{{ pctOrDash(it.month_rates[String(m)]) }}</td>
             </tr>
           </tbody>
         </table>
@@ -54,7 +54,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
-import { money, pct } from '@/utils/format'
+import { moneyOrDash, pctOrDash } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { budgetAnnualFromMonths } from './staffLogic'
 

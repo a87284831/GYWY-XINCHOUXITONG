@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { money, pct, fmtEmpty } from './format'
+import { money, pct, fmtEmpty, moneyOrDash, pctOrDash } from './format'
 
 describe('money（千分位 2 位小数）', () => {
   it('正数千分位格式化', () => {
@@ -37,5 +37,47 @@ describe('fmtEmpty（空值占位符）', () => {
   })
   it('普通字符串原样返回', () => {
     expect(fmtEmpty('abc')).toBe('abc')
+  })
+})
+
+describe('moneyOrDash（金额空值守卫）', () => {
+  it('null → —', () => {
+    expect(moneyOrDash(null)).toBe('—')
+  })
+  it('undefined → —', () => {
+    expect(moneyOrDash(undefined)).toBe('—')
+  })
+  it('空字符串 → —', () => {
+    expect(moneyOrDash('')).toBe('—')
+  })
+  it('0 显示为 0.00（真实 0 不降级）', () => {
+    expect(moneyOrDash(0)).toBe('0.00')
+  })
+  it('123.4 显示为 123.40', () => {
+    expect(moneyOrDash(123.4)).toBe('123.40')
+  })
+  it('负数正常格式化', () => {
+    expect(moneyOrDash(-12.5)).toBe('-12.50')
+  })
+})
+
+describe('pctOrDash（百分比空值守卫）', () => {
+  it('null → —', () => {
+    expect(pctOrDash(null)).toBe('—')
+  })
+  it('undefined → —', () => {
+    expect(pctOrDash(undefined)).toBe('—')
+  })
+  it('空字符串 → —', () => {
+    expect(pctOrDash('')).toBe('—')
+  })
+  it('0 显示为 0.00%（真实 0 不降级）', () => {
+    expect(pctOrDash(0)).toBe('0.00%')
+  })
+  it('0.1234 显示为 12.34%', () => {
+    expect(pctOrDash(0.1234)).toBe('12.34%')
+  })
+  it('负数正常格式化', () => {
+    expect(pctOrDash(-0.05)).toBe('-5.00%')
   })
 })

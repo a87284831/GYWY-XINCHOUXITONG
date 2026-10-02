@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 import { FILL_LINES } from './fillLogic'
 import { lineTotals, budgetCounts } from './summaryLogic'
 
@@ -112,7 +112,7 @@ onMounted(loadMonths)
             <template #default="{ row }">{{ row.price > 0 ? money(row.price) : '待定价' }}</template>
           </el-table-column>
           <el-table-column label="金额（元）" width="110" align="right">
-            <template #default="{ row }">{{ money(row.total) }}</template>
+            <template #default="{ row }">{{ moneyOrDash(row.total) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="100" align="center">
             <template #default="{ row }">
@@ -131,7 +131,7 @@ onMounted(loadMonths)
               <div style="font-size:15px;font-weight:700;">{{ Number(r.month.slice(0, 4)) }} 年 {{ Number(r.month.slice(5)) }} 月</div>
               <el-tag size="small" type="info">已归档</el-tag>
             </div>
-            <div style="font-size:13px;color:#475569;margin-top:8px;">采购金额 ¥{{ money(r.amount) }}</div>
+            <div style="font-size:13px;color:#475569;margin-top:8px;">采购金额 ¥{{ moneyOrDash(r.amount) }}</div>
             <div style="font-size:12px;color:#94a3b8;margin-top:4px;">{{ r.items }} 条明细 · {{ r.projects }} 个项目 · {{ r.lines }} 个条线</div>
             <div style="margin-top:10px;">
               <el-button size="small" type="primary" @click="openMonth(r.month)">查看汇总</el-button>
@@ -152,12 +152,12 @@ onMounted(loadMonths)
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#3b82f6,#6366f1)"></div>
           <div class="dash-kpi-t">全公司采购金额</div>
-          <div class="dash-kpi-v">{{ money(d.total_actual) }} <span class="dash-kpi-s">元</span></div>
+          <div class="dash-kpi-v">{{ moneyOrDash(d.total_actual) }} <span class="dash-kpi-s">元</span></div>
         </div>
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#06b6d4,#0891b2)"></div>
           <div class="dash-kpi-t">预算合计</div>
-          <div class="dash-kpi-v">{{ money(d.total_budget) }} <span class="dash-kpi-s">元</span></div>
+          <div class="dash-kpi-v">{{ moneyOrDash(d.total_budget) }} <span class="dash-kpi-s">元</span></div>
         </div>
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#f43f5e,#e11d48)"></div>
@@ -194,18 +194,18 @@ onMounted(loadMonths)
         <el-table-column prop="project_name" label="采购项目名称" min-width="140" fixed="left" />
         <el-table-column v-for="l in (d.lines || FILL_LINES)" :key="l" :label="l" min-width="90" align="right">
           <template #default="{ row }">
-            <template v-if="row.lines[l]">{{ money(row.lines[l].amount) }}<span style="color:#94a3b8;font-size:11px;">（{{ row.lines[l].cnt }}）</span></template>
+            <template v-if="row.lines[l]">{{ moneyOrDash(row.lines[l].amount) }}<span style="color:#94a3b8;font-size:11px;">（{{ row.lines[l].cnt }}）</span></template>
             <template v-else>—</template>
           </template>
         </el-table-column>
         <el-table-column label="小计(元)" width="110" align="right">
-          <template #default="{ row }">{{ money(row.total) }}</template>
+          <template #default="{ row }">{{ moneyOrDash(row.total) }}</template>
         </el-table-column>
         <el-table-column label="预算(元)" width="110" align="right">
-          <template #default="{ row }">{{ money(row.budget) }}</template>
+          <template #default="{ row }">{{ moneyOrDash(row.budget) }}</template>
         </el-table-column>
         <el-table-column label="实际(元)" width="110" align="right">
-          <template #default="{ row }">{{ money(row.actual) }}</template>
+          <template #default="{ row }">{{ moneyOrDash(row.actual) }}</template>
         </el-table-column>
         <el-table-column label="预算执行率" width="120" align="center">
           <template #default="{ row }">
@@ -216,8 +216,8 @@ onMounted(loadMonths)
       </el-table>
 
       <div style="font-size:12.5px;color:#6b7280;margin:8px 0 16px;">
-        月度合计：{{ d.lines.map((l) => l + ' ¥' + money(totals[l])).join('，') }}；{{ d.matrix.length }} 个项目，
-        预算合计 ¥{{ money(d.total_budget) }}，实际合计 ¥{{ money(d.total_actual) }}，
+        月度合计：{{ d.lines.map((l) => l + ' ¥' + moneyOrDash(totals[l])).join('，') }}；{{ d.matrix.length }} 个项目，
+        预算合计 ¥{{ moneyOrDash(d.total_budget) }}，实际合计 ¥{{ moneyOrDash(d.total_actual) }}，
         执行率 {{ d.total_rate === null ? '—' : d.total_rate + '%' }}
       </div>
 
@@ -236,7 +236,7 @@ onMounted(loadMonths)
           <template #default="{ row }">{{ row.price > 0 ? money(row.price) : '待定价' }}</template>
         </el-table-column>
         <el-table-column label="金额（元）" width="110" align="right">
-          <template #default="{ row }">{{ money(row.total) }}</template>
+          <template #default="{ row }">{{ moneyOrDash(row.total) }}</template>
         </el-table-column>
       </el-table>
     </template>

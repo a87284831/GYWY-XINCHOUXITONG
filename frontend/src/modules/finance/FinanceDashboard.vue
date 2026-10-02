@@ -5,6 +5,7 @@ import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { FIN, ensureMeta } from './meta'
 import { fmtMoney, trendData, roseData, rankData, histData, heatData, sankeyData, qs, defaultYears } from './financeLogic'
+import { fmtEmpty, moneyOrDash } from '@/utils/format'
 import { charts, trendAreaOpt, sankeyOpt, roseOpt, hbarOpt, heatOpt, histOpt } from './financeCharts'
 import './finance.css'
 
@@ -21,8 +22,8 @@ const KPIS = [
 ]
 
 function kpiVal(k) {
-  if (k === 'active_months') return String(d.value.cards.active_months || 0)
-  return fmtMoney(d.value.cards[k])
+  if (k === 'active_months') return fmtEmpty(d.value.cards.active_months)
+  return moneyOrDash(d.value.cards[k])
 }
 
 async function query() {
@@ -76,12 +77,12 @@ onBeforeUnmount(() => charts.dispose())
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed)"></div>
           <div class="dash-kpi-t">有数据月份(应收)</div>
-          <div class="dash-kpi-v">{{ String(d.cards.active_months || 0) }} <span class="dash-kpi-s">个月</span></div>
+          <div class="dash-kpi-v">{{ fmtEmpty(d.cards.active_months) }} <span class="dash-kpi-s">个月</span></div>
         </div>
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)"></div>
           <div class="dash-kpi-t">付款支付率</div>
-          <div class="dash-kpi-v">{{ d.cards.payment_rate || 0 }} <span class="dash-kpi-s">%</span></div>
+          <div class="dash-kpi-v">{{ fmtEmpty(d.cards.payment_rate) }} <span class="dash-kpi-s">%</span></div>
           <div style="height:8px;background:#eef2f7;border-radius:99px;margin-top:10px;overflow:hidden;">
             <div style="height:100%;background:linear-gradient(90deg,#ec4899,#f43f5e);border-radius:99px;transition:width .6s;"
               :style="{ width: Math.min(d.cards.payment_rate || 0, 100) + '%' }"></div>

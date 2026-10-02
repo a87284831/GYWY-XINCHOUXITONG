@@ -7,6 +7,7 @@ import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
 import { FILL_LINES } from './fillLogic'
 import { myYearList, monthCardTag } from './systemLogic'
+import { moneyOrDash } from '@/utils/format'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -218,7 +219,7 @@ onMounted(async () => {
               退回原因：{{ card.return_reason }}
             </div>
           </div>
-          <div v-if="card.imported" style="color:#2b5a9e;font-weight:600">采购金额 ¥{{ money2(card.amount) }}</div>
+          <div v-if="card.imported" style="color:#2b5a9e;font-weight:600">采购金额 ¥{{ moneyOrDash(card.amount) }}</div>
           <div v-else-if="card.item_count > 0" style="color:#bbb">招采确认并导入价格后显示金额</div>
         </div>
         <div style="padding:10px 14px;border-top:1px solid #eef1f6;text-align:right;background:#fff">

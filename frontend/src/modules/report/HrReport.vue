@@ -26,7 +26,7 @@
           <RCard label="本月入职" :value="d.kpis.in" :delta="d.deltas.in" color="#16a34a" />
           <RCard label="本月离职" :value="d.kpis.out" :delta="d.deltas.out" color="#dc2626" />
           <RCard label="本月转正" :value="d.kpis.regular" :delta="d.deltas.regular" color="#8b5cf6" />
-          <RCard label="人均薪酬" :value="rMoney(d.kpis.avg_pay)" :delta="d.deltas.avg_pay" sub="当月应发/发放人数" color="#f59e0b" />
+          <RCard label="人均薪酬" :value="rMoneyOrDash(d.kpis.avg_pay)" :delta="d.deltas.avg_pay" sub="当月应发/发放人数" color="#f59e0b" />
           <RCard label="人均司龄" :value="d.kpis.avg_tenure + ' 年'" sub="在职员工平均司龄" color="#0ea5e9" />
         </div>
         <div class="rpt-grid-2">
@@ -67,7 +67,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { api } from '@/api/client'
 import { useReportStore } from '@/stores/report'
-import { rMoney } from './reportLogic'
+import { rMoneyOrDash } from './reportLogic'
 import { createCharts, rBar, rHBar, rLine } from './chartKit'
 import RCard from './RCard.vue'
 import RSection from './RSection.vue'

@@ -23,7 +23,7 @@
           🔒 <b>{{ sel.name }}</b> 已绑定钉钉，薪资以钉钉花名册为唯一权威源。请在钉钉发起调薪/转正定薪，同步后自动生效，系统内不再受理调薪。
         </div>
         <template v-else>
-        <div class="msg info">已选择：<b>{{ sel.name }}</b>（{{ sel.project }}，{{ sel.status }}）　现有薪资：固定 {{ money(sel.fixed) }} / 基本 {{ money(sel.base) }}</div>
+        <div class="msg info">已选择：<b>{{ sel.name }}</b>（{{ sel.project }}，{{ sel.status }}）　现有薪资：固定 {{ moneyOrDash(sel.fixed) }} / 基本 {{ moneyOrDash(sel.base) }}</div>
         <div class="form-grid" style="max-width:680px">
           <label>变更类型<select v-model="fType"><option>调薪</option><option>转正</option></select></label>
           <label>生效日期（按此日期拆分当月工资）<input type="date" v-model="fDate" /></label>
@@ -55,9 +55,9 @@
               <td>{{ a.ts }}</td><td>{{ a.by }}</td><td>{{ a.name }}</td><td>{{ a.project }}</td>
               <td><span :class="a.type === '转正' ? 'tag purple' : 'tag blue'">{{ a.type }}</span></td>
               <td>{{ a.effective_date }}</td>
-              <td class="num">{{ money(a.old_fixed) }} / {{ money(a.old_base) }}</td>
-              <td class="num">{{ money(a.new_fixed) }} / {{ money(a.new_base) }}</td>
-              <td class="num" :style="{ color: a.delta_fixed >= 0 ? '#16a34a' : '#dc2626' }">{{ a.delta_fixed >= 0 ? '增 ' : '减 ' }}{{ money(Math.abs(a.delta_fixed)) }}</td>
+              <td class="num">{{ moneyOrDash(a.old_fixed) }} / {{ moneyOrDash(a.old_base) }}</td>
+              <td class="num">{{ moneyOrDash(a.new_fixed) }} / {{ moneyOrDash(a.new_base) }}</td>
+              <td class="num" :style="{ color: a.delta_fixed >= 0 ? '#16a34a' : '#dc2626' }">{{ a.delta_fixed >= 0 ? '增 ' : '减 ' }}{{ moneyOrDash(Math.abs(a.delta_fixed)) }}</td>
               <td>{{ a.note }}</td>
             </tr>
           </tbody>
@@ -72,7 +72,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 
 const auth = useAuthStore()
 const kw = ref('')

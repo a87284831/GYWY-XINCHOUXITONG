@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { budgetStats, budgetRowState, budgetYears, hasBudgetMonth } from './adminLogic'
 
@@ -190,14 +190,14 @@ onMounted(() => {
       <el-table-column label="已导入金额（元）" width="150" align="right">
         <template #default="{ row }">
           <span :style="{ color: row.over ? '#e64545' : row.actual > 0 ? '#2b5a9e' : '#ccc', fontWeight: row.over ? 600 : 400 }">
-            {{ money(row.actual) }}
+            {{ moneyOrDash(row.actual) }}
           </span>
         </template>
       </el-table-column>
       <el-table-column label="差值（元）" width="140" align="right">
         <template #default="{ row }">
           <span v-if="row.budget > 0" :style="{ color: row.diff < 0 ? '#e64545' : '#666', fontWeight: row.diff < 0 ? 600 : 400 }">
-            {{ row.diff >= 0 ? '+' : '' }}{{ money(row.diff) }}
+            {{ row.diff >= 0 ? '+' : '' }}{{ moneyOrDash(row.diff) }}
           </span>
           <span v-else style="color:#ccc">--</span>
         </template>

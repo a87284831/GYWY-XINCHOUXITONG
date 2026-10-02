@@ -30,10 +30,10 @@
     <div style="margin-top:12px" v-if="!loadErr">
       <div class="stat-cards">
         <div class="stat"><div class="k">发放人数（有效考勤）</div><div class="v">{{ t.headcount }}</div></div>
-        <div class="stat"><div class="k">应发总金额</div><div class="v">{{ money(t.gross) }}</div></div>
-        <div class="stat"><div class="k">实发总金额</div><div class="v">{{ money(t.net) }}</div></div>
-        <div class="stat"><div class="k">当月预算执行率</div><div class="v">{{ pct(t.month_rate) }}</div></div>
-        <div class="stat"><div class="k">年度预算执行率</div><div class="v">{{ pct(t.annual_rate) }}</div></div>
+        <div class="stat"><div class="k">应发总金额</div><div class="v">{{ moneyOrDash(t.gross) }}</div></div>
+        <div class="stat"><div class="k">实发总金额</div><div class="v">{{ moneyOrDash(t.net) }}</div></div>
+        <div class="stat"><div class="k">当月预算执行率</div><div class="v">{{ pctOrDash(t.month_rate) }}</div></div>
+        <div class="stat"><div class="k">年度预算执行率</div><div class="v">{{ pctOrDash(t.annual_rate) }}</div></div>
       </div>
       <div v-if="archived" class="msg info">该月已归档锁定，如需修改须超管在"薪资核算"页解锁。</div>
       <div class="table-wrap">
@@ -45,18 +45,18 @@
           <tbody>
             <tr v-for="it in filtered" :key="it.project">
               <td>{{ it.project }}</td><td class="num">{{ it.headcount }}</td>
-              <td class="num">{{ money(it.gross) }}</td><td class="num">{{ money(it.net) }}</td>
-              <td class="num">{{ money(it.month_budget) }}</td><td class="num">{{ pct(it.month_rate) }}</td>
-              <td class="num">{{ money(it.annual_budget) }}</td><td class="num">{{ money(it.ytd_gross) }}</td>
-              <td class="num">{{ pct(it.annual_rate) }}</td>
+              <td class="num">{{ moneyOrDash(it.gross) }}</td><td class="num">{{ moneyOrDash(it.net) }}</td>
+              <td class="num">{{ moneyOrDash(it.month_budget) }}</td><td class="num">{{ pctOrDash(it.month_rate) }}</td>
+              <td class="num">{{ moneyOrDash(it.annual_budget) }}</td><td class="num">{{ moneyOrDash(it.ytd_gross) }}</td>
+              <td class="num">{{ pctOrDash(it.annual_rate) }}</td>
               <td><span :class="it.calculated ? 'tag green' : 'tag gray'">{{ it.calculated ? '已核算' : '未核算' }}</span></td>
             </tr>
             <tr style="font-weight:bold;background:#f3f6fb">
               <td>{{ totalLabel }}</td><td class="num">{{ t.headcount }}</td>
-              <td class="num">{{ money(t.gross) }}</td><td class="num">{{ money(t.net) }}</td>
-              <td class="num">{{ money(t.month_budget) }}</td><td class="num">{{ pct(t.month_rate) }}</td>
-              <td class="num">{{ money(t.annual_budget) }}</td><td class="num">{{ money(t.ytd_gross) }}</td>
-              <td class="num">{{ pct(t.annual_rate) }}</td><td></td>
+              <td class="num">{{ moneyOrDash(t.gross) }}</td><td class="num">{{ moneyOrDash(t.net) }}</td>
+              <td class="num">{{ moneyOrDash(t.month_budget) }}</td><td class="num">{{ pctOrDash(t.month_rate) }}</td>
+              <td class="num">{{ moneyOrDash(t.annual_budget) }}</td><td class="num">{{ moneyOrDash(t.ytd_gross) }}</td>
+              <td class="num">{{ pctOrDash(t.annual_rate) }}</td><td></td>
             </tr>
           </tbody>
         </table>
@@ -71,7 +71,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { api, download } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
-import { money, pct } from '@/utils/format'
+import { moneyOrDash, pctOrDash } from '@/utils/format'
 import { summaryTotals } from './payrollLogic'
 
 const ui = useUiStore()

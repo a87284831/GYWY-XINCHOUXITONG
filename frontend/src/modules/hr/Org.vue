@@ -21,7 +21,7 @@
             <div v-for="n in hits" :key="n.id" class="tree-row" :class="{ active: selId === n.id }" style="padding-left:10px" @click="selNode(n.id)">
               <span class="tree-ico" v-html="nodeIco(n.type, 15)"></span>
               <span class="tree-nm">{{ n.name }}</span>
-              <span class="tree-cnt">{{ n.count_in || 0 }}</span>
+              <span class="tree-cnt">{{ fmtEmpty(n.count_in) }}</span>
             </div>
           </template>
           <div v-else class="msg info" style="font-size:12px">未找到「{{ kw.trim() }}」相关部门</div>
@@ -51,15 +51,15 @@
             </div>
             <div class="org-meta">
               <span>上级：<b>{{ parentName(n) || '—' }}</b></span>
-              <span>在职人数：<b>{{ n.count_in || 0 }}</b></span>
-              <span>离职人数：<b>{{ n.count_out || 0 }}</b></span>
+              <span>在职人数：<b>{{ fmtEmpty(n.count_in) }}</b></span>
+              <span>离职人数：<b>{{ fmtEmpty(n.count_out) }}</b></span>
               <span>子部门：<b>{{ subDepts.length }}</b></span>
               <span v-if="n.type === 'project'">状态：<b style="color:#00b42a">启用</b></span>
             </div>
           </div>
           <div class="org-kpis">
-            <div class="org-kpi"><div class="org-kpi-lbl">在职人数</div><div class="org-kpi-num">{{ n.count_in || 0 }}<small>人</small></div></div>
-            <div class="org-kpi"><div class="org-kpi-lbl">离职（历史）</div><div class="org-kpi-num">{{ n.count_out || 0 }}<small>人</small></div></div>
+            <div class="org-kpi"><div class="org-kpi-lbl">在职人数</div><div class="org-kpi-num">{{ fmtEmpty(n.count_in) }}<small>人</small></div></div>
+            <div class="org-kpi"><div class="org-kpi-lbl">离职（历史）</div><div class="org-kpi-num">{{ fmtEmpty(n.count_out) }}<small>人</small></div></div>
             <div class="org-kpi"><div class="org-kpi-lbl">子部门</div><div class="org-kpi-num">{{ subDepts.length }}<small>个</small></div></div>
             <div class="org-kpi"><div class="org-kpi-lbl">节点编码</div><div class="org-kpi-num" style="font-size:17px;line-height:34px">{{ n.code || '—' }}</div></div>
           </div>
@@ -78,7 +78,7 @@
             <div v-for="s in subDepts" :key="s.id" class="org-subdept" style="cursor:pointer" @click="selNode(s.id)">
               <span class="tree-ico" style="margin-right:8px" v-html="nodeIco(s.type, 15)"></span>
               <span style="font-weight:500;font-size:13.5px">{{ s.name }}</span>
-              <span style="color:#86909c;font-size:12px;margin-left:8px">{{ s.count_in || 0 }} 人</span>
+              <span style="color:#86909c;font-size:12px;margin-left:8px">{{ fmtEmpty(s.count_in) }} 人</span>
               <span style="margin-left:auto;display:flex;gap:8px" @click.stop>
                 <span class="org-link danger" @click="delNode(s.id)">删除</span>
                 <span class="org-link" @click="editNode(s.id)">编辑</span>
@@ -221,6 +221,7 @@ import { ORG_ICON, ORG_COLOR, ORG_BG, ORG_TYPE_NAME, ORG_TYPE_TAG } from './orgM
 import { loadOrgTree, orgTree, orgFlat, orgLeaves, orgNode, orgProjectOf, orgSel, setOrgSel } from './orgStore'
 import OrgTreeNode from './OrgTreeNode.vue'
 import OrgChartNode from './OrgChartNode.vue'
+import { fmtEmpty } from '@/utils/format'
 
 const auth = useAuthStore()
 const view = ref('list')

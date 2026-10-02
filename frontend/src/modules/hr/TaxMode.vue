@@ -25,7 +25,7 @@
               <tr v-for="s in staff" :key="s.id">
                 <td style="text-align:center"><input type="checkbox" class="tmChk" :checked="sel.has(s.id)" @change="toggle(s.id, $event.target.checked)" /></td>
                 <td><b>{{ s.name }}</b></td><td>{{ s.project }}</td><td>{{ s.dept_path || '未分配' }}</td><td>{{ s.position }}</td>
-                <td><span :class="Number(s.tax_mode ?? 0) === 1 ? 'tag blue' : 'tag gray'">{{ Number(s.tax_mode ?? 0) === 1 ? '6万扣除' : '普通' }}</span></td>
+                <td><span :class="s.tax_mode === null || s.tax_mode === undefined ? 'tag gray' : (Number(s.tax_mode) === 1 ? 'tag blue' : 'tag gray')">{{ s.tax_mode === null || s.tax_mode === undefined ? '未知' : (Number(s.tax_mode) === 1 ? '6万扣除' : '普通') }}</span></td>
                 <td>
                   <select :value="Number(s.tax_mode ?? 0)" @change="saveOne(s, $event.target.value)">
                     <option value="0">普通模式</option><option value="1">6万扣除</option>

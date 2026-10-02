@@ -8,3 +8,8 @@ export function deltaInfo(v) {
 export function rMoney(v) {
   return '¥' + (Number(v) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+/** 金额空值守卫（报表）：null/undefined/'' → '—'；其余走 rMoney（真实 0 → '¥0.00'） */
+export function rMoneyOrDash(v) {
+  return v === null || v === undefined || v === '' ? '—' : rMoney(v)
+}

@@ -5,6 +5,7 @@ import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { FIN, ensureMeta } from './meta'
 import { fmtMoney, moneyCell, summaryTotals, qs, defaultYears } from './financeLogic'
+import { moneyOrDash } from '@/utils/format'
 import './finance.css'
 
 const year = ref(new Date().getFullYear())
@@ -72,12 +73,12 @@ onMounted(async () => {
             <tr v-for="m in a.months" :key="m">
               <td>{{ m }}</td>
               <td v-for="k in cats" :key="k">{{ moneyCell(a.grid[m][k]) }}</td>
-              <td style="font-weight:600;">{{ fmtMoney(a.month_total[m]) }}</td>
+              <td style="font-weight:600;">{{ moneyOrDash(a.month_total[m]) }}</td>
             </tr>
             <tr style="background:#f0f4fa;font-weight:700;">
               <td>{{ year === 'all' ? '累计合计' : '年度合计' }}</td>
               <td v-for="k in cats" :key="k">{{ fmtMoney(catTotals[k]) }}</td>
-              <td>{{ fmtMoney(a.grand_total) }}</td>
+              <td>{{ moneyOrDash(a.grand_total) }}</td>
             </tr>
           </tbody>
         </table>
@@ -99,8 +100,8 @@ onMounted(async () => {
               <tr v-for="pj in pr.projects.filter((x) => x.total > 0)" :key="pj.name">
                 <td>{{ pj.name }}</td>
                 <td v-for="k in cats" :key="k">{{ moneyCell(pj.categories[k]) }}</td>
-                <td style="font-weight:600;">{{ fmtMoney(pj.total) }}</td>
-                <td>{{ fmtMoney(pj.discount_total) }}</td>
+                <td style="font-weight:600;">{{ moneyOrDash(pj.total) }}</td>
+                <td>{{ moneyOrDash(pj.discount_total) }}</td>
               </tr>
             </tbody>
           </table>
@@ -122,7 +123,7 @@ onMounted(async () => {
               <tr v-for="pj in pay.projects.filter((x) => x.total > 0)" :key="pj.name">
                 <td>{{ pj.name }}</td>
                 <td v-for="k in payTypes" :key="k">{{ moneyCell(pj.types[k]) }}</td>
-                <td style="font-weight:600;">{{ fmtMoney(pj.total) }}</td>
+                <td style="font-weight:600;">{{ moneyOrDash(pj.total) }}</td>
               </tr>
             </tbody>
           </table>

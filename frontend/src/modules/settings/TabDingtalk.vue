@@ -21,7 +21,7 @@
       <tbody>
         <tr><td>凭证已配置</td><td>{{ status.configured ? '是' : '否（请先保存 AppKey/Secret）' }}</td></tr>
         <tr><td>上次同步</td><td>{{ status.last_sync_at || '从未' }}（{{ statusLabel }}）</td></tr>
-        <tr><td>同步人员数</td><td>{{ status.last_sync_count ?? 0 }}</td></tr>
+        <tr><td>同步人员数</td><td>{{ fmtEmpty(status.last_sync_count) }}</td></tr>
         <tr><td>本系统在职 / 离职</td><td>{{ status.staff_active }} / {{ status.staff_resigned }}（共 {{ status.staff_total }}）</td></tr>
         <tr><td>绑定钉钉人员</td><td>{{ status.staff_bound }}</td></tr>
         <tr><td>组织节点 / 绑定钉钉部门</td><td>{{ status.org_bound }} / {{ status.org_total }}</td></tr>
@@ -37,6 +37,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { dingtalkConfigToDraft, dingtalkDraftToPayload } from './dingtalkSettingsLogic'
+import { fmtEmpty } from '@/utils/format'
 import { dingtalkSyncNow } from '@/utils/dingtalk'
 
 const fm = reactive(dingtalkConfigToDraft({}))

@@ -53,16 +53,16 @@
                 <td class="num">{{ (view.stats[n] || {}).absent }}</td>
                 <td class="num">{{ (view.stats[n] || {}).late }}</td>
                 <td class="num">{{ (view.stats[n] || {}).early }}</td>
-                <td class="num">{{ view.rows[n].coef == null ? 0 : view.rows[n].coef }}</td>
-                <td class="num">{{ money(view.rows[n].meal_sub) }}</td><td class="num">{{ money(view.rows[n].reward) }}</td>
-                <td class="num">{{ money(view.rows[n].punish) }}</td>
-                <td class="num">{{ money(view.rows[n].pen) }}</td><td class="num">{{ money(view.rows[n].med) }}</td>
-                <td class="num">{{ money(view.rows[n].une) }}</td><td class="num">{{ money(view.rows[n].house) }}</td>
-                <td class="num">{{ money(view.rows[n].big) }}</td>
-                <td class="num">{{ money(view.rows[n].miss_deduct) }}</td>
-                <td class="num">{{ money(view.rows[n].late_deduct) }}</td>
-                <td class="num">{{ money(view.rows[n].other_deduct) }}</td>
-                <td class="num">{{ money(view.rows[n].uniform_deduct) }}</td>
+                <td class="num">{{ fmtEmpty(view.rows[n].coef) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].meal_sub) }}</td><td class="num">{{ moneyOrDash(view.rows[n].reward) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].punish) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].pen) }}</td><td class="num">{{ moneyOrDash(view.rows[n].med) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].une) }}</td><td class="num">{{ moneyOrDash(view.rows[n].house) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].big) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].miss_deduct) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].late_deduct) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].other_deduct) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].uniform_deduct) }}</td>
               </tr>
             </tbody>
           </table>
@@ -77,7 +77,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { money } from '@/utils/format'
+import { money, moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
 
 const auth = useAuthStore()

@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 import { monthCardStatus, fillCardAction } from './fillLogic'
 
 const router = useRouter()
@@ -107,7 +107,7 @@ onMounted(async () => {
           {{ r.returned_count }} 条被退回，请修改后重新提交
         </div>
         <div v-if="r.return_reason" style="font-size:12px;color:#dc2626;opacity:.85;margin-top:2px;">退回原因：{{ r.return_reason }}</div>
-        <div v-if="r.imported" style="font-size:13px;color:#16a34a;margin-top:6px;">采购金额 ¥{{ money(r.amount) }}</div>
+        <div v-if="r.imported" style="font-size:13px;color:#16a34a;margin-top:6px;">采购金额 ¥{{ moneyOrDash(r.amount) }}</div>
         <div style="margin-top:10px;">
           <el-button size="small" :type="fillCardAction(r, curMonth).type" @click="enter(r)">{{ fillCardAction(r, curMonth).text }}</el-button>
         </div>

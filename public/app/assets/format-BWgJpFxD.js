@@ -1,0 +1,1 @@
+function t(n){return Number(n||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2})}function u(n){return(Number(n||0)*100).toFixed(2)+"%"}function e(n){return n==null||n===""?"—":n}function r(n){return n==null||n===""?"—":t(n)}function o(n){return n==null||n===""?"—":u(n)}export{t as a,e as f,r as m,o as p};

@@ -3,7 +3,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { money } from '@/utils/format'
+import { money, moneyOrDash } from '@/utils/format'
 import { ElMessageBox } from 'element-plus'
 import { FILL_LINES } from './fillLogic'
 import { aliasList, unboundSummary } from './summaryLogic'
@@ -185,7 +185,7 @@ onMounted(() => {
 
     <div v-if="unbound && ub.rows > 0" class="dash-card" style="padding:10px 14px;margin:12px 0;">
       <div style="font-size:12.5px;color:#b45309;">
-        存档中有 {{ ub.rows }} 行采购记录未绑定商品库商品（{{ ub.kinds }} 种，涉及金额 ￥{{ money(ub.amount) }}）。
+        存档中有 {{ ub.rows }} 行采购记录未绑定商品库商品（{{ ub.kinds }} 种，涉及金额 ￥{{ moneyOrDash(ub.amount) }}）。
         其中 {{ ub.bindableKinds }} 种可按“名称+规格+单位”自动绑定，其余为商品库缺失商品（{{ ub.missingRows }} 行）
         <el-link type="primary" style="font-size:12px;vertical-align:baseline;" @click="showUnbound = !showUnbound">{{ showUnbound ? '收起' : '展开明细' }}</el-link>
       </div>
@@ -195,7 +195,7 @@ onMounted(() => {
         <el-table-column prop="unit" label="单位" width="70" />
         <el-table-column prop="rows" label="行数" width="70" align="right" />
         <el-table-column label="金额" width="110" align="right">
-          <template #default="{ row }">{{ money(row.amount) }}</template>
+          <template #default="{ row }">{{ moneyOrDash(row.amount) }}</template>
         </el-table-column>
         <el-table-column prop="last_month" label="最近月份" width="90" />
         <el-table-column label="状态" width="100" align="center">

@@ -31,10 +31,10 @@
         <tr v-else-if="!loaded"><td colspan="12">加载中...</td></tr>
         <tr v-else-if="!rows.length"><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">无匹配合同记录</td></tr>
         <tr v-for="r in rows" :key="r.id">
-          <td>{{ r.project_name }}</td><td>{{ r.party }}</td><td class="num">{{ maintFmtMoney(r.amount) }}</td>
+          <td>{{ r.project_name }}</td><td>{{ r.party }}</td><td class="num">{{ moneyOrDash(r.amount) }}</td>
           <td>{{ r.sign_date || '' }}</td><td>{{ r.start_date || '' }}</td><td>{{ r.end_date || '' }}</td>
-          <template v-if="isElev"><td>{{ r.elevator_count || 0 }}</td><td>{{ r.price_per_unit ? maintFmtMoney(r.price_per_unit) : '-' }}</td></template>
-          <template v-else><td>{{ r.building_area_sqm || '-' }}</td><td>{{ r.price_per_sqm ? maintFmtMoney(r.price_per_sqm) : '-' }}</td></template>
+          <template v-if="isElev"><td>{{ fmtEmpty(r.elevator_count) }}</td><td>{{ r.price_per_unit ? moneyOrDash(r.price_per_unit) : '-' }}</td></template>
+          <template v-else><td>{{ r.building_area_sqm || '-' }}</td><td>{{ r.price_per_sqm ? moneyOrDash(r.price_per_sqm) : '-' }}</td></template>
           <td><span :class="badgeCls(r)">{{ badgeText(r) }}</span></td>
           <td>{{ r.remark || '' }}</td>
           <td>
@@ -86,6 +86,7 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
 import { maintFmtMoney, maintStatusOf, maintOverlapsYear, filterLedger, buildLedgerExportRows, buildCsv, priceAutoCalc } from './maintLogic'
+import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import MaintModal from './MaintModal.vue'
 
 const props = defineProps({ type: { type: String, default: 'fire' } })

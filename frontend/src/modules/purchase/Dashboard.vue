@@ -4,7 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { money } from '@/utils/format'
+import { moneyOrDash } from '@/utils/format'
 import ChartBox from '@/components/ChartBox.vue'
 import { prevMonth, sumRows, signedMoney, deltaInfo, rateText, topWindow, qs } from './purchaseLogic'
 import {
@@ -79,7 +79,7 @@ const yearAvgText = computed(() => {
   if (!trend.value || !trend.value.year_avg) return ''
   const keys = Object.keys(trend.value.year_avg).sort().reverse()
   if (!keys.length) return ''
-  return keys.map((y) => y + '年均价 ' + money(trend.value.year_avg[y]) + ' 元').join('，')
+  return keys.map((y) => y + '年均价 ' + moneyOrDash(trend.value.year_avg[y]) + ' 元').join('，')
 })
 
 async function load() {
@@ -115,13 +115,13 @@ onMounted(load)
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#3b82f6,#6366f1)"></div>
           <div class="dash-kpi-t">本月采购金额</div>
-          <div class="dash-kpi-v">{{ money(d.monthly.overview.amount) }} <span class="dash-kpi-s">元</span></div>
+          <div class="dash-kpi-v">{{ moneyOrDash(d.monthly.overview.amount) }} <span class="dash-kpi-s">元</span></div>
           <div style="font-size:12px;margin-top:4px;" :style="deltaStyle(kpiDelta.up)">{{ kpiDelta.text }}</div>
         </div>
         <div class="dash-kpi">
           <div class="dash-kpi-bar" style="background:linear-gradient(135deg,#06b6d4,#0891b2)"></div>
           <div class="dash-kpi-t">当年度累计采购金额</div>
-          <div class="dash-kpi-v">{{ money(d.ytd.ytd) }} <span class="dash-kpi-s">元</span></div>
+          <div class="dash-kpi-v">{{ moneyOrDash(d.ytd.ytd) }} <span class="dash-kpi-s">元</span></div>
           <div style="font-size:12px;margin-top:4px;" :style="deltaStyle(ytdSub.up)">{{ ytdSub.text }}</div>
         </div>
         <div class="dash-kpi">
@@ -194,8 +194,8 @@ onMounted(load)
               <tr v-if="!pa.rows.length"><td colspan="6" style="text-align:center;color:#94a3b8;">本月无价格异常商品</td></tr>
               <tr v-for="r in pa.rows" :key="r.item_name">
                 <td>{{ r.item_name }}</td>
-                <td>{{ money(r.cur_price) }}</td>
-                <td>{{ money(r.prev_price) }}</td>
+                <td>{{ moneyOrDash(r.cur_price) }}</td>
+                <td>{{ moneyOrDash(r.prev_price) }}</td>
                 <td :style="deltaStyle(rateCell(r).up)">{{ rateCell(r).text }}</td>
                 <td>{{ r.cnt }} 次</td>
                 <td>{{ r.qty }} {{ r.units }}</td>

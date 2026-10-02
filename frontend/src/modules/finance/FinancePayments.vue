@@ -4,6 +4,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { fmtMoney, ledgerMonthSum, payGroupByProject } from './financeLogic'
+import { moneyOrDash } from '@/utils/format'
 import './finance.css'
 
 const d = ref(null)
@@ -38,9 +39,9 @@ async function load() {
 
 function pTotal(sk, pj) {
   const key = `${sk}|${pj.project_id}`
-  if (!touched.has(key)) return fmtMoney(pj.total)
+  if (!touched.has(key)) return moneyOrDash(pj.total)
   const s = ledgerMonthSum(types.value.map((k) => cellV[`${sk}|${pj.project_id}|${k}`]))
-  return fmtMoney(s)
+  return moneyOrDash(s)
 }
 
 async function saveBlock(sk) {

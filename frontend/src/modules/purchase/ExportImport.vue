@@ -4,6 +4,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { exportMonthName, exportYearName, overBudgetReason, batchSummary } from './systemLogic'
+import { moneyOrDash } from '@/utils/format'
 
 const now = new Date()
 const exportMonth = ref(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'))
@@ -313,13 +314,13 @@ onMounted(loadArchive)
         <el-table :data="overRows" border size="small">
           <el-table-column prop="project_name" label="项目" min-width="140" />
           <el-table-column label="预算（元）" width="110" align="right">
-            <template #default="{ row }">¥{{ money2(row.budget) }}</template>
+            <template #default="{ row }">¥{{ moneyOrDash(row.budget) }}</template>
           </el-table-column>
           <el-table-column label="已导入（元）" width="120" align="right">
-            <template #default="{ row }">¥{{ money2(row.actual) }}</template>
+            <template #default="{ row }">¥{{ moneyOrDash(row.actual) }}</template>
           </el-table-column>
           <el-table-column label="超支（元）" width="120" align="right">
-            <template #default="{ row }"><b style="color:#e64545">¥{{ money2(row.actual - row.budget) }}</b></template>
+            <template #default="{ row }"><b style="color:#e64545">¥{{ moneyOrDash(row.actual === null || row.actual === undefined || row.budget === null || row.budget === undefined ? null : row.actual - row.budget) }}</b></template>
           </el-table-column>
         </el-table>
         <div style="margin-top:12px;color:#999;font-size:12px">
@@ -341,7 +342,7 @@ onMounted(loadArchive)
         <el-table-column prop="month" label="月份" width="120" />
         <el-table-column prop="items" label="条目数" width="100" align="right" />
         <el-table-column label="合计金额（元）" width="140" align="right">
-          <template #default="{ row }">￥{{ Number(row.amount || 0).toLocaleString() }}</template>
+          <template #default="{ row }">￥{{ moneyOrDash(row.amount) }}</template>
         </el-table-column>
         <el-table-column prop="projects" label="覆盖项目数" width="110" align="right" />
         <el-table-column prop="imported_at" label="最近导入时间" width="170" />

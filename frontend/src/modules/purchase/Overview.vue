@@ -48,6 +48,8 @@ const editVisible = ref(false)
 const editRow = ref(null)
 const editSaving = ref(false)
 
+import { moneyOrDash } from '@/utils/format'
+
 function money2(n) {
   return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -420,8 +422,8 @@ onMounted(load)
               </div>
               <div v-if="row.budget > 0 || row.amount > 0"
                 style="margin-top:3px;font-size:12px;border-top:1px dashed #e0e6ef;padding-top:3px">
-                <div>预算 ¥{{ money2(row.budget) }}</div>
-                <div :style="row.over ? 'color:#e64545;font-weight:600' : 'color:#2b5a9e'"> 已导入 ¥{{ money2(row.amount) }}</div>
+                <div>预算 ¥{{ moneyOrDash(row.budget) }}</div>
+                <div :style="row.over ? 'color:#e64545;font-weight:600' : 'color:#2b5a9e'"> 已导入 ¥{{ moneyOrDash(row.amount) }}</div>
                 <div v-if="row.budget > 0" style="margin-top:2px">
                   <el-tag :type="row.over ? 'danger' : 'success'" size="small" effect="dark" style="margin-right:4px">
                     {{ row.over ? '超支' : '预算内' }}
@@ -455,9 +457,9 @@ onMounted(load)
         <span>已确认 <b style="color:#67c23a">{{ summary.confirmed }}</b> 条</span>
         <span v-if="summary.returned > 0">已退回 <b style="color:#e64545">{{ summary.returned }}</b> 条</span>
         <span>待确认 <b style="color:#e6a23c">{{ summary.pending }}</b> 条</span>
-        <span style="color:#2b5a9e">预算 ¥{{ money2(summary.total_budget) }}</span>
+        <span style="color:#2b5a9e">预算 ¥{{ moneyOrDash(summary.total_budget) }}</span>
         <span :style="summary.total_rate > 100 ? 'color:#e64545;font-weight:600' : 'color:#2b5a9e'">
-          已导入 ¥{{ money2(summary.total_amount) }}
+          已导入 ¥{{ moneyOrDash(summary.total_amount) }}
         </span>
         <span v-if="summary.total_budget > 0">
           <el-tag :type="summary.total_rate > 100 ? 'danger' : 'success'" size="small" effect="dark" style="margin-right:4px">

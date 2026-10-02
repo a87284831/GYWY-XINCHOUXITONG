@@ -89,10 +89,7 @@ import { APPS, HOME_BUILT, HOME_META, appEnabled, APP_ROUTE, goPage } from '@/na
 const router = useRouter()
 const auth = useAuthStore()
 
-const money = (x) => {
-  const n = Number(x || 0)
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+import { fmtEmpty, moneyOrDash } from '@/utils/format'
 
 const month = computed(() => {
   const d = new Date()
@@ -160,7 +157,7 @@ async function homeLoadKpi() {
   if (auth.can('payroll')) {
     try {
       const d = await api(`/api/summary?ym=${month.value}`)
-      kpi.gross = money(d.total.gross)
+      kpi.gross = moneyOrDash(d.total.gross)
       kpi.head = d.total.headcount
     } catch (e) { kpi.gross = '—'; kpi.head = '—' }
   } else {
@@ -178,8 +175,8 @@ async function homeLoadKpi() {
   if (auth.can('maint_fire') || auth.can('maint_elev')) {
     try {
       const d = await api(`/api/maintenance/dashboard?year=${new Date().getFullYear()}`)
-      const f = d.overview.fireCount || 0
-      const e2 = d.overview.elevatorCount || 0
+      const f = fmtEmpty(d.overview.fireCount)
+      const e2 = fmtEmpty(d.overview.elevatorCount)
       kpi.maint = f + e2
       kpi.maintUnit = '份'
       kpi.maintSub = `消防 ${f} · 电梯 ${e2}${d.riskTotal ? ` · 临期风险 ${d.riskTotal}` : ''} · 点击查看`

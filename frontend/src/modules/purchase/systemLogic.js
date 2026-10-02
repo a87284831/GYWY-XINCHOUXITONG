@@ -1,6 +1,8 @@
 // 采购系统设置/导出导入/我的填报记录 纯逻辑——复刻旧 bundle：
 // SystemWindows-6IyQWznm.js / ExportImport-BaYMbdsW.js / MyItems-CqDP3Efw.js
 
+import { moneyOrDash } from '@/utils/format'
+
 // 窗口「当前」状态（旧版客户端按本地今日计算）：
 // status=1 且今日在[start,end]→open；今日<start→future（不看 status）；否则 closed
 export function windowState(w, today) {
@@ -23,7 +25,7 @@ function money2(n) {
 
 // 超预算项目一键退回的原因模板
 export function overBudgetReason(actual, budget) {
-  return '该月采购金额 ¥' + money2(actual) + ' 超过预算 ¥' + money2(budget) +
+  return '该月采购金额 ¥' + moneyOrDash(actual) + ' 超过预算 ¥' + moneyOrDash(budget) +
     '，请在带价格的条目上调整数量或删除后重新提交'
 }
 

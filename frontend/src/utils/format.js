@@ -12,3 +12,13 @@ export function pct(x) {
 export function fmtEmpty(v) {
   return v === null || v === undefined || v === '' ? '—' : v
 }
+
+/** 金额空值守卫：null/undefined/'' → '—'；其余走 money（真实 0 → '0.00'） */
+export function moneyOrDash(v) {
+  return v === null || v === undefined || v === '' ? '—' : money(v)
+}
+
+/** 百分比空值守卫：null/undefined/'' → '—'；其余走 pct（真实 0 → '0.00%'） */
+export function pctOrDash(v) {
+  return v === null || v === undefined || v === '' ? '—' : pct(v)
+}
