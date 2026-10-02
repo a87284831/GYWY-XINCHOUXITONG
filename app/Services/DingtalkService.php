@@ -287,31 +287,34 @@ class DingtalkService
         $token = $this->getAccessToken();
         if (!$token) return [];
 
-        $ch = curl_init('https://api.dingtalk.com/v1.0/hrm/rosters/lists/query');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'x-acs-dingtalk-access-token: ' . $token,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'userIdList' => $userIds,
-                'appAgentId' => $this->agentId,
-            ]),
-            CURLOPT_TIMEOUT => 30,
-        ]);
-        $raw = curl_exec($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = $raw === false ? curl_error($ch) : '';
-        curl_close($ch);
+        // 钉钉要求 userIdList 元素必须是 JSON 字符串。dismissions 等接口返回的数字型
+        // userId 经 json_decode 成为 int（且纯数字字符串做 PHP 数组键也会被自动转 int），
+        // int 混入请求体会被网关拒绝：HTTP 400 MissingString "String is mandatory"，整批 50 人全部失败。
+        // 在 API 边界统一 strval 归一化，杜绝类型泄漏。
+        $nonString = array_filter($userIds, fn($u) => !is_string($u));
+        if (!empty($nonString)) {
+            Log::warning('钉钉花名册请求发现非 string 类型 userid（已自动归一化），来源需排查', [
+                'uids' => array_map(fn($u) => var_export($u, true), array_values($nonString)),
+            ]);
+        }
+        $userIds = array_values(array_map('strval', $userIds));
+
+        [$httpCode, $raw, $curlErr] = $this->fetchRosterBatch($userIds, $token);
         if ($raw === false) {
             Log::warning('DingTalk roster API error: ' . $curlErr);
             return [];
         }
         if ($httpCode >= 400) {
-            // 新版 API 失败时 body 是 {code,message} 且无 result 字段，必须显式记录，否则静默丢整批
-            Log::warning("DingTalk roster API HTTP {$httpCode}: " . substr((string) $raw, 0, 300));
+            // 新版 API 失败时 body 是 {code,message} 且无 result 字段，必须显式记录，否则静默丢整批。
+            // 仅 400（请求格式非法，如异常 userid）才二分降级：定位坏 uid 同时保住同批其余人员；
+            // 401/403/429/5xx 属全局性错误，二分只会成倍放大请求量，快速失败交给上层重试
+            if ($httpCode === 400 && count($userIds) > 1) {
+                Log::warning("DingTalk roster API HTTP 400，批次(" . count($userIds) . "人)降级二分重试: " . substr((string) $raw, 0, 300));
+                $mid = intdiv(count($userIds), 2);
+                return $this->getRosterData(array_slice($userIds, 0, $mid))
+                    + $this->getRosterData(array_slice($userIds, $mid));
+            }
+            Log::warning("DingTalk roster API 拒绝 userid 批次/单个 HTTP {$httpCode}: " . substr((string) $raw, 0, 300));
             return [];
         }
         $res = json_decode($raw, true);
@@ -330,9 +333,36 @@ class DingtalkService
                 }
                 if ($name && $val) $fields[$name] = $val;
             }
-            $result[$uid] = $fields;
+            $result[(string) $uid] = $fields;
         }
         return $result;
+    }
+
+    /**
+     * 单次花名册批次请求（≤50 人）。protected 以便测试注入响应序列。
+     * @return array{0:int,1:string|false,2:string} [httpCode, rawBody, curlError]；curl 失败时 rawBody 为 false
+     */
+    protected function fetchRosterBatch(array $userIds, string $token): array
+    {
+        $ch = curl_init('https://api.dingtalk.com/v1.0/hrm/rosters/lists/query');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'x-acs-dingtalk-access-token: ' . $token,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_POSTFIELDS => json_encode([
+                'userIdList' => $userIds,
+                'appAgentId' => $this->agentId,
+            ]),
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $raw = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = $raw === false ? curl_error($ch) : '';
+        curl_close($ch);
+        return [$httpCode, $raw, $curlErr];
     }
 
     public function getUserDetail(string $userId): ?array
