@@ -175,11 +175,12 @@ async function homeLoadKpi() {
   if (auth.can('maint_fire') || auth.can('maint_elev')) {
     try {
       const d = await api(`/api/maintenance/dashboard?year=${new Date().getFullYear()}`)
-      const f = fmtEmpty(d.overview.fireCount)
-      const e2 = fmtEmpty(d.overview.elevatorCount)
-      kpi.maint = f + e2
+      const f = d.overview.fireCount
+      const e2 = d.overview.elevatorCount
+      const isE = (v) => v === null || v === undefined || v === ''
+      kpi.maint = isE(f) && isE(e2) ? fmtEmpty(null) : (isE(f) ? 0 : Number(f)) + (isE(e2) ? 0 : Number(e2))
       kpi.maintUnit = '份'
-      kpi.maintSub = `消防 ${f} · 电梯 ${e2}${d.riskTotal ? ` · 临期风险 ${d.riskTotal}` : ''} · 点击查看`
+      kpi.maintSub = `消防 ${fmtEmpty(f)} · 电梯 ${fmtEmpty(e2)}${d.riskTotal ? ` · 临期风险 ${d.riskTotal}` : ''} · 点击查看`
     } catch (err) { kpi.maint = '—' }
   }
 }

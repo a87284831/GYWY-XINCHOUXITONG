@@ -3,7 +3,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
-import { money, moneyOrDash } from '@/utils/format'
+import { moneyOrDash } from '@/utils/format'
 import { ElMessageBox } from 'element-plus'
 import { FILL_LINES } from './fillLogic'
 import { aliasList, unboundSummary } from './summaryLogic'

@@ -32,10 +32,6 @@ const budgetVisible = ref(false)
 const overRows = ref([])
 const returnLoading = ref(false)
 
-function money2(n) {
-  return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

@@ -19,10 +19,6 @@ export function exportYearName(year) {
   return '广盈物业_' + year + '年度采购明细汇总.xlsx'
 }
 
-function money2(n) {
-  return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 // 超预算项目一键退回的原因模板
 export function overBudgetReason(actual, budget) {
   return '该月采购金额 ¥' + moneyOrDash(actual) + ' 超过预算 ¥' + moneyOrDash(budget) +

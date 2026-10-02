@@ -34,7 +34,7 @@ export function unboundSummary(u) {
   return {
     rows: (u && u.total_rows) || 0,
     kinds: groups.length,
-    amount: (u && u.total_amount) || 0,
+    amount: u && u.total_amount,
     bindableKinds,
     missingRows,
   }

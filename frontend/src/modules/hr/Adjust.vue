@@ -72,7 +72,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
-import { money, moneyOrDash } from '@/utils/format'
+import { moneyOrDash } from '@/utils/format'
 
 const auth = useAuthStore()
 const kw = ref('')

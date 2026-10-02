@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { money, moneyOrDash } from '@/utils/format'
+import { moneyOrDash } from '@/utils/format'
 import { monthCardStatus, fillCardAction } from './fillLogic'
 
 const router = useRouter()

@@ -35,7 +35,7 @@ describe('unboundSummary', () => {
     expect(unboundSummary(u)).toEqual({ rows: 10, kinds: 2, amount: 1234.5, bindableKinds: 1, missingRows: 6 })
   })
   it('空数据安全', () => {
-    expect(unboundSummary(null)).toEqual({ rows: 0, kinds: 0, amount: 0, bindableKinds: 0, missingRows: 0 })
+    expect(unboundSummary(null)).toEqual({ rows: 0, kinds: 0, amount: null, bindableKinds: 0, missingRows: 0 })
   })
 })
 

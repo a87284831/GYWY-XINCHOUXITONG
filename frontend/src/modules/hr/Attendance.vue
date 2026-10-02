@@ -77,7 +77,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { money, moneyOrDash, fmtEmpty } from '@/utils/format'
+import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
 
 const auth = useAuthStore()
