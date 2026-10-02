@@ -1148,9 +1148,15 @@ class PayrollCalculator
                 }
             }
             $regular = $data['regular_date'] ?? $person->regular_date;
-            $current['probation'] = $regular
-                ? $date < substr((string)$regular, 0, 10)
-                : ((string)($person->status ?? '') === '试用');
+            // 离职会吞掉在职时的试用标记：无实际转正日的离职人员，用花名册
+            // 「计划转正日期」（data.planned_regular_date，离职后仍保留）逐日兜底
+            $planned = $data['planned_regular_date'] ?? null;
+            $current['probation'] = StaffStatus::isProbationOnDate(
+                $regular ? (string)$regular : null,
+                $planned !== null ? (string)$planned : null,
+                (string)($person->status ?? ''),
+                $date
+            );
             $daily[] = $current;
         }
         $segments = [];
@@ -1171,9 +1177,14 @@ class PayrollCalculator
     {
         $data = $this->jsonValue($person->data) ?: [];
         $regular = $data['regular_date'] ?? $person->regular_date;
+        $planned = $data['planned_regular_date'] ?? null;
         $lastDay = date('Y-m-t', strtotime($ym . '-01'));
-        if ($regular) return $lastDay < substr((string)$regular, 0, 10);
-        return ((string)($person->status ?? '') === '试用');
+        return StaffStatus::isProbationOnDate(
+            $regular ? (string)$regular : null,
+            $planned !== null ? (string)$planned : null,
+            (string)($person->status ?? ''),
+            $lastDay
+        );
     }
 
     /**

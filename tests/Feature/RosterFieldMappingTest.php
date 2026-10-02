@@ -144,4 +144,16 @@ class RosterFieldMappingTest extends TestCase
 
         $this->assertSame(0, $report['roster_missing']);
     }
+
+    public function test_planned_regular_date_synced_to_data(): void
+    {
+        // 「计划转正日期」离职后仍保留，是无实际转正日离职人员试用期判定的兜底信号
+        $id = $this->seedActiveStaff('u1', ['status' => '离职']);
+        $this->mockSyncBase(['u1' => ['计划转正日期' => '2026-10-29']]);
+
+        $this->runSync();
+
+        $data = json_decode((string) DB::table('payroll_staff')->where('id', $id)->value('data'), true);
+        $this->assertSame('2026-10-29', $data['planned_regular_date'] ?? null);
+    }
 }

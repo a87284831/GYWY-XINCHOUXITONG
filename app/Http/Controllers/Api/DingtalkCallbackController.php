@@ -605,6 +605,8 @@ class DingtalkCallbackController extends ApiController
             '出生日期' => 'birth_date', '层级' => 'level',
             '劳动合同开始日期' => 'contract_start', '劳动合同结束日期' => 'contract_end',
             '毕业时间' => 'grad_date', '资格证书' => 'certificate',
+            // 计划转正日期：员工离职后仍保留，是无实际转正日期离职人员绩效试用期判定的兜底信号
+            '计划转正日期' => 'planned_regular_date',
         ];
 
         $systemMap = [
