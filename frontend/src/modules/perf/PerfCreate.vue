@@ -45,7 +45,7 @@
         </div>
         <div class="table-wrap" style="max-height:none">
           <table class="tb">
-            <thead><tr><th style="min-width:170px">指标内容</th><th style="min-width:230px">指标定义与扣分规则</th><th>完成时间</th><th>权重(满分)</th><th>来源部门</th><th>数据填报人</th><th style="min-width:200px">算分方式与参数</th><th></th></tr></thead>
+            <thead><tr><th style="min-width:170px">指标内容</th><th style="min-width:230px">指标定义与扣分规则</th><th>完成时间</th><th>权重(满分)</th><th>来源部门</th><th>数据填报/核查人</th><th style="min-width:200px">算分方式与参数</th><th></th></tr></thead>
             <tbody>
               <tr v-for="(it, ii) in cat.items" :key="it.id">
                 <td><input v-model="it.content" type="text" style="width:160px" /></td>
@@ -54,11 +54,12 @@
                 <td><input :value="it.weight ?? ''" type="number" style="width:64px" @input="it.weight = $event.target.value" /></td>
                 <td><input v-model="it.sourceDept" type="text" style="width:104px" /></td>
                 <td>
-                  <select :value="it.reporterId ?? ''" style="max-width:150px" title="未选择填报人的指标在数据填报阶段自动跳过，无需填报" @change="pickReporter(it, $event.target.value)">
-                    <option value="">选择填报人…</option>
+                  <select :value="it.reporterId ?? ''" style="max-width:150px" :title="it.calcType === 'check' ? '核查定分项：由核查人在填报阶段直接定分，可以选被考核人本人' : '未选择填报人的指标在数据填报阶段自动跳过，无需填报'" @change="pickReporter(it, $event.target.value)">
+                    <option value="">{{ it.calcType === 'check' ? '选择核查人…' : '选择填报人…' }}</option>
                     <option v-for="s in staffOpts" :key="s.id" :value="String(s.id)" :disabled="!s.hasAccount">{{ s.label }}</option>
                   </select>
-                  <div v-if="!it.reporterId" class="hint" style="margin:0;color:#c2410c">未选择填报人，填报阶段自动跳过</div>
+                  <div v-if="it.calcType === 'check'" class="hint" style="margin:2px 0 0;color:#c2410c;font-weight:600">核查定分：由该核查人直接定 0~{{ it.weight || '权重' }} 分，可指定本人</div>
+                  <div v-else-if="!it.reporterId" class="hint" style="margin:0;color:#c2410c">未选择填报人，填报阶段自动跳过</div>
                 </td>
                 <td>
                   <select v-model="it.calcType" style="margin-bottom:4px" @change="changeCalc(it)">
@@ -68,7 +69,8 @@
                     <template v-if="it.calcType === 'ratio'">目标值 <input v-model.number="it.calcParams.target" type="number" style="width:78px" placeholder="100" title="达到该值得满分" /></template>
                     <template v-else-if="it.calcType === 'ladder'">目标 <input v-model.number="it.calcParams.target" type="number" style="width:78px" placeholder="100" title="目标值" /> 每差 <input v-model.number="it.calcParams.stepUnit" type="number" style="width:78px" placeholder="1" title="单位" /> 扣 <input v-model.number="it.calcParams.stepDeduct" type="number" style="width:78px" placeholder="5" title="分" /> 低于 <input v-model.number="it.calcParams.zeroThreshold" type="number" style="width:78px" placeholder="80" title="记0" /> 记0</template>
                     <template v-else-if="it.calcType === 'count'">应完成 <input v-model.number="it.calcParams.required" type="number" style="width:78px" placeholder="6" title="数量" /> 每少1扣 <input v-model.number="it.calcParams.deductEach" type="number" style="width:78px" placeholder="1" title="分" /></template>
-                    <template v-else><span class="tag gray">评分人直接打分</span></template>
+                    <template v-else-if="it.calcType === 'check'"><span class="tag" style="background:#fff7ed;color:#c2410c;border:1px solid #fdba74">核查人定分，无算分参数</span></template>
+                    <template v-else><span class="tag gray">主观评分，无算分参数</span></template>
                   </div>
                   <div class="hint" style="margin:4px 0 0;color:#475569;line-height:1.45">💡 {{ CALC_HELP[it.calcType] || '' }}</div>
                 </td>
@@ -120,15 +122,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
-import { perfNum, perfWeightSum, defaultPeriod, defaultCalcParams } from './perfLogic'
-
-const CALC_LABEL = { ratio: '比率得分', ladder: '阶梯扣分', count: '数量达标', manual: '人工评分' }
-const CALC_HELP = {
-  ratio: '比率得分：按完成比例折算得分。得分=权重×(实际值÷目标值)，最高不超过该指标权重、最低0分。适合达标类指标（如收缴率、入住率）。示例：权重20、目标100、实际完成80 → 得20×(80/100)=16分。',
-  ladder: '阶梯扣分：以目标值为基准，每低一个阶梯单位扣指定分数，低于“记0阈值”整项记0分。得分=权重−(目标值−实际值)÷步长×每步扣分，封顶权重、最低0分。适合量化递减类指标（如投诉次数、差错数）。示例：目标100、每差5扣2分、实际90 → 扣(100−90)/5×2=4分。',
-  count: '数量达标：以“应完成数量”为基准，每少完成1个单位扣指定分数。得分=权重−(应完成−实际)×每缺扣分，封顶权重、最低0分。适合件数/次数类指标。示例：应完成6件、每少1件扣1分、实际4件 → 扣2分。',
-  manual: '人工评分：系统不自动计算分数，由发起人自评与考核人逐级评分分别打分，最终分=自评分×自评占比＋考核人评分×考核人占比（占比在系统设置中可调）。',
-}
+import { perfNum, perfWeightSum, defaultPeriod, defaultCalcParams, CALC_LABEL, CALC_HELP } from './perfLogic'
 
 const route = useRoute()
 const router = useRouter()

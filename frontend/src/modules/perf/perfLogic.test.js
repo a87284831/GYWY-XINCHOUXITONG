@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   perfNum, perfFmt, perfCalcItem, perfWeightSum, mixFinal,
-  perfApId, defaultPeriod, defaultCalcParams,
+  perfApId, defaultPeriod, defaultCalcParams, CALC_LABEL, CALC_HELP, OBJECTIVE_TYPES,
 } from './perfLogic'
 
 describe('perfNum', () => {
@@ -36,8 +36,10 @@ describe('perfFmt', () => {
 })
 
 describe('perfCalcItem（与后端一致的算分预览）', () => {
-  it('manual 或无实际值 → null', () => {
+  it('manual/check 或无实际值 → null（主观项与核查定分不走自动算分）', () => {
     expect(perfCalcItem({ calcType: 'manual', weight: 10, calcParams: {} })).toBe(null)
+    expect(perfCalcItem({ calcType: 'check', weight: 10, calcParams: {} })).toBe(null)
+    expect(perfCalcItem({ calcType: 'check', weight: 10, actualValue: 9, checkScore: 9 })).toBe(null)
     expect(perfCalcItem({ calcType: 'ratio', weight: 10, actualValue: '', calcParams: { target: 100 } })).toBe(null)
     expect(perfCalcItem({ calcType: 'ratio', weight: 10, calcParams: { target: 100 } })).toBe(null)
   })
@@ -120,10 +122,28 @@ describe('defaultPeriod（默认本季度起止）', () => {
 })
 
 describe('defaultCalcParams（切换算分方式时的默认参数）', () => {
-  it('四类默认参数', () => {
+  it('五类默认参数', () => {
     expect(defaultCalcParams('ratio')).toEqual({ target: 100 })
     expect(defaultCalcParams('ladder')).toEqual({ target: 100, stepUnit: 1, stepDeduct: 5, zeroThreshold: 80 })
     expect(defaultCalcParams('count')).toEqual({ required: 6, deductEach: 1 })
+    expect(defaultCalcParams('check')).toEqual({})
     expect(defaultCalcParams('manual')).toEqual({})
+  })
+})
+
+describe('CALC_LABEL / CALC_HELP / OBJECTIVE_TYPES（与后端五类一致）', () => {
+  it('五类文案齐全且与后端 CALC_TYPES 同名', () => {
+    expect(Object.keys(CALC_LABEL).sort()).toEqual(['check', 'count', 'ladder', 'manual', 'ratio'])
+    expect(CALC_LABEL.check).toBe('核查定分')
+    expect(CALC_LABEL.manual).toBe('主观评分')
+    expect(CALC_LABEL.ratio).toBe('比例计分')
+    expect(CALC_LABEL.ladder).toBe('阶梯扣分')
+    expect(CALC_LABEL.count).toBe('达标扣分')
+  })
+  it('每类都有说明文案', () => {
+    Object.keys(CALC_LABEL).forEach((k) => expect(CALC_HELP[k].length).toBeGreaterThan(5))
+  })
+  it('OBJECTIVE_TYPES 为四类客观项（含 check），不含 manual', () => {
+    expect([...OBJECTIVE_TYPES].sort()).toEqual(['check', 'count', 'ladder', 'ratio'])
   })
 })
