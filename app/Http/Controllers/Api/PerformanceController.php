@@ -12,7 +12,8 @@ class PerformanceController extends ApiController
 {
     private const STATUS = ['draft' => '草稿', 'confirm' => '待确认指标', 'ongoing' => '考核进行中', 'report' => '待数据填报',
         'self' => '待发起人自评', 'approve' => '待逐级审批', 'done' => '已归档'];
-    private const CALC_TYPES = ['ratio' => '比率得分', 'ladder' => '阶梯扣分', 'count' => '数量达标', 'manual' => '人工评分'];
+    private const CALC_TYPES = ['ratio' => '比例计分', 'ladder' => '阶梯扣分', 'count' => '达标扣分',
+        'check' => '核查定分', 'manual' => '主观评分'];
 
     public function userOptions(Request $request): JsonResponse
     {
@@ -284,12 +285,26 @@ class PerformanceController extends ApiController
                     && (int) $it['reporterId'] !== $myAccountId) return response()->json(['ok' => false, 'error' => '该指标不是指派给您'], 403);
                 $calcType = (string) ($it['calcType'] ?? 'ratio');
                 $actualValue = $request->input('actualValue', '');
-                if ($calcType !== 'manual') {
-                    // 比率/阶梯/数量类必须有数值实际值，否则无法自动算分
+                if ($calcType === 'check') {
+                    // 核查定分：核查人直接给该项得分（0~权重），提交后锁定
+                    $checkScore = $request->input('checkScore');
+                    if (!is_numeric($checkScore)) {
+                        return response()->json(['ok' => false, 'error' => '该指标为「核查定分」，请填写 0~权重 的得分'], 400);
+                    }
+                    $checkScore = (float) $checkScore;
+                    $weight = (float) ($it['weight'] ?? 0);
+                    if ($checkScore < 0 || $checkScore > $weight + 0.0001) {
+                        return response()->json(['ok' => false, 'error' => '核查定分须在 0~' . rtrim(rtrim((string) $weight, '0'), '.') . ' 之间'], 400);
+                    }
+                    $plan['categories'][$ci]['items'][$ii]['checkScore'] = round($checkScore, 2);
+                    $plan['categories'][$ci]['items'][$ii]['actualValue'] = '';
+                } elseif ($calcType !== 'manual') {
+                    // 比例/阶梯/达标类必须有数值实际值，否则无法自动算分
                     if ($actualValue === '' || !is_numeric($actualValue)) {
                         return response()->json(['ok' => false, 'error' => '该指标为「' . (self::CALC_TYPES[$calcType] ?? '') . '」，请填写数值型实际完成值后再提交'], 400);
                     }
                     $plan['categories'][$ci]['items'][$ii]['actualValue'] = $actualValue;
+                    unset($plan['categories'][$ci]['items'][$ii]['checkScore']);
                 } else {
                     $plan['categories'][$ci]['items'][$ii]['actualValue'] = '';
                 }
@@ -347,7 +362,11 @@ class PerformanceController extends ApiController
         foreach (($plan['categories'] ?? []) as $ci => $cat) {
             foreach (($cat['items'] ?? []) as $ii => $it) {
                 $sc = $scores[$it['id']]['selfScore'] ?? null;
-                if ($sc !== null && is_numeric($sc)) $plan['categories'][$ci]['items'][$ii]['selfScore'] = round((float) $sc, 2);
+                if ($sc === null || !is_numeric($sc)) continue;
+                if (($it['calcType'] ?? 'ratio') !== 'manual') {
+                    return response()->json(['ok' => false, 'error' => '客观指标「' . ($it['content'] ?? '') . '」分数由核查数据锁定，不可自评'], 400);
+                }
+                $plan['categories'][$ci]['items'][$ii]['selfScore'] = round((float) $sc, 2);
             }
         }
         $this->applyScores($plan);
@@ -373,11 +392,18 @@ class PerformanceController extends ApiController
             }
         }
         // 应用当前审批人的考核人评分 + 最终分微调（以最后一级审批通过时的评分为准）
+        // 仅主观项可评分；客观项分数由核查数据锁定
         $byId = collect((array) $request->input('items', []))->keyBy('id');
         foreach (($plan['categories'] ?? []) as $ci => $cat) {
             foreach (($cat['items'] ?? []) as $ii => $it) {
                 $in = $byId[$it['id']] ?? null;
                 if (!$in) continue;
+                $isManual = (($it['calcType'] ?? 'ratio') === 'manual');
+                if (!$isManual && ((isset($in['approverScore']) && is_numeric($in['approverScore']))
+                    || (isset($in['finalScore']) && is_numeric($in['finalScore'])))) {
+                    return response()->json(['ok' => false, 'error' => '客观指标「' . ($it['content'] ?? '') . '」分数由核查数据锁定，不可审批评分'], 400);
+                }
+                if (!$isManual) continue;
                 if (isset($in['approverScore']) && is_numeric($in['approverScore'])) {
                     $plan['categories'][$ci]['items'][$ii]['approverScore'] = round((float) $in['approverScore'], 2);
                 }
@@ -399,6 +425,13 @@ class PerformanceController extends ApiController
             $this->log($plan, $account, '审批通过，送下一级审批', $opinion !== '' ? $opinion : '');
             $this->storePlan($plan);
             return response()->json(['ok' => true, 'status' => 'approve', 'step' => $plan['currentStep']]);
+        }
+        // 终审归档：客观项必须都有锁定分，显式失败，不静默按 0
+        $missing = $this->missingObjectiveScores($plan);
+        if ($missing) {
+            return response()->json(['ok' => false,
+                'error' => '以下客观指标尚无核查分数，无法归档：' . implode('；', $missing),
+                'missing' => $missing], 400);
         }
         // 终审归档：按占比混合计算最终总分与等级
         $this->applyScores($plan);
@@ -426,6 +459,7 @@ class PerformanceController extends ApiController
         if ($type === 'ratio') { $target = (float) ($params['target'] ?? 0); $score = $target ? max(0, min($weight, $weight * $actual / $target)) : 0; }
         if ($type === 'count') { $score = max(0, min($weight, $weight - max(0, (float) ($params['required'] ?? 0) - $actual) * (float) ($params['deductEach'] ?? 0))); }
         if ($type === 'ladder') { $score = max(0, min($weight, $weight - max(0, (float) ($params['target'] ?? 100) - $actual) / max(1, (float) ($params['stepUnit'] ?? 1)) * (float) ($params['stepDeduct'] ?? 0))); }
+        if ($type === 'check') { $score = max(0, min($weight, $actual)); }
         return response()->json(['ok' => true, 'score' => $score === null ? null : round($score, 2)]);
     }
 
@@ -557,7 +591,7 @@ class PerformanceController extends ApiController
         return ['self' => round($self, 2), 'approver' => round($approver, 2)];
     }
 
-    /** 单项自动分（与 /calc 一致）；无实际值或人工评分项返回 null */
+    /** 单项自动分（与 /calc 一致）；无实际值、核查定分、主观项返回 null */
     private function autoScore(array $it): ?float
     {
         $w = (float) ($it['weight'] ?? 0);
@@ -565,7 +599,7 @@ class PerformanceController extends ApiController
         if ($v === null) return null;
         $p = (array) ($it['calcParams'] ?? []);
         $t = $it['calcType'] ?? 'ratio';
-        if ($t === 'manual') return null;
+        if ($t === 'manual' || $t === 'check') return null;
         if ($t === 'ratio') { $tg = (float) ($p['target'] ?? 0); return $tg ? round(max(0, min($w, $w * $v / $tg)), 2) : 0.0; }
         if ($t === 'count') { $req = (float) ($p['required'] ?? 0); $ded = (float) ($p['deductEach'] ?? 0); return round(max(0, min($w, $w - max(0, $req - $v) * $ded)), 2); }
         if ($t === 'ladder') {
@@ -578,10 +612,59 @@ class PerformanceController extends ApiController
     }
 
     /**
-     * 重算各分并写回 plan（不落库）：
-     * 自评总分=Σ自评分；考核人评分总分=Σ考核人评分；
-     * 每项最终分=自评×自评占比+考核人×考核人占比（若审批人微调过 finalScore 则用微调值）；
-     * 最终总分=Σ每项最终分；等级按等级规则匹配。
+     * 客观项的锁定最终分：
+     * - ratio/ladder/count（含历史缺省类型）：按核查数值自动算分，无值返回 null
+     * - check：核查人填报的 checkScore（0 是有效分值），未填返回 null
+     * - manual：返回 null（走自评/上级加权）
+     */
+    private function objectiveLockedScore(array $it): ?float
+    {
+        $t = (string) ($it['calcType'] ?? 'ratio');
+        if ($t === 'manual') return null;
+        if ($t === 'check') {
+            return isset($it['checkScore']) && is_numeric($it['checkScore']) ? round((float) $it['checkScore'], 2) : null;
+        }
+        return $this->autoScore($it);
+    }
+
+    /** 归档前找出缺锁定分的客观项，返回"类别/内容"标签数组 */
+    private function missingObjectiveScores(array $plan): array
+    {
+        $missing = [];
+        foreach (($plan['categories'] ?? []) as $cat) {
+            foreach (($cat['items'] ?? []) as $it) {
+                if (($it['calcType'] ?? 'ratio') === 'manual') continue;
+                if ($this->objectiveLockedScore($it) === null) {
+                    $missing[] = (($cat['name'] ?? '') !== '' ? $cat['name'] . '/' : '') . ($it['content'] ?? '未命名指标');
+                }
+            }
+        }
+        return $missing;
+    }
+
+    /** 指标树校验：类型合法、权重非负、合计=100；通过返回 null，否则返回中文错误 */
+    private function validateCategories(array $categories): ?string
+    {
+        $sum = 0.0; $n = 0;
+        foreach ($categories as $cat) {
+            foreach (($cat['items'] ?? []) as $it) {
+                $t = (string) ($it['calcType'] ?? 'ratio');
+                if (!isset(self::CALC_TYPES[$t])) return '存在不支持的指标类型：' . $t;
+                $w = (float) ($it['weight'] ?? 0);
+                if ($w < 0) return '指标「' . ($it['content'] ?? '') . '」权重不能为负';
+                $sum += $w; $n++;
+            }
+        }
+        if ($n === 0) return '请至少添加一个考核指标';
+        if (abs($sum - 100) > 0.01) return '指标权重合计须为 100，当前为 ' . rtrim(rtrim(number_format($sum, 2, '.', ''), '0'), '.');
+        return null;
+    }
+
+    /**
+     * 重算各分并写回 plan（不落库），口径：
+     * - 客观项（ratio/ladder/count/check）：最终分=锁定分，本人/上级评分不参与
+     * - 主观项（manual）：最终分=自评×自评占比+考核人×考核人占比（终审微调过则用微调值；仅一方评则回退该方）
+     * - 自评/考核人总分只累加主观项；最终总分=Σ各项最终分；等级按规则匹配
      */
     private function applyScores(array &$plan): void
     {
@@ -590,9 +673,21 @@ class PerformanceController extends ApiController
         $autoTotal = 0.0; $selfTotal = 0.0; $approverTotal = 0.0; $finalTotal = 0.0; $hasFinal = false;
         foreach (($plan['categories'] ?? []) as $ci => $cat) {
             foreach (($cat['items'] ?? []) as $ii => $it) {
+                $isManual = (($it['calcType'] ?? 'ratio') === 'manual');
                 $as = $this->autoScore($it);
                 $plan['categories'][$ci]['items'][$ii]['autoScore'] = $as;
                 if ($as !== null) $autoTotal += $as;
+                if (!$isManual) {
+                    // 客观项：锁定分即最终分；忽略任何途径残留的本人/上级评分
+                    $locked = $this->objectiveLockedScore($it);
+                    if ($locked !== null) {
+                        $plan['categories'][$ci]['items'][$ii]['finalScore'] = round($locked, 2);
+                        $finalTotal += $locked; $hasFinal = true;
+                    }
+                    $plan['categories'][$ci]['items'][$ii]['selfWeighted'] = null;
+                    $plan['categories'][$ci]['items'][$ii]['approverWeighted'] = null;
+                    continue;
+                }
                 $self = (isset($it['selfScore']) && is_numeric($it['selfScore'])) ? (float) $it['selfScore'] : null;
                 $appr = (isset($it['approverScore']) && is_numeric($it['approverScore'])) ? (float) $it['approverScore'] : null;
                 if ($self !== null) $selfTotal += $self;
