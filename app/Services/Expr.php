@@ -55,6 +55,13 @@ class Expr
                 while ($j < $n && (ctype_alnum($s[$j]) || $s[$j] === '_')) $j++;
                 $out[] = ['id', substr($s, $i, $j - $i)]; $i = $j; continue;
             }
+            // CJK 标识符（自定义薪酬字段允许中文名，与前端 evalFormulaSafe 对齐）：
+            // 从当前字节偏移消费连续的中日韩统一表意文字，独立成一个 id token
+            if (ord($c) >= 0x80 && preg_match('/[\x{4e00}-\x{9fff}]+/u', $s, $m, PREG_OFFSET_CAPTURE, $i) && $m[0][1] === $i) {
+                $out[] = ['id', $m[0][0]];
+                $i += strlen($m[0][0]);
+                continue;
+            }
             // '^' 明确不支持（解析器无幂运算），落到下面的非法字符分支给出清晰报错
             if (strpos('+-*/(),%', $c) !== false) { $out[] = [$c, null]; $i++; continue; }
             throw new RuntimeException("非法字符 '{$c}' 位于位置 {$i}");

@@ -15,8 +15,39 @@ use Illuminate\Support\Facades\Log;
  */
 class CalcRules
 {
+    /**
+     * 公式内置变量中文展示名 → 英文键（与前端 settingsLogic.js VAR_CN 逐字一致，单一词表）。
+     * 历史快照（旧系统/绕过前端保存）可能存中文公式，求值前统一归一化；
+     * 未在此表的中文连续串（如自定义薪酬字段名）原样保留，由 Expr 按变量池中文键取值。
+     */
+    private const FORMULA_VAR_CN = [
+        'base_pay' => '应发基本工资', 'perf_pay' => '应发绩效工资', 'sick_pay' => '病假工资',
+        'night' => '夜班话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴',
+        'reward' => '月度奖励', 'welfare' => '已发福利', 'punish' => '月度扣罚',
+        'miss_d' => '缺卡扣款', 'late_d' => '迟到早退扣款', 'other_d' => '其他扣款',
+        'uniform_d' => '工装扣款', 'gross' => '应发合计', 'soc_total' => '五险一金合计',
+        'actual_tax' => '本月个税', 'pen' => '养老保险', 'med' => '医疗保险',
+        'une' => '失业保险', 'house' => '住房公积金', 'big' => '大病',
+        'spec_total' => '附加扣除合计',
+    ];
+
+    private static ?string $formulaCnPattern = null;
+
     private array $rules;
     private array $lastError = [];
+
+    /** 把公式里的中文内置变量名归一化为英文键；英文公式与中文自定义字段名不受影响。 */
+    public static function normalizeFormula(string $expr): string
+    {
+        if ($expr === '' || !preg_match('/[\x{4e00}-\x{9fff}]/u', $expr)) return $expr;
+        if (self::$formulaCnPattern === null) {
+            $cns = array_values(self::FORMULA_VAR_CN);
+            usort($cns, fn($a, $b) => mb_strlen($b) <=> mb_strlen($a)); // 长词优先，防短词截断
+            self::$formulaCnPattern = '/(' . implode('|', array_map(fn($w) => preg_quote($w, '/'), $cns)) . ')/u';
+        }
+        $map = array_flip(self::FORMULA_VAR_CN);
+        return preg_replace_callback(self::$formulaCnPattern, fn($m) => $map[$m[1]], $expr);
+    }
 
     public function __construct()
     {
@@ -81,6 +112,9 @@ class CalcRules
     /** 求值一个公式；空串或解析失败时用 $fallback 表达式，两者都失败返回 0 并记录错误。 */
     public function evaluate(string $expr, array $vars, ?string $fallback = null): float
     {
+        // 中文展示公式（历史快照/绕过前端保存）先归一化为英文变量再求值
+        $expr = self::normalizeFormula($expr);
+        if ($fallback !== null) $fallback = self::normalizeFormula($fallback);
         $e = trim($expr);
         if ($e === '' && $fallback !== null) $e = trim($fallback);
         if ($e === '') return 0.0;
