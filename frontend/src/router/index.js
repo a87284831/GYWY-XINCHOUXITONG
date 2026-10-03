@@ -9,6 +9,12 @@ const routes = [
     meta: { public: true },
   },
   {
+    // A4 考核表打印页：脱离主框架全屏，鉴权后由详情接口的数据级权限兜底
+    path: '/perfPrint/:id',
+    name: 'perfPrint',
+    component: () => import('@/modules/perf/PerfPrint.vue'),
+  },
+  {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     children: [
