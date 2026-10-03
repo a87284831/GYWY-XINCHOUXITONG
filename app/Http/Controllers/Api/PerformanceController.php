@@ -172,7 +172,8 @@ class PerformanceController extends ApiController
         $plan['periodStart'] = $periodStart; $plan['periodEnd'] = $periodEnd;
         $plan['year'] = (int) substr($periodStart, 0, 4);
         unset($plan['quarter']);
-        // 提交时校验指标（类型合法、权重合计=100，防绕过前端）；草稿保存不强制
+        // 指标定义白名单清洗（防注入流程分数），提交时再校验类型合法、权重合计=100；草稿不强制
+        $plan['categories'] = $this->sanitizeCategories((array) ($plan['categories'] ?? []));
         if ($request->boolean('submit')) {
             $err = $this->validateCategories((array) ($plan['categories'] ?? []));
             if ($err !== null) return response()->json(['ok' => false, 'error' => $err], 400);
@@ -291,7 +292,7 @@ class PerformanceController extends ApiController
         if ($err !== null) return response()->json(['ok' => false, 'error' => $err], 400);
 
         $oldCategories = $plan['categories'] ?? [];
-        $plan['categories'] = array_values($cats);
+        $plan['categories'] = $this->sanitizeCategories($cats);
         $this->logCategoriesDiff($plan, $oldCategories, $account);
         $this->log($plan, $account, '审核人保存考核指标修改', '');
         $this->storePlan($plan);
@@ -399,7 +400,10 @@ class PerformanceController extends ApiController
         foreach (($plan['categories'] ?? []) as $ci => $cat) {
             foreach (($cat['items'] ?? []) as $ii => $it) {
                 if ((string) ($it['id'] ?? '') !== $itemId) continue;
-                if (!$admin && isset($it['reporterId']) && (int) $it['reporterId'] !== $myStaffId
+                if (!$admin && empty($it['reporterId'])) {
+                    return response()->json(['ok' => false, 'error' => '该指标未指派填报人，无法填报（可由管理员代填）'], 403);
+                }
+                if (!$admin && (int) $it['reporterId'] !== $myStaffId
                     && (int) $it['reporterId'] !== $myAccountId) return response()->json(['ok' => false, 'error' => '该指标不是指派给您'], 403);
                 $calcType = (string) ($it['calcType'] ?? 'ratio');
                 $actualValue = $request->input('actualValue', '');
@@ -412,7 +416,7 @@ class PerformanceController extends ApiController
                     $checkScore = (float) $checkScore;
                     $weight = (float) ($it['weight'] ?? 0);
                     if ($checkScore < 0 || $checkScore > $weight + 0.0001) {
-                        return response()->json(['ok' => false, 'error' => '核查定分须在 0~' . rtrim(rtrim((string) $weight, '0'), '.') . ' 之间'], 400);
+                        return response()->json(['ok' => false, 'error' => '核查定分须在 0~' . $this->weightText($weight) . ' 之间'], 400);
                     }
                     $plan['categories'][$ci]['items'][$ii]['checkScore'] = round($checkScore, 2);
                     $plan['categories'][$ci]['items'][$ii]['actualValue'] = '';
@@ -484,7 +488,12 @@ class PerformanceController extends ApiController
                 if (($it['calcType'] ?? 'ratio') !== 'manual') {
                     return response()->json(['ok' => false, 'error' => '客观指标「' . ($it['content'] ?? '') . '」分数由核查数据锁定，不可自评'], 400);
                 }
-                $plan['categories'][$ci]['items'][$ii]['selfScore'] = round((float) $sc, 2);
+                $sv = round((float) $sc, 2);
+                $w = (float) ($it['weight'] ?? 0);
+                if ($sv < 0 || $sv > $w + 0.0001) {
+                    return response()->json(['ok' => false, 'error' => '主观指标「' . ($it['content'] ?? '') . '」自评分须在 0~' . $this->weightText($w) . ' 分之间'], 400);
+                }
+                $plan['categories'][$ci]['items'][$ii]['selfScore'] = $sv;
             }
         }
         $this->applyScores($plan);
@@ -522,11 +531,20 @@ class PerformanceController extends ApiController
                     return response()->json(['ok' => false, 'error' => '客观指标「' . ($it['content'] ?? '') . '」分数由核查数据锁定，不可审批评分'], 400);
                 }
                 if (!$isManual) continue;
+                $w = (float) ($it['weight'] ?? 0);
                 if (isset($in['approverScore']) && is_numeric($in['approverScore'])) {
-                    $plan['categories'][$ci]['items'][$ii]['approverScore'] = round((float) $in['approverScore'], 2);
+                    $av = round((float) $in['approverScore'], 2);
+                    if ($av < 0 || $av > $w + 0.0001) {
+                        return response()->json(['ok' => false, 'error' => '主观指标「' . ($it['content'] ?? '') . '」上级评分须在 0~' . $this->weightText($w) . ' 分之间'], 400);
+                    }
+                    $plan['categories'][$ci]['items'][$ii]['approverScore'] = $av;
                 }
                 if (isset($in['finalScore']) && is_numeric($in['finalScore'])) {
-                    $plan['categories'][$ci]['items'][$ii]['finalScore'] = round((float) $in['finalScore'], 2);
+                    $fv = round((float) $in['finalScore'], 2);
+                    if ($fv < 0 || $fv > $w + 0.0001) {
+                        return response()->json(['ok' => false, 'error' => '主观指标「' . ($it['content'] ?? '') . '」微调最终分须在 0~' . $this->weightText($w) . ' 分之间'], 400);
+                    }
+                    $plan['categories'][$ci]['items'][$ii]['finalScore'] = $fv;
                     $plan['categories'][$ci]['items'][$ii]['finalManual'] = true;
                 }
             }
@@ -783,13 +801,23 @@ class PerformanceController extends ApiController
         $missing = [];
         foreach (($plan['categories'] ?? []) as $cat) {
             foreach (($cat['items'] ?? []) as $it) {
-                if (($it['calcType'] ?? 'ratio') === 'manual') continue;
+                $type = (string) ($it['calcType'] ?? '');
+                if ($type === 'manual') continue;
+                // 合法五类指标但未指派填报人：与发起页"自动跳过"承诺一致，不参与计分、不拦截归档；
+                // 类型缺失/非法（历史脏数据）无跳过语义，仍须拦截，迫使用户修正指标
+                if (empty($it['reporterId']) && isset(self::CALC_TYPES[$type])) continue;
                 if ($this->objectiveLockedScore($it) === null) {
                     $missing[] = (($cat['name'] ?? '') !== '' ? $cat['name'] . '/' : '') . ($it['content'] ?? '未命名指标');
                 }
             }
         }
         return $missing;
+    }
+
+    /** 权重展示文案：去尾零（80.0 → 80，20.5 保留） */
+    private function weightText(float $w): string
+    {
+        return rtrim(rtrim(number_format($w, 2, '.', ''), '0'), '.');
     }
 
     /** 指标树校验：类型合法、权重非负、合计=100；通过返回 null，否则返回中文错误 */
@@ -808,6 +836,36 @@ class PerformanceController extends ApiController
         if ($n === 0) return '请至少添加一个考核指标';
         if (abs($sum - 100) > 0.01) return '指标权重合计须为 100，当前为 ' . rtrim(rtrim(number_format($sum, 2, '.', ''), '0'), '.');
         return null;
+    }
+
+    /**
+     * 指标定义白名单清洗：指标定义入口（draft 保存 / 审核态改指标）只允许写定义字段，
+     * 流程数据（实际值/核查定分/自评分/上级分/附件等）一律剥离——它们只能由各自阶段的
+     * 专用接口产生，防止定义阶段被人注入分数绕过填报与评分流程。
+     */
+    private function sanitizeCategories(array $categories): array
+    {
+        $out = [];
+        foreach ($categories as $cat) {
+            $items = [];
+            foreach (($cat['items'] ?? []) as $it) {
+                if (!is_array($it)) continue;
+                $rid = $it['reporterId'] ?? null;
+                $items[] = [
+                    'id' => (string) ($it['id'] ?? ''),
+                    'content' => (string) ($it['content'] ?? ''),
+                    'definition' => (string) ($it['definition'] ?? ''),
+                    'sourceDept' => (string) ($it['sourceDept'] ?? ''),
+                    'weight' => (float) ($it['weight'] ?? 0),
+                    'calcType' => (string) ($it['calcType'] ?? 'ratio'),
+                    'calcParams' => is_array($it['calcParams'] ?? null) ? $it['calcParams'] : [],
+                    'reporterId' => ($rid === null || $rid === '') ? null : (int) $rid,
+                    'reporterName' => (string) ($it['reporterName'] ?? ''),
+                ];
+            }
+            $out[] = ['name' => (string) ($cat['name'] ?? ''), 'items' => $items];
+        }
+        return $out;
     }
 
     /**
@@ -1111,6 +1169,10 @@ class PerformanceController extends ApiController
             if (($att['file'] ?? '') === $name) { $idx = $k; break; }
         }
         if ($idx === null) return response()->json(['ok' => false, 'error' => '附件不存在'], 404);
+        // 自评阶段结束后依据即锁定：非 self 态仅管理员可纠错删除（done 已在上方完全冻结）
+        if (($plan['status'] ?? '') !== 'self' && $account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '自评阶段已结束，附件已锁定（如需删除请联系管理员）'], 400);
+        }
         if ($account->role !== 'admin' && (int) ($list[$idx]['uploaderId'] ?? 0) !== (int) $account->legacy_id) {
             return response()->json(['ok' => false, 'error' => '仅上传者本人可删除该附件'], 403);
         }

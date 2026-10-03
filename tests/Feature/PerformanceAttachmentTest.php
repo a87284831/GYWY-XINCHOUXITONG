@@ -155,4 +155,23 @@ class PerformanceAttachmentTest extends TestCase
             ['id' => $doneId, 'itemId' => 'm1', 'file' => 'locked_a.png'], $this->headers($this->selfToken))
             ->assertStatus(400);
     }
+
+    public function test_delete_blocked_once_self_stage_ended_even_for_uploader(): void
+    {
+        // 自评已提交进入审批：依据附件即锁定，上传者本人也不能删（与上传同口径）
+        $approveId = $this->putPlan(['status' => 'approve', 'founderId' => 1001,
+            'categories' => [$this->category('考核', [
+                $this->item(['id' => 'm1', 'weight' => 100, 'calcType' => 'manual',
+                    'attachments' => [['name' => 'a.png', 'file' => 'locked_b.png', 'size' => 1,
+                        'uploaderId' => 1001, 'ts' => '2026-10-01 10:00:00']]]),
+            ])]]);
+        $this->delete('/api/performance/attachment',
+            ['id' => $approveId, 'itemId' => 'm1', 'file' => 'locked_b.png'], $this->headers($this->selfToken))
+            ->assertStatus(400);
+
+        // 管理员在审批阶段仍可纠错删除（救济通道）
+        $this->delete('/api/performance/attachment',
+            ['id' => $approveId, 'itemId' => 'm1', 'file' => 'locked_b.png'], $this->headers($this->adminToken))
+            ->assertOk();
+    }
 }

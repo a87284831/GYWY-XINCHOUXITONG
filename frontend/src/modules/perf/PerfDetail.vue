@@ -163,7 +163,7 @@
                   </td>
                   <td class="num">
                     <template v-if="it.calcType === 'manual'">
-                      <input v-if="p.status === 'self' && canSelf" v-model.number="it._selfScore" type="number" style="width:64px" step="0.01" />
+                      <input v-if="p.status === 'self' && canSelf" v-model.number="it._selfScore" type="number" style="width:64px" step="0.01" min="0" :max="Number(it.weight)" :title="`评分范围 0~${it.weight} 分（该项权重）`" :placeholder="`0~${it.weight}`" />
                       <template v-else>{{ perfFmt(it.selfScore) }}</template>
                     </template>
                     <template v-else><span title="客观项锁定，本人不可评分">🔒</span></template>
@@ -186,14 +186,14 @@
                   </td>
                   <td class="num">
                     <template v-if="it.calcType === 'manual'">
-                      <input v-if="p.status === 'approve' && canActApproval" v-model.number="it._approverScore" type="number" style="width:64px" step="0.01" placeholder="上级分" @input="mixFinalOf(it)" />
+                      <input v-if="p.status === 'approve' && canActApproval" v-model.number="it._approverScore" type="number" style="width:64px" step="0.01" min="0" :max="Number(it.weight)" :title="`评分范围 0~${it.weight} 分（该项权重）`" placeholder="上级分" @input="mixFinalOf(it)" />
                       <template v-else>{{ perfFmt(it.approverScore) }}</template>
                     </template>
                     <template v-else><span title="客观项锁定，上级不可评分">🔒</span></template>
                   </td>
                   <td class="num">
                     <template v-if="it.calcType === 'manual'">
-                      <input v-if="p.status === 'approve' && canActApproval" v-model.number="it._finalScore" type="number" style="width:64px" step="0.01" placeholder="自动/微调" />
+                      <input v-if="p.status === 'approve' && canActApproval" v-model.number="it._finalScore" type="number" style="width:64px" step="0.01" min="0" :max="Number(it.weight)" :title="`微调范围 0~${it.weight} 分（该项权重）`" placeholder="自动/微调" />
                       <template v-else>{{ perfFmt(it.finalScore) }}</template>
                     </template>
                     <template v-else>
@@ -476,7 +476,11 @@ async function doReject() {
 }
 async function actReport(it, adminFill) {
   const body = { id: p.value.id, itemId: it.id, actualValue: it._actualValue, actualText: it._actualText }
-  if (it.calcType === 'check') body.checkScore = it._checkScore
+  if (it.calcType === 'check') {
+    const err = scoreOutOfRange(it, it._checkScore)
+    if (err) { alert(err.replace('评分', '核查定分')); return }
+    body.checkScore = it._checkScore
+  }
   try {
     const r = await api(adminFill ? '/api/performance/admin_fill' : '/api/performance/report', { body })
     toast('已提交' + (r.status === 'self' ? '，全部指标填报完成，已转发起人自评' : ''))
@@ -490,11 +494,21 @@ async function actUrge() {
     else toast('已催办：' + r.pending.map((x) => x.name).join('、'))
   } catch (e) { alert(e.message) }
 }
+// 主观分合法域 0~该项权重（与后端一致；HTML max 仅辅助，提交前再拦一道）
+function scoreOutOfRange(it, v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return `「${it.content}」请填写数字`
+  const w = Number(it.weight) || 0
+  if (n < 0 || n > w + 0.0001) return `「${it.content}」评分须在 0~${w} 分之间（该项权重）`
+  return ''
+}
 async function actSelfSubmit() {
   const items = []
   // 仅主观项可自评打分；客观项（含核查定分）已锁定，不提交
   for (const c of p.value.categories) for (const it of c.items) {
     if (it.calcType === 'manual' && it._selfScore !== undefined && it._selfScore !== null && it._selfScore !== '') {
+      const err = scoreOutOfRange(it, it._selfScore)
+      if (err) { alert(err); return }
       items.push({ id: it.id, selfScore: it._selfScore })
     }
   }
@@ -507,8 +521,16 @@ async function doApprove() {
     const item = { id: it.id }
     // 仅主观项接受上级评分/微调；客观项锁定，服务端也会拒绝
     if (it.calcType === 'manual') {
-      if (it._approverScore !== '' && it._approverScore != null) item.approverScore = it._approverScore
-      if (it._finalScore !== '' && it._finalScore != null) item.finalScore = it._finalScore
+      if (it._approverScore !== '' && it._approverScore != null) {
+        const err = scoreOutOfRange(it, it._approverScore)
+        if (err) { alert(err); return }
+        item.approverScore = it._approverScore
+      }
+      if (it._finalScore !== '' && it._finalScore != null) {
+        const err = scoreOutOfRange(it, it._finalScore)
+        if (err) { alert(err); return }
+        item.finalScore = it._finalScore
+      }
     }
     items.push(item)
   }

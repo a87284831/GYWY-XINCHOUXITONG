@@ -51,12 +51,13 @@
               <td class="c">{{ fmt(it.weight) }}</td>
               <td class="c">{{ CALC_LABEL[it.calcType] || it.calcType }}</td>
               <td class="situation">
-                <template v-if="it.calcType === 'check'">{{ it.checkScore != null && it.checkScore !== '' ? '核查定分：' + it.checkScore : '-' }}<template v-if="it.actualText">（{{ it.actualText }}）</template><div v-if="it.reporterName" class="who">核查人：{{ it.reporterName }}</div></template>
+                <template v-if="isSkipped(it)">未指派核查/填报人，该项不考核，不计分</template>
+                <template v-else-if="it.calcType === 'check'">{{ it.checkScore != null && it.checkScore !== '' ? '核查定分：' + it.checkScore : '-' }}<template v-if="it.actualText">（{{ it.actualText }}）</template><div v-if="it.reporterName" class="who">核查人：{{ it.reporterName }}</div></template>
                 <template v-else>{{ it.actualText || it.actualValue || '-' }}<div v-if="it.reporterName" class="who">填报人：{{ it.reporterName }}</div></template>
               </td>
               <td class="c">{{ it.calcType === 'manual' ? fmt(it.selfScore) : '—' }}</td>
               <td class="c">{{ it.calcType === 'manual' ? fmt(it.approverScore) : '—' }}</td>
-              <td class="c"><b>{{ fmt(it.finalScore) }}</b></td>
+              <td class="c"><b>{{ isSkipped(it) ? '未考核' : fmt(it.finalScore) }}</b></td>
             </tr>
           </template>
         </tbody>
@@ -114,7 +115,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
-import { perfFmt, perfWeightSum, CALC_LABEL } from './perfLogic'
+import { perfFmt, perfWeightSum, CALC_LABEL, OBJECTIVE_TYPES } from './perfLogic'
 
 const route = useRoute()
 const p = ref(null)
@@ -122,6 +123,8 @@ const meta = ref(null)
 const loadErr = ref('')
 
 const fmt = perfFmt
+// 客观项未指派核查/填报人：发起阶段即承诺"自动跳过"，纸质表明确标注未考核、不计分
+const isSkipped = (it) => OBJECTIVE_TYPES.includes(it.calcType) && !it.reporterId
 const sw = computed(() => (meta.value && meta.value.scoreWeights) || { self: 50, approver: 50 })
 const weightSum = computed(() => (p.value ? perfWeightSum(p.value) : 0))
 const opinions = computed(() => {

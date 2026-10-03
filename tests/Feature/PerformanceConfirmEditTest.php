@@ -158,4 +158,64 @@ class PerformanceConfirmEditTest extends TestCase
         $this->assertStringContainsString('新增', $logText);
         $this->assertStringContainsString('删除', $logText);
     }
+
+    /**
+     * 安全：指标定义入口只接受定义字段，流程数据（自评分/核查定分/实际值/附件等）
+     * 必须由各自阶段的专用接口产生；否则被考核人本人(founder)可在审核态注入分数直接加分。
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('processFieldInjectionProvider')]
+    public function test_define_endpoints_strip_process_fields(array $dirtyItem): void
+    {
+        // 入口1：confirm_save（founder=被考核人本人即有权调用）
+        $id = $this->putPlan(['status' => 'confirm', 'categories' => $this->baseCats()]);
+        $this->postJson('/api/performance/confirm_save', [
+            'id' => $id,
+            'categories' => [$this->category('考核', [$dirtyItem['check'], $dirtyItem['manual']])],
+        ], $this->headers($this->selfToken))->assertOk();
+
+        foreach (['c8' => $dirtyItem['check'], 'm8' => $dirtyItem['manual']] as $iid => $source) {
+            $saved = $this->findItem($this->planData($id), $iid);
+            foreach (array_keys($source) as $key) {
+                if (in_array($key, ['id', 'content', 'definition', 'sourceDept', 'weight',
+                        'calcType', 'calcParams', 'reporterId', 'reporterName'], true)) continue;
+                $this->assertArrayNotHasKey($key, $saved, "confirm_save 未剥离流程字段 {$key}");
+            }
+        }
+
+        // 入口2：draft save 同样清洗（用不重叠周期，避开同员工在途考核单的重复校验）
+        $draftId = $this->putPlan(['status' => 'draft', 'founderId' => 1001,
+            'periodStart' => '2027-01-01', 'periodEnd' => '2027-03-31', 'categories' => $this->baseCats()]);
+        $this->postJson('/api/performance/plans/save', [
+            'id' => $draftId, 'periodStart' => '2027-01-01', 'periodEnd' => '2027-03-31',
+            'categories' => [$this->category('考核', [$dirtyItem['check'], $dirtyItem['manual']])],
+            'approvers' => [['staffId' => 201, 'userId' => 2001, 'name' => '李经理']],
+        ], $this->headers($this->selfToken))->assertOk();
+        $savedCheck = $this->findItem($this->planData($draftId), 'c8');
+        $this->assertArrayNotHasKey('checkScore', $savedCheck);
+        $this->assertArrayNotHasKey('attachments', $savedCheck);
+    }
+
+    public static function processFieldInjectionProvider(): array
+    {
+        // DataProvider 在另一实例上执行，无法调用 trait helper，直接内联构造
+        return [[
+            [
+                'check' => [
+                    'id' => 'c8', 'content' => '核查项', 'weight' => 50, 'calcType' => 'check',
+                    'calcParams' => [], 'reporterId' => 301, 'reporterName' => '王核查',
+                    // —— 以下为注入的流程字段，必须全部被剥离 ——
+                    'checkScore' => 50, 'actualValue' => 50, 'actualText' => 'x', 'autoScore' => 50,
+                    'finalScore' => 50, 'reportBy' => '张三', 'reportTime' => '2026-10-01 10:00:00',
+                    'attachments' => [['name' => 'a.png', 'file' => 'a.png', 'size' => 1]],
+                ],
+                'manual' => [
+                    'id' => 'm8', 'content' => '主观项', 'weight' => 50, 'calcType' => 'manual',
+                    'calcParams' => [], 'reporterId' => null, 'reporterName' => '',
+                    // —— 注入 ——
+                    'selfScore' => 100, 'approverScore' => 100, 'finalScore' => 100,
+                    'finalManual' => true, 'selfWeighted' => 100, 'approverWeighted' => 100,
+                ],
+            ],
+        ]];
+    }
 }

@@ -150,7 +150,8 @@ class PerformanceScoringFlowTest extends TestCase
     public function test_final_approve_blocked_when_objective_score_missing(): void
     {
         $ratio = $this->item(['id' => 'r4', 'content' => '回款率', 'weight' => 20,
-            'calcType' => 'ratio', 'calcParams' => ['target' => 100]]); // 无 actualValue
+            'calcType' => 'ratio', 'calcParams' => ['target' => 100],
+            'reporterId' => 301, 'reporterName' => '王核查']); // 已指派但漏填 actualValue
         $manual = $this->item(['id' => 'm4', 'content' => '管理', 'weight' => 80, 'calcType' => 'manual',
             'selfScore' => 70]);
         $id = $this->putPlan(['status' => 'approve', 'currentStep' => 0,
@@ -169,7 +170,8 @@ class PerformanceScoringFlowTest extends TestCase
         $this->seedStaff(202, '赵总');
         $bossToken = $this->seedAccount(2002, 202, 'staff');
         $ratio = $this->item(['id' => 'r5', 'content' => '回款率', 'weight' => 20,
-            'calcType' => 'ratio', 'calcParams' => ['target' => 100]]); // 缺分
+            'calcType' => 'ratio', 'calcParams' => ['target' => 100],
+            'reporterId' => 301, 'reporterName' => '王核查']); // 已指派但漏填
         $manual = $this->item(['id' => 'm5', 'content' => '管理', 'weight' => 80, 'calcType' => 'manual',
             'selfScore' => 70]);
         $id = $this->putPlan(['status' => 'approve', 'currentStep' => 0,
@@ -218,5 +220,77 @@ class PerformanceScoringFlowTest extends TestCase
         $missing = $resp->json('missing');
         $this->assertNotEmpty($missing);
         $this->assertStringContainsString('旧指标', implode('；', $missing));
+    }
+
+    public function test_objective_item_without_reporter_is_skipped_not_deadlocking_archive(): void
+    {
+        // 发起页明确承诺：未指派填报人的指标"填报阶段自动跳过"；
+        // 合法五类类型 + 无 reporterId + 无锁定分 → 不拦截终审（该项不参与计分）
+        $skipped = $this->item(['id' => 'r6', 'content' => '备注类指标（不考核）', 'weight' => 20,
+            'calcType' => 'ratio', 'calcParams' => ['target' => 100]]); // 无 reporterId / actualValue
+        $manual = $this->item(['id' => 'm6', 'content' => '管理', 'weight' => 80, 'calcType' => 'manual',
+            'selfScore' => 70]);
+        $id = $this->putPlan(['status' => 'approve', 'currentStep' => 0,
+            'categories' => [$this->category('考核', [$skipped, $manual])]]);
+
+        $this->postJson('/api/performance/approve', [
+            'id' => $id, 'items' => [['id' => 'm6', 'approverScore' => 80]],
+        ], $this->headers($this->leaderToken))->assertOk()->assertJson(['status' => 'done']);
+
+        $plan = $this->planData($id);
+        // 跳过项无分，主观项 75 → 总分 75（权重20作废，纸质表可追溯该项未考核）
+        $this->assertEquals(75.0, (float) $plan['finalTotal']);
+    }
+
+    public function test_non_admin_cannot_report_unassigned_item(): void
+    {
+        $ratio = $this->item(['id' => 'r7', 'content' => '回款率', 'weight' => 100,
+            'calcType' => 'ratio', 'calcParams' => ['target' => 100]]); // 无 reporterId
+        $id = $this->putPlan(['status' => 'report',
+            'categories' => [$this->category('考核', [$ratio])]]);
+
+        // 被考核人本人不是填报人：未指派项禁止填报（管理员仍可代填）
+        $this->postJson('/api/performance/report', [
+            'id' => $id, 'itemId' => 'r7', 'actualValue' => 90,
+        ], $this->headers($this->selfToken))->assertStatus(403);
+
+        $this->postJson('/api/performance/admin_fill', [
+            'id' => $id, 'itemId' => 'r7', 'actualValue' => 90,
+        ], $this->headers($this->adminToken))->assertOk();
+    }
+
+    public function test_manual_scores_out_of_item_weight_are_rejected(): void
+    {
+        // 主观分合法域 0~该项权重（权重合计=100、总分=Σ各项分，与 check 0~权重 同口径）
+        $manual = $this->item(['id' => 'm9', 'content' => '管理', 'weight' => 80, 'calcType' => 'manual']);
+        $ratio = $this->item(['id' => 'r9', 'content' => '回款率', 'weight' => 20,
+            'calcType' => 'ratio', 'calcParams' => ['target' => 100],
+            'reporterId' => 301, 'reporterName' => '王核查', 'actualValue' => 100]);
+
+        // 自评：越上界 / 负数 均拒绝；边界值合法
+        $selfId = $this->putPlan(['status' => 'self',
+            'categories' => [$this->category('考核', [$manual, $ratio])]]);
+        $this->postJson('/api/performance/self_submit', [
+            'id' => $selfId, 'items' => [['id' => 'm9', 'selfScore' => 80.01]],
+        ], $this->headers($this->selfToken))->assertStatus(400);
+        $this->postJson('/api/performance/self_submit', [
+            'id' => $selfId, 'items' => [['id' => 'm9', 'selfScore' => -0.01]],
+        ], $this->headers($this->selfToken))->assertStatus(400);
+        $this->postJson('/api/performance/self_submit', [
+            'id' => $selfId, 'items' => [['id' => 'm9', 'selfScore' => 80]],
+        ], $this->headers($this->selfToken))->assertOk();
+
+        // 上级分与终审微调同样限界
+        $apprId = $this->putPlan(['status' => 'approve', 'currentStep' => 0,
+            'categories' => [$this->category('考核', [$manual, $ratio])]]);
+        $this->postJson('/api/performance/approve', [
+            'id' => $apprId, 'items' => [['id' => 'm9', 'approverScore' => 999]],
+        ], $this->headers($this->leaderToken))->assertStatus(400);
+        $this->postJson('/api/performance/approve', [
+            'id' => $apprId, 'items' => [['id' => 'm9', 'approverScore' => 80, 'finalScore' => 81]],
+        ], $this->headers($this->leaderToken))->assertStatus(400);
+        $this->postJson('/api/performance/approve', [
+            'id' => $apprId, 'items' => [['id' => 'm9', 'approverScore' => 80, 'finalScore' => 0]],
+        ], $this->headers($this->leaderToken))->assertOk()->assertJson(['status' => 'done']);
     }
 }
