@@ -357,11 +357,14 @@ class DingtalkCallbackController extends ApiController
             }
         }
 
-        $allActiveUids = DB::table('payroll_staff')
-            ->where('deleted', false)->where('status', '!=', '离职')
+        // 花名册批次覆盖全体（含离职）：钉钉花名册对离职早期人员仍保留完整字段
+        // （实测：离职次日仍返回计划转正日期/入职时间/薪资等），离职后这些字段不再刷新会导致
+        // 计划转正日期等试用期兜底信号永久缺失；档案已删的历史离职人员接口空返回，无害且不计告警
+        $allStaffUids = DB::table('payroll_staff')
+            ->where('deleted', false)
             ->whereNotNull('dingtalk_userid')->where('dingtalk_userid', '!=', '')
             ->pluck('dingtalk_userid')->toArray();
-        $rosterUids = array_values(array_unique(array_merge($allActiveUids, array_keys($changedUserIds), $newOffboardUids, $offboardUids)));
+        $rosterUids = array_values(array_unique(array_merge($allStaffUids, array_keys($changedUserIds), $newOffboardUids, $offboardUids)));
         if (!empty($rosterUids)) {
             $rosterStaff = DB::table('payroll_staff')
                 ->whereIn('dingtalk_userid', $rosterUids)

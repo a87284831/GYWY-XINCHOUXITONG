@@ -156,4 +156,32 @@ class RosterFieldMappingTest extends TestCase
         $data = json_decode((string) DB::table('payroll_staff')->where('id', $id)->value('data'), true);
         $this->assertSame('2026-10-29', $data['planned_regular_date'] ?? null);
     }
+
+    public function test_resigned_staff_removed_from_directory_still_gets_roster_refresh(): void
+    {
+        // 真实场景：DB 已标记离职、已移出钉钉在职目录、非本轮新离职（测试人员 2026-10-03）。
+        // 钉钉花名册对离职早期人员仍返回完整字段（含计划转正日期），同步批次必须覆盖这类人，
+        // 否则兜底信号永远落不了库。
+        $id = $this->seedActiveStaff('u1', ['status' => '离职', 'name' => '离职员工']);
+        $this->dt->method('getAllDepartments')->willReturn([
+            1 => ['name' => '万城服务', 'parent_id' => 0, 'level' => 1],
+            2 => ['name' => '测试项目A', 'parent_id' => 1, 'level' => 2],
+        ]);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
+        $this->dt->method('getAllUsers')->willReturn([]); // 已移出在职目录
+        $this->dt->method('getDismissedUsers')->willReturn(['u1' => ['userid' => 'u1']]);
+        $this->dt->method('getDismissedUserInfos')->willReturn([]);
+        $this->dt->method('getRosterData')->willReturn([
+            'u1' => ['计划转正日期' => '2026-10-29', '入职时间' => '2026-09-29'],
+        ]);
+
+        $this->runSync();
+
+        // 计划转正日落库；离职状态不被花名册回写覆盖
+        $row = DB::table('payroll_staff')->where('id', $id)->first(['status', 'hire_date', 'data']);
+        $data = json_decode((string) $row->data, true) ?: [];
+        $this->assertSame('2026-10-29', $data['planned_regular_date'] ?? null);
+        $this->assertSame('2026-09-29', (string) $row->hire_date);
+        $this->assertSame('离职', $row->status);
+    }
 }
