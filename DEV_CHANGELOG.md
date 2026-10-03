@@ -44,6 +44,17 @@ npm run dev
 
 ## 改动历史
 
+### 2026-10-03 · 绩效考核模块改造（经理级/总部 ≤40 人，纸质签字、不联动薪资）
+
+- **流程定稿**：本人发起选周期 → 上级审核（可直接改指标或驳回，修改留痕）→ 通过即生效、指标冻结 → 周期结束核查人填报 → 本人自评（仅主观项，可传截图附件）→ 上级逐级评分（仅主观项）→ 归档出分 → 网页打印 A4 纸质签字；管理员可撤销归档重审
+- **五类指标（算分模型）**：比例计分 ratio / 阶梯扣分 ladder / 达标扣分 count / **核查定分 check（新增）** / 主观评分 manual。客观四类在数据填报/核查后**锁定**，本人与上级均不可评分；check 由核查人直接在 0~权重 内定分（含 0）；主观项最终分=自评×占比+上级×占比，终审可逐项微调
+- **后端改动**（仅 2 文件，无 migration）：`app/Http/Controllers/Api/PerformanceController.php`（算分闭环、指标冻结、confirm_save/reopen/attachment 接口、详情 canViewPlan 数据级权限）、`routes/api.php`（新增 `confirm_save`、`reopen`、`attachment` GET/POST/DELETE 共 5 条路由）
+- **附件存储**：`storage/app/perf-attachments/{考核单legacy_id}/`（非 public），jpg/jpeg/png/pdf、单文件 ≤10MB、每项 ≤5 个；存储名服务端重生成、白名单+realpath 防穿越；下载走鉴权接口，仅考核单可见人可访问
+- **前端改动**：perfLogic.js（五类常量集中导出、check 不参与自动算分）；PerfCreate.vue（五类直白文案、check 无参数 UI、核查人可指定本人）；PerfDetail.vue（审核态行内改指标、check 定分输入、客观项 🔒、主观项自评+附件上传/缩略图/删除、终审缺失项透传弹窗、打印入口、管理员撤销归档二次确认）；新增 PerfPrint.vue 与顶层路由 `/perfPrint/:id`（A4 纵向打印，含明细/汇总/审批意见/附件缩略图/签字栏）
+- **验证**：PHPUnit 221/221（新增 4 个测试文件 32 用例：算分闭环/审核改指标/撤销归档与查看矩阵/附件）；vitest 260/260；`npm run build` 通过
+- **部署注意**：① 需确保 php-fpm 对 `storage/app/perf-attachments/` 可写（目录首次上传自动创建）；② 前端需重新 build 并发布 `public/app/`（本次产物 hash 全量更新）；③ 无数据库迁移；④ 撤销归档仅管理员，退回审批起点时上级评分清空、自评/核查分/附件保留
+- 设计与实施记录：`docs/superpowers/specs/2026-10-03-performance-appraisal-design.md`、`docs/superpowers/plans/2026-10-03-performance-appraisal.md`
+
 ### 2026-10-03 · 清理：旧系统残留/测试数据/一次性脚本
 
 - **仓库文件删除（git 可恢复）**：
