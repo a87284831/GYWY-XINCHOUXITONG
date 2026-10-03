@@ -83,6 +83,13 @@ class PerformanceController extends ApiController
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
         $plan = $request->all(); unset($plan['submit']);
         $id = (int) ($plan['id'] ?? 0);
+        // 指标冻结：考核单一旦离开草稿态（提交审核后），指标只能由首位审批人在 confirm 态改
+        if ($id) {
+            $existing = $this->plan($id);
+            if ($existing && ($existing['status'] ?? 'draft') !== 'draft') {
+                return response()->json(['ok' => false, 'error' => '考核指标已提交/生效，不可再编辑'], 400);
+            }
+        }
         // 普通员工（非管理员）发起考核：被考核人锁定为本人
         if ($account->role !== 'admin') {
             if (empty($account->staff_id)) {
@@ -162,13 +169,10 @@ class PerformanceController extends ApiController
         $plan['periodStart'] = $periodStart; $plan['periodEnd'] = $periodEnd;
         $plan['year'] = (int) substr($periodStart, 0, 4);
         unset($plan['quarter']);
-        // 提交时校验权重合计=100（防绕过前端）
+        // 提交时校验指标（类型合法、权重合计=100，防绕过前端）；草稿保存不强制
         if ($request->boolean('submit')) {
-            $ws = 0.0;
-            foreach (($plan['categories'] ?? []) as $c) foreach (($c['items'] ?? []) as $it) { $w = (float) ($it['weight'] ?? 0); if ($w) $ws += $w; }
-            if (abs($ws - 100) > 0.01) {
-                return response()->json(['ok' => false, 'error' => '全部指标权重合计必须等于100，当前为' . round($ws, 2)], 400);
-            }
+            $err = $this->validateCategories((array) ($plan['categories'] ?? []));
+            if ($err !== null) return response()->json(['ok' => false, 'error' => $err], 400);
         }
         if ($request->boolean('submit') && $plan['status'] === 'draft') $plan['status'] = 'confirm';
         $this->log($plan, $account, $request->boolean('submit')
@@ -213,7 +217,22 @@ class PerformanceController extends ApiController
         if (!$row) return response()->json(['ok' => false, 'error' => '考核单不存在'], 404);
         $plan = $this->jsonValue($row->data) ?: [];
         if ($account->role !== 'admin' && (int) ($plan['founderId'] ?? 0) !== (int) $account->legacy_id) return response()->json(['ok' => false, 'error' => '无权删除'], 403);
+        if (($plan['status'] ?? '') === 'done') {
+            return response()->json(['ok' => false, 'error' => '已归档考核不可删除；如需修改请由管理员撤销归档'], 400);
+        }
         DB::table('performance_plans')->where('legacy_id', $id)->delete(); return response()->json(['ok' => true]);
+    }
+
+    /** 是否有指标审核权：管理员、发起人、首位审批人（与 confirm 通过权限一致） */
+    private function firstApproverAuthorized(array $plan, object $account): bool
+    {
+        if ($account->role === 'admin') return true;
+        if ((int) ($plan['founderId'] ?? 0) === (int) $account->legacy_id) return true;
+        $first = $plan['approvers'][0] ?? null;
+        if (!$first) return false;
+        $myStaffId = $account->staff_id ? (int) $account->staff_id : -1;
+        return (int) ($first['staffId'] ?? 0) === $myStaffId
+            || (int) ($first['userId'] ?? 0) === (int) $account->legacy_id;
     }
 
     public function confirm(Request $request): JsonResponse
@@ -221,18 +240,93 @@ class PerformanceController extends ApiController
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
         $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
         if (($plan['status'] ?? '') !== 'confirm') return response()->json(['ok' => false, 'error' => '当前状态不可确认'], 400);
-        if ($account->role !== 'admin') {
-            $first = $plan['approvers'][0] ?? null;
-            $myStaffId = $account->staff_id ? (int) $account->staff_id : -1;
-            $fStaff = (int) ($first['staffId'] ?? 0); $fUser = (int) ($first['userId'] ?? 0);
-            $isFounder = (int) ($plan['founderId'] ?? 0) === (int) $account->legacy_id;
-            if (!$isFounder && (!$first || ($fStaff !== $myStaffId && $fUser !== (int) $account->legacy_id))) {
-                return response()->json(['ok' => false, 'error' => '仅首位审批人可确认指标'], 403);
-            }
+        if (!$this->firstApproverAuthorized($plan, $account)) {
+            return response()->json(['ok' => false, 'error' => '仅首位审批人可确认指标'], 403);
         }
         $plan['status'] = 'ongoing'; $plan['confirmedAt'] = now()->toDateTimeString();
         $this->log($plan, $account, '确认指标通过，进入考核周期', $plan['periodStart'] . ' ~ ' . $plan['periodEnd']);
         $this->storePlan($plan); return response()->json(['ok' => true, 'status' => 'ongoing', 'periodEnd' => $plan['periodEnd'] ?? null]);
+    }
+
+    /**
+     * 审核态保存首位审批人对指标的修改（可多次保存，不改变状态）。
+     * 仅替换 categories；被考核人/周期/审批人链一律以服务端现存数据为准。
+     */
+    public function confirmSave(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
+        if (($plan['status'] ?? '') !== 'confirm') {
+            return response()->json(['ok' => false, 'error' => '当前状态不可修改指标'], 400);
+        }
+        if (!$this->firstApproverAuthorized($plan, $account)) {
+            return response()->json(['ok' => false, 'error' => '仅首位审批人可修改指标'], 403);
+        }
+        $cats = (array) $request->input('categories', []);
+        $err = $this->validateCategories($cats);
+        if ($err !== null) return response()->json(['ok' => false, 'error' => $err], 400);
+
+        $oldCategories = $plan['categories'] ?? [];
+        $plan['categories'] = array_values($cats);
+        $this->logCategoriesDiff($plan, $oldCategories, $account);
+        $this->log($plan, $account, '审核人保存考核指标修改', '');
+        $this->storePlan($plan);
+        return response()->json(['ok' => true, 'id' => $plan['id'], 'status' => 'confirm']);
+    }
+
+    /** 指标修改逐项 diff 留痕：按 item id 匹配，记录内容/定义/权重/类型/参数/核查人变化与增删 */
+    private function logCategoriesDiff(array &$plan, array $oldCategories, object $account): void
+    {
+        $flatten = function (array $cats): array {
+            $map = [];
+            foreach ($cats as $cat) {
+                foreach (($cat['items'] ?? []) as $it) {
+                    if (!empty($it['id'])) $map[(string) $it['id']] = $it;
+                }
+            }
+            return $map;
+        };
+        $old = $flatten($oldCategories);
+        $new = $flatten($plan['categories'] ?? []);
+
+        foreach ($new as $iid => $it) {
+            $label = fn (array $x): string => (string) ($x['content'] ?? '未命名指标');
+            if (!isset($old[$iid])) {
+                $this->log($plan, $account, '新增指标「' . $label($it) . '」', '权重 ' . ($it['weight'] ?? 0));
+                continue;
+            }
+            $o = $old[$iid];
+            $changes = [];
+            if ((string) ($o['content'] ?? '') !== (string) ($it['content'] ?? '')) {
+                $changes[] = '指标内容「' . $o['content'] . '」→「' . $it['content'] . '」';
+            }
+            if ((string) ($o['definition'] ?? '') !== (string) ($it['definition'] ?? '')) {
+                $changes[] = '指标定义调整';
+            }
+            $ow = (float) ($o['weight'] ?? 0); $nw = (float) ($it['weight'] ?? 0);
+            if (abs($ow - $nw) > 0.0001) {
+                $changes[] = '权重 ' . rtrim(rtrim(number_format($ow, 2, '.', ''), '0'), '.')
+                    . '→' . rtrim(rtrim(number_format($nw, 2, '.', ''), '0'), '.');
+            }
+            $ot = (string) ($o['calcType'] ?? 'ratio'); $nt = (string) ($it['calcType'] ?? 'ratio');
+            if ($ot !== $nt) {
+                $changes[] = '类型 ' . (self::CALC_TYPES[$ot] ?? $ot) . '→' . (self::CALC_TYPES[$nt] ?? $nt);
+            }
+            if (json_encode($o['calcParams'] ?? [], JSON_UNESCAPED_UNICODE) !== json_encode($it['calcParams'] ?? [], JSON_UNESCAPED_UNICODE)) {
+                $changes[] = '评分参数调整';
+            }
+            if ((string) ($o['reporterName'] ?? '') !== (string) ($it['reporterName'] ?? '')) {
+                $changes[] = '核查人「' . ($o['reporterName'] ?? '未指派') . '」→「' . ($it['reporterName'] ?? '未指派') . '」';
+            }
+            if ($changes) {
+                $this->log($plan, $account, '修改指标「' . $label($it) . '」', implode('；', $changes));
+            }
+        }
+        foreach ($old as $iid => $it) {
+            if (!isset($new[$iid])) {
+                $this->log($plan, $account, '删除指标「' . ($it['content'] ?? '未命名指标') . '」', '原权重 ' . ($it['weight'] ?? 0));
+            }
+        }
     }
 
     /**

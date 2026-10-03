@@ -80,6 +80,7 @@ Route::get('/performance/plans', [PerformanceController::class, 'list']);
 Route::get('/performance/plans/{id}', [PerformanceController::class, 'detail']);
 Route::post('/performance/plans/save', [PerformanceController::class, 'save']);
 Route::post('/performance/confirm', [PerformanceController::class, 'confirm']);
+Route::post('/performance/confirm_save', [PerformanceController::class, 'confirmSave']);
 Route::post('/performance/reject_confirm', fn (\Illuminate\Http\Request $request, PerformanceController $controller) => $controller->reject($request, 'confirm'));
 Route::post('/performance/reject_approve', fn (\Illuminate\Http\Request $request, PerformanceController $controller) => $controller->reject($request, 'approve'));
 Route::post('/performance/report', [PerformanceController::class, 'report']);
