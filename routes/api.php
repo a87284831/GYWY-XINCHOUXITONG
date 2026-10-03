@@ -90,6 +90,7 @@ Route::post('/performance/admin_fill', fn (\Illuminate\Http\Request $request, Pe
 Route::post('/performance/urge', [PerformanceController::class, 'urge']);
 Route::post('/performance/self_submit', [PerformanceController::class, 'selfSubmit']);
 Route::post('/performance/approve', [PerformanceController::class, 'approve']);
+Route::post('/performance/reopen', [PerformanceController::class, 'reopen']);
 Route::post('/performance/delete', [PerformanceController::class, 'delete']);
 Route::match(['get', 'post'], '/performance/grade_rules', [PerformanceController::class, 'gradeRules']);
 Route::post('/performance/calc', [PerformanceController::class, 'calc']);

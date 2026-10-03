@@ -68,6 +68,9 @@ class PerformanceController extends ApiController
         $row = DB::table('performance_plans')->where('legacy_id', $id)->first();
         if (!$row) return response()->json(['ok' => false, 'error' => '考核单不存在'], 404);
         $plan = $this->jsonValue($row->data) ?: [];
+        if (!$this->canViewPlan($account, $plan)) {
+            return response()->json(['ok' => false, 'error' => '无权查看该考核单'], 403);
+        }
         $plan = $this->decoratePlan($plan);
         return response()->json(['ok' => true, 'plan' => $plan, 'statusMap' => self::STATUS,
             'calcTypes' => self::CALC_TYPES,
@@ -221,6 +224,27 @@ class PerformanceController extends ApiController
             return response()->json(['ok' => false, 'error' => '已归档考核不可删除；如需修改请由管理员撤销归档'], 400);
         }
         DB::table('performance_plans')->where('legacy_id', $id)->delete(); return response()->json(['ok' => true]);
+    }
+
+    /** 考核单可见性：管理员、发起人、被考核人本人、链上审批人、被指派的指标核查人 */
+    private function canViewPlan(object $account, array $plan): bool
+    {
+        if ($account->role === 'admin') return true;
+        if ((int) ($plan['founderId'] ?? 0) === (int) $account->legacy_id) return true;
+        $myStaffId = $account->staff_id ? (int) $account->staff_id : null;
+        if ($myStaffId !== null && (int) ($plan['employeeId'] ?? 0) === $myStaffId) return true;
+        foreach ((array) ($plan['approvers'] ?? []) as $a) {
+            if ((int) ($a['userId'] ?? 0) === (int) $account->legacy_id) return true;
+            if ($myStaffId !== null && (int) ($a['staffId'] ?? 0) === $myStaffId) return true;
+        }
+        if ($myStaffId !== null) {
+            foreach (($plan['categories'] ?? []) as $cat) {
+                foreach (($cat['items'] ?? []) as $it) {
+                    if ((int) ($it['reporterId'] ?? 0) === $myStaffId) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** 是否有指标审核权：管理员、发起人、首位审批人（与 confirm 通过权限一致） */
@@ -533,6 +557,38 @@ class PerformanceController extends ApiController
         $this->log($plan, $account, '终审通过并归档', ($opinion !== '' ? $opinion . '；' : '') . '最终总分 ' . ($plan['finalTotal'] ?? '-') . '，等级 ' . ($plan['grade'] ?: '-'));
         $this->storePlan($plan);
         return response()->json(['ok' => true, 'status' => 'done', 'finalTotal' => $plan['finalTotal'] ?? null, 'grade' => $plan['grade'] ?? '']);
+    }
+
+    /**
+     * 管理员撤销归档：done→approve，审批链重置（上级评分全部清空重走）；
+     * 本人自评、核查数据/定分、附件保留；重算汇总。
+     */
+    public function reopen(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') return response()->json(['ok' => false, 'error' => '仅管理员可撤销归档'], 403);
+        $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
+        if (($plan['status'] ?? '') !== 'done') {
+            return response()->json(['ok' => false, 'error' => '仅已归档考核可撤销归档'], 400);
+        }
+        $plan['status'] = 'approve';
+        $plan['currentStep'] = 0;
+        $plan['approverNames'] = [];
+        $plan['approverTimes'] = [];
+        $plan['approverOpinions'] = [];
+        unset($plan['finishedAt']);
+        foreach (($plan['categories'] ?? []) as $ci => $cat) {
+            foreach (($cat['items'] ?? []) as $ii => $it) {
+                unset($plan['categories'][$ci]['items'][$ii]['approverScore'],
+                    $plan['categories'][$ci]['items'][$ii]['finalScore'],
+                    $plan['categories'][$ci]['items'][$ii]['finalManual'],
+                    $plan['categories'][$ci]['items'][$ii]['approverWeighted']);
+            }
+        }
+        $this->applyScores($plan);
+        $this->log($plan, $account, '管理员撤销归档，退回上级评分', '自评与核查数据保留，上级评分需重新提交');
+        $this->storePlan($plan);
+        return response()->json(['ok' => true, 'status' => 'approve', 'step' => 0]);
     }
 
     public function urge(Request $request): JsonResponse

@@ -36,7 +36,8 @@ trait SeedsPerformancePlan
             'enabled' => $enabled,
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        $token = str_repeat(dechex($legacyId % 15 + 1), 64);
+        // 确定性且全局唯一的 token（不可用 legacy_id 简单取模，会跨账号碰撞导致串号）
+        $token = substr(hash('sha256', 'seed-token:' . $legacyId), 0, 64);
         Cache::put('payroll_api_token:' . $token, $id, now()->addHours(8));
         return $token;
     }
