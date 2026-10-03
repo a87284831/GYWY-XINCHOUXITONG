@@ -10,6 +10,7 @@ export function roleColor(id) {
 }
 
 /* ---- 薪酬设置：公式 ---- */
+// 词表为前后端单一事实源：后端 app/Services/CalcRules.php FORMULA_VAR_CN 须与此逐字一致，改词同步两边
 export const VAR_CN = {
   base_pay: '应发基本工资', perf_pay: '应发绩效工资', sick_pay: '病假工资', night: '夜班话费补贴', meal: '餐补',
   title_sub: '其他补贴', reward: '月度奖励', welfare: '已发福利', punish: '月度扣罚', miss_d: '缺卡扣款',
