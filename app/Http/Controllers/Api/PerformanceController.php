@@ -988,4 +988,138 @@ class PerformanceController extends ApiController
     {
         return response()->json(['ok' => false, 'error' => '考核单不存在'], 404);
     }
+
+    // ============================ 自评附件 ============================
+
+    private const ATTACHMENT_EXTS = ['jpg', 'jpeg', 'png', 'pdf'];
+    private const ATTACHMENT_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
+    private const ATTACHMENT_MAX_BYTES = 10485760; // 10MB
+    private const ATTACHMENT_MAX_PER_ITEM = 5;
+
+    private function attachmentDir(int $planId): string
+    {
+        return storage_path('app/perf-attachments/' . $planId);
+    }
+
+    /** 定位指标项，返回 categories/items 下标；未找到返回 null */
+    private function locateItem(array $plan, string $itemId): ?array
+    {
+        foreach (($plan['categories'] ?? []) as $ci => $cat) {
+            foreach (($cat['items'] ?? []) as $ii => $it) {
+                if ((string) ($it['id'] ?? '') === $itemId) return ['ci' => $ci, 'ii' => $ii];
+            }
+        }
+        return null;
+    }
+
+    /** 附件存储名白名单（拒绝目录分隔符与穿越序列） */
+    private function safeAttachmentName(string $name): bool
+    {
+        return (bool) preg_match('/^[A-Za-z0-9_\-]+\.(jpg|jpeg|png|pdf)$/i', $name);
+    }
+
+    /** 自评阶段上传：仅本人/发起人/管理员，且只能挂主观评分项 */
+    public function uploadAttachment(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
+        if (($plan['status'] ?? '') !== 'self') {
+            return response()->json(['ok' => false, 'error' => '仅自评阶段可上传依据附件'], 400);
+        }
+        $isEmployee = (int) ($account->staff_id ?? 0) === (int) ($plan['employeeId'] ?? 0);
+        if ($account->role !== 'admin' && !$isEmployee
+            && (int) $account->legacy_id !== (int) ($plan['founderId'] ?? 0)) {
+            return response()->json(['ok' => false, 'error' => '仅被考核人本人可上传附件'], 403);
+        }
+        $pos = $this->locateItem($plan, (string) $request->input('itemId'));
+        if ($pos === null) return response()->json(['ok' => false, 'error' => '指标项不存在'], 400);
+        $item = $plan['categories'][$pos['ci']]['items'][$pos['ii']];
+        if (($item['calcType'] ?? 'manual') !== 'manual') {
+            return response()->json(['ok' => false, 'error' => '客观指标无需上传自评依据'], 400);
+        }
+        $existing = $item['attachments'] ?? [];
+        if (count($existing) >= self::ATTACHMENT_MAX_PER_ITEM) {
+            return response()->json(['ok' => false, 'error' => '每项指标最多 ' . self::ATTACHMENT_MAX_PER_ITEM . ' 个附件'], 400);
+        }
+        $file = $request->file('file');
+        if (!$file instanceof \Illuminate\Http\UploadedFile || !$file->isValid()) {
+            return response()->json(['ok' => false, 'error' => '附件上传失败'], 400);
+        }
+        $ext = strtolower($file->getClientOriginalExtension());
+        $mime = strtolower((string) $file->getMimeType());
+        if (!in_array($ext, self::ATTACHMENT_EXTS, true) || !in_array($mime, self::ATTACHMENT_MIMES, true)) {
+            return response()->json(['ok' => false, 'error' => '仅支持 jpg/jpeg/png/pdf 格式'], 400);
+        }
+        if ($file->getSize() > self::ATTACHMENT_MAX_BYTES) {
+            return response()->json(['ok' => false, 'error' => '附件不能超过 10MB'], 400);
+        }
+        $planId = (int) $plan['id'];
+        $dir = $this->attachmentDir($planId);
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $stored = date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $file->move($dir, $stored);
+        $original = trim(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) . '.' . $ext;
+        $existing[] = ['name' => $original, 'file' => $stored, 'size' => (int) filesize($dir . DIRECTORY_SEPARATOR . $stored),
+            'uploaderId' => (int) $account->legacy_id, 'uploaderName' => (string) ($account->name ?? ''),
+            'ts' => now()->toDateTimeString()];
+        $plan['categories'][$pos['ci']]['items'][$pos['ii']]['attachments'] = array_values($existing);
+        $this->log($plan, $account, '上传自评附件', mb_substr($original, 0, 50));
+        $this->storePlan($plan);
+        return response()->json(['ok' => true, 'file' => $stored, 'name' => $original,
+            'url' => '/api/performance/attachment?id=' . $planId . '&file=' . $stored,
+            'attachments' => $existing]);
+    }
+
+    /** 下载/预览：遵循考核单可见性，存储名白名单 + realpath 防穿越 */
+    public function downloadAttachment(Request $request)
+    {
+        $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
+        if (!$this->canViewPlan($account, $plan)) {
+            return response()->json(['ok' => false, 'error' => '无权查看该考核单附件'], 403);
+        }
+        $name = (string) $request->input('file', '');
+        if (!$this->safeAttachmentName($name)) {
+            return response()->json(['ok' => false, 'error' => '非法附件名'], 400);
+        }
+        $base = realpath($this->attachmentDir((int) $plan['id']));
+        $path = realpath($this->attachmentDir((int) $plan['id']) . DIRECTORY_SEPARATOR . $name);
+        if ($base === false || $path === false || !str_starts_with($path, $base . DIRECTORY_SEPARATOR)) {
+            return response()->json(['ok' => false, 'error' => '附件不存在'], 404);
+        }
+        return response()->file($path);
+    }
+
+    /** 删除：归档前，上传者本人或管理员 */
+    public function deleteAttachment(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
+        $plan = $this->plan((int) $request->input('id')); if (!$plan) return $this->missingPlan();
+        if (($plan['status'] ?? '') === 'done') {
+            return response()->json(['ok' => false, 'error' => '已归档考核的附件不可删除'], 400);
+        }
+        $pos = $this->locateItem($plan, (string) $request->input('itemId'));
+        if ($pos === null) return response()->json(['ok' => false, 'error' => '指标项不存在'], 400);
+        $name = (string) $request->input('file', '');
+        if (!$this->safeAttachmentName($name)) {
+            return response()->json(['ok' => false, 'error' => '非法附件名'], 400);
+        }
+        $items = $plan['categories'][$pos['ci']]['items'][$pos['ii']];
+        $list = $items['attachments'] ?? [];
+        $idx = null;
+        foreach ($list as $k => $att) {
+            if (($att['file'] ?? '') === $name) { $idx = $k; break; }
+        }
+        if ($idx === null) return response()->json(['ok' => false, 'error' => '附件不存在'], 404);
+        if ($account->role !== 'admin' && (int) ($list[$idx]['uploaderId'] ?? 0) !== (int) $account->legacy_id) {
+            return response()->json(['ok' => false, 'error' => '仅上传者本人可删除该附件'], 403);
+        }
+        $fsPath = $this->attachmentDir((int) $plan['id']) . DIRECTORY_SEPARATOR . $name;
+        if (is_file($fsPath)) @unlink($fsPath);
+        array_splice($list, $idx, 1);
+        $plan['categories'][$pos['ci']]['items'][$pos['ii']]['attachments'] = array_values($list);
+        $this->log($plan, $account, '删除自评附件', $name);
+        $this->storePlan($plan);
+        return response()->json(['ok' => true, 'attachments' => array_values($list)]);
+    }
 }
