@@ -32,8 +32,14 @@ class DingtalkSyncCommand extends Command
                 ['Marked resigned', $report['offboard'] ?? 0],
                 ['New resigned', $report['offboard_new'] ?? 0],
                 ['Roster synced', $report['roster'] ?? 0],
+                ['Roster field warnings', $report['roster_field_errors'] ?? 0],
+                ['Roster missing (no HR record)', $report['roster_missing'] ?? 0],
             ]
         );
+
+        foreach ($report['roster_field_error_items'] ?? [] as $item) {
+            $this->warn("  ! {$item['name']}: {$item['detail']}");
+        }
 
         return 0;
     }

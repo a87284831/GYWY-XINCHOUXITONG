@@ -1,6 +1,7 @@
 // 钉钉同步流程（复刻旧版 app.js dingtalkSyncNow/showSyncResult/showSyncError）
 // Staff/Org 两页共用；onDone 为结果弹窗确定后的回调（旧版为 refreshPage）
 import { api } from '@/api/client'
+import { syncReportModel } from './dingtalkSyncReport'
 
 export async function dingtalkSyncNow(onDone) {
   if (!window.confirm('立即从钉钉全量同步组织架构和人员？')) return
@@ -52,28 +53,30 @@ export async function dingtalkSyncNow(onDone) {
 }
 
 function showSyncResult(rep, elapsed, onDone) {
+  const m = syncReportModel(rep)
   const overlay = document.createElement('div')
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center'
-  const rows = [
-    ['钉钉部门数', rep.dingtalk_depts ?? 0],
-    ['钉钉在职人员', rep.dingtalk_users ?? 0],
-    ['钉钉离职人员', rep.dingtalk_dismissed ?? 0],
-    ['新增人员', rep.new ?? 0],
-    ['更新人员', rep.updated ?? 0],
-    ['标记离职', rep.offboard ?? 0],
-    ['新增离职', rep.offboard_new ?? 0],
-    ['花名册同步', rep.roster ?? 0],
-  ]
+  const titleColor = m.hasWarning ? '#d97706' : '#52c41a'
+  const warnBlock = m.warningLines.length ? `
+    <div style="margin-top:16px;padding:12px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e;max-height:200px;overflow-y:auto">
+      <div style="font-weight:600;margin-bottom:6px">以下人员的花名册薪资字段不是有效数字，本次未覆盖其本地薪资（保留原值），其余字段和其他人员均已正常同步。请在钉钉智能人事修正后重新同步：</div>
+      ${m.warningLines.map((l) => `<div style="padding:2px 0;word-break:break-all">${l}</div>`).join('')}
+      ${m.warningTruncated ? `<div style="padding-top:4px;color:#b45309">……等 ${m.warningTruncated} 项未显示</div>` : ''}
+    </div>` : ''
+  const missingBlock = m.missingCount ? `
+    <div style="margin-top:10px;font-size:12px;color:#b45309">另有 ${m.missingCount} 名在职人员在钉钉花名册无档案返回（多半未办理智能人事入职登记），花名册字段未同步。</div>` : ''
   overlay.innerHTML = `
-    <div style="background:#fff;border-radius:14px;padding:28px 36px;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+    <div style="background:#fff;border-radius:14px;padding:28px 36px;min-width:380px;max-width:560px;box-shadow:0 8px 32px rgba(0,0,0,.25)">
       <div style="text-align:center;margin-bottom:20px">
-        <div style="font-size:20px;font-weight:700;color:#52c41a">同步完成</div>
+        <div style="font-size:20px;font-weight:700;color:${titleColor}">${m.title}</div>
         <div style="font-size:13px;color:#999;margin-top:4px">耗时 ${elapsed} 秒</div>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
-        ${rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#666">${k}</td><td style="padding:6px 0;text-align:right;font-weight:600;color:#333">${v}</td></tr>`).join('')}
+        ${m.rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#666">${k}</td><td style="padding:6px 0;text-align:right;font-weight:600;color:${k.includes('异常') && v > 0 ? '#d97706' : '#333'}">${v}</td></tr>`).join('')}
       </table>
+      ${warnBlock}
+      ${missingBlock}
       <div style="text-align:center;margin-top:22px">
         <button class="sync-ok-btn" style="padding:8px 36px;font-size:15px;border-radius:8px;border:none;background:#1890ff;color:#fff;cursor:pointer">确定</button>
       </div>

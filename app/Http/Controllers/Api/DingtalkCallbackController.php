@@ -185,7 +185,9 @@ class DingtalkCallbackController extends ApiController
     public function runFullSync(): array
     {
         // P1-2: 先完成全部钉钉 API 拉取，再开事务写库；中途失败整体回滚，避免半同步状态。
-        $stats = ['new' => 0, 'updated' => 0, 'skip' => 0, 'offboard' => 0, 'offboard_new' => 0, 'roster' => 0];
+        $stats = ['new' => 0, 'updated' => 0, 'skip' => 0, 'offboard' => 0, 'offboard_new' => 0, 'roster' => 0,
+                  // 花名册字段级问题（如钉钉薪资栏返回 true 等非数值）：跳过坏字段保留本地原值，不阻断同步
+                  'roster_field_errors' => 0, 'roster_field_error_items' => []];
         $maxId = (int) DB::table('payroll_staff')->max('legacy_id');
 
         $depts = $this->dt->getAllDepartments();
@@ -372,16 +374,43 @@ class DingtalkCallbackController extends ApiController
             $idMap = array_column($rosterStaff->all(), 'id', 'dingtalk_userid');
 
             $rosterReturned = [];
+            // dbId => [['field'=>中文名,'raw'=>展示值], ...] 或异常说明字符串
+            $rosterPersonIssues = [];
             foreach (array_chunk($rosterUids, 50) as $batch) {
                 $roster = $this->dt->getRosterData($batch);
                 foreach ($roster as $uid => $fields) {
                     $rosterReturned[$uid] = true;
                     $dbId = $idMap[$uid] ?? null;
                     if (!$dbId) continue;
-                    $this->applyRosterFields($dbId, $fields);
+                    try {
+                        $skips = $this->applyRosterFields($dbId, $fields);
+                        if ($skips) $rosterPersonIssues[$dbId] = array_merge($rosterPersonIssues[$dbId] ?? [], $skips);
+                    } catch (\Throwable $e) {
+                        // 单个人的坏数据不得炸掉全公司花名册同步（2026-10-04 SQL 1366 事故教训）
+                        Log::warning('钉钉花名册逐人同步异常，已跳过该人本次花名册更新', [
+                            'staff_db_id' => $dbId, 'error' => $e->getMessage(),
+                        ]);
+                        $rosterPersonIssues[$dbId][] = '同步异常：' . $e->getMessage();
+                    }
                     $stats['roster']++;
                 }
                 usleep(100000);
+            }
+
+            // 汇总字段级/人员级问题，带上姓名返回给前端弹窗（同步仍判为成功）
+            if ($rosterPersonIssues) {
+                $nameMap = DB::table('payroll_staff')
+                    ->whereIn('id', array_keys($rosterPersonIssues))->pluck('name', 'id');
+                foreach ($rosterPersonIssues as $dbId => $issues) {
+                    $name = $nameMap[$dbId] ?? ('id:' . $dbId);
+                    foreach ($issues as $issue) {
+                        $detail = is_array($issue)
+                            ? ($issue['field'] . ' = ' . $issue['raw'])
+                            : $issue;
+                        $stats['roster_field_error_items'][] = ['name' => $name, 'detail' => $detail];
+                    }
+                }
+                $stats['roster_field_errors'] = count($stats['roster_field_error_items']);
             }
 
             // 可观测性（2026-10-01）：在职人员必须在花名册接口有返回，
@@ -593,8 +622,11 @@ class DingtalkCallbackController extends ApiController
 
     // ─── 花名册字段映射 ──────────────────────────────────────
 
-    private function applyRosterFields(int $dbId, array $fields): void
+    private function applyRosterFields(int $dbId, array $fields): array
     {
+        // 返回本次跳过的坏字段列表：['field' => 钉钉字段中文名, 'raw' => 原始值展示]
+        $skipped = [];
+
         $dataMap = [
             '性别' => 'gender', '证件号码' => 'id_card', '学历' => 'education',
             '银行卡号' => 'bank_card', '开户行' => 'bank_name', '政治面貌' => 'politics',
@@ -614,8 +646,23 @@ class DingtalkCallbackController extends ApiController
 
         $systemMap = [
             '职位' => 'position', '实际转正日期' => 'regular_date', '入职时间' => 'hire_date',
-            '月度薪资标准' => 'fixed_monthly', '月度基本工资' => 'base_salary', '离职日期' => 'resign_date',
+            '离职日期' => 'resign_date',
         ];
+
+        // 薪资列单独处理：钉钉侧可能返回布尔/文本等非数值（2026-10-04 线上 fixed_monthly='true' 事故），
+        // 必须入口归一化——坏值跳过不写（保留本地原值），不能让 SQL 1366 炸掉整批同步。
+        $systemUpdate = [];
+        foreach (['月度薪资标准' => 'fixed_monthly', '月度基本工资' => 'base_salary'] as $dtField => $dbField) {
+            if (!array_key_exists($dtField, $fields)) continue;
+            $raw = $fields[$dtField];
+            if ($raw === null || $raw === '') continue;
+            $num = $this->normalizeRosterMoney($raw);
+            if ($num === null) {
+                $skipped[] = ['field' => $dtField, 'raw' => $this->displayRosterRaw($raw)];
+                continue;
+            }
+            $systemUpdate[$dbField] = $num;
+        }
 
         $dataUpdate = [];
         foreach ($dataMap as $dtField => $dbField) {
@@ -634,7 +681,6 @@ class DingtalkCallbackController extends ApiController
             ]);
         }
 
-        $systemUpdate = [];
         foreach ($systemMap as $dtField => $dbField) {
             if (!empty($fields[$dtField])) {
                 $systemUpdate[$dbField] = $fields[$dtField];
@@ -690,6 +736,32 @@ class DingtalkCallbackController extends ApiController
                 DB::table('payroll_staff')->where('id', $dbId)->update($systemUpdate);
             }
         }
+
+        return $skipped;
+    }
+
+    /**
+     * 花名册薪资字段归一化：数字/数字字符串转 float；布尔、文字等非数值返回 null（调用方跳过并告警）。
+     * 0 是有效薪资，不能因 empty/falsy 被吞掉。
+     */
+    private function normalizeRosterMoney($v): ?float
+    {
+        if (is_bool($v)) return null;
+        if (is_int($v) || is_float($v)) return (float) $v;
+        if (is_string($v)) {
+            $s = trim($v);
+            return is_numeric($s) ? (float) $s : null;
+        }
+        return null;
+    }
+
+    /** 钉钉原始值的可读展示（用于同步警告弹窗/日志），布尔显式转 true/false，长文本截断 */
+    private function displayRosterRaw($v): string
+    {
+        if (is_bool($v)) return $v ? 'true' : 'false';
+        if ($v === null) return 'null';
+        $s = trim((string) $v);
+        return mb_strlen($s) > 30 ? mb_substr($s, 0, 30) . '…' : $s;
     }
 
     // ─── 回调事件处理 ────────────────────────────────────────
