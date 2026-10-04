@@ -41,8 +41,8 @@
     <div class="home-todo">
       <div v-if="!todoCards.length" class="msg info">暂无待办事项</div>
       <div
-        v-for="(c, i) in todoCards"
-        :key="i"
+        v-for="c in todoCards"
+        :key="c.page"
         class="home-kpi"
         @click="goPage(c.page)"
       >
