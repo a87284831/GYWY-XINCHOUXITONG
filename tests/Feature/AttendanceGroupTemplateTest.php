@@ -177,13 +177,13 @@ class AttendanceGroupTemplateTest extends TestCase
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
-        // 找到经理甲所在行，其 1 日（E列）应已带出 √（数据库排序不保证在第5行）
+        // 找到经理甲所在行；基本信息区扩为6列后，日期区从 G 列起，1 日 = G 列
         $jiaRow = null;
         for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
             if (trim((string) $sheet->getCell("B{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
         }
         $this->assertNotNull($jiaRow);
-        $this->assertSame('√', trim((string) $sheet->getCell("E{$jiaRow}")->getValue()));
+        $this->assertSame('√', trim((string) $sheet->getCell("G{$jiaRow}")->getValue()));
     }
 
     public function test_project_role_with_sentinel_only_gets_own_project_template(): void
