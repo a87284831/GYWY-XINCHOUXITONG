@@ -12,10 +12,10 @@
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
         <input ref="fileEl" type="file" accept=".xlsx" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
-        <button class="btn" :disabled="isVirtual" :title="isVirtual ? '汇总选项无单一考勤块，请选择具体项目查看' : ''" @click="attView">查看已上传数据</button>
-        <button class="btn" :disabled="isVirtual" :title="isVirtual ? '锁定按项目执行，请选择具体项目' : ''" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
-        <button class="btn success" :disabled="isVirtual" :title="isVirtual ? '导出按项目执行，请选择具体项目' : ''" @click="attExport">导出考勤</button>
-        <button v-if="!isProj && !isVirtual" class="btn danger sm" @click="attDelete">删除本项目本月考勤</button>
+        <button class="btn" :disabled="!!blockReason" :title="blockReason || '查看本项目本月已上传的考勤'" @click="attView">查看已上传数据</button>
+        <button class="btn" :disabled="!!blockReason" :title="blockReason || (attLocked ? '解除最终版本锁定' : '锁定为本月最终考勤，锁定后不能重传或删除')" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
+        <button class="btn success" :disabled="!!blockReason" :title="blockReason || '导出本项目本月考勤 Excel'" @click="attExport">导出考勤</button>
+        <button v-if="!isProj && !isVirtual" class="btn danger sm" :disabled="!curStatus.has_data" :title="curStatus.has_data ? '清空本项目本月全部考勤行（按人合并无法逐人清除时使用）' : '该项目本月尚未上传考勤数据'" @click="attDelete">删除本项目本月考勤</button>
       </div>
       <div v-if="attMsg" v-html="attMsg"></div>
       <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；上传后按人合并进各自所属项目的考勤块，不影响块内其他人员。查看 / 锁定 / 导出 / 删除请选择具体项目。</div>
@@ -24,7 +24,7 @@
     <div class="card">
       <h3>考勤统计预览</h3>
       <div v-if="viewErr" class="msg err">{{ viewErr }}</div>
-      <div v-else-if="!viewLoaded" class="msg info">选择项目后点击"查看已上传数据"。</div>
+      <div v-else-if="!viewLoaded" class="msg info">{{ isVirtual ? '请选择具体项目后查看已上传数据。' : (curStatus.has_data ? '选择项目后点击"查看已上传数据"。' : curProj + ' ' + ui.month + ' 尚未上传考勤数据，请先下载模板填写并上传。') }}</div>
       <div v-else-if="!names.length" class="msg info">{{ curProj }} {{ ui.month }} 暂无考勤数据。</div>
       <template v-else>
         <div class="row" style="margin-bottom:8px">
@@ -81,7 +81,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
-import { VIRTUAL_ATT_GROUPS, isVirtualAttGroup, attProjectLabel } from './attendanceGroups'
+import { VIRTUAL_ATT_GROUPS, isVirtualAttGroup, attProjectLabel, attBlockedAction, pickProjectStatus } from './attendanceGroups'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -100,8 +100,29 @@ const viewLoaded = ref(false)
 const viewErr = ref('')
 const attLocked = ref(false)
 const hlName = ref('')
+// 当月各项目考勤块状态（/api/attendance/status），控制查看/锁定/导出按钮的启用：
+// 所有项目与虚拟选项口径统一——无考勤块（未上传）时三按钮置灰，上传成功后放行
+// null = 尚未加载/查询失败（此时保守放行，避免状态接口故障把正常操作锁死）；[] = 已加载
+const statusList = ref(null)
 
 const names = computed(() => Object.keys(view.value.rows || {}))
+const curStatus = computed(() => {
+  if (isVirtual.value) return { has_data: false, locked: false }
+  if (statusList.value === null) return { has_data: true, locked: attLocked.value }
+  return pickProjectStatus(statusList.value, curProj.value)
+})
+const blockReason = computed(() => attBlockedAction({ isVirtual: isVirtual.value, hasData: !!curStatus.value.has_data }))
+
+async function refreshStatus() {
+  try {
+    const data = await api(`/api/attendance/status?ym=${ui.month}`)
+    statusList.value = data.projects || []
+    attLocked.value = !!curStatus.value.locked
+  } catch (e) {
+    // 状态查询失败不锁死操作：回到"未知=放行"，由各功能接口自身鉴权/报错
+    statusList.value = null
+  }
+}
 
 async function attTemplate() {
   download(`/api/attendance/template?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`, `考勤表模板_${projLabel.value}_${ui.month}.xlsx`)
@@ -151,6 +172,7 @@ async function attUploadConfirm() {
     attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? '（已按人合并旧数据）' : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
     pendingFile.value = null
     if (fileEl.value) fileEl.value.value = ''
+    await refreshStatus()
     // 汇总选项没有单一项目块可预览，只提示成功
     if (!isVirtual.value) attView()
   } catch (e) {
@@ -180,6 +202,7 @@ async function attLock() {
   try {
     await api('/api/attendance/lock', { body: { ym: ui.month, project: curProj.value, locked: willLock } })
     toast(willLock ? '已锁定为最终版本' : '已解锁')
+    await refreshStatus()
     attView()
   } catch (e) { alert(e.message) }
 }
@@ -189,7 +212,9 @@ async function attDelete() {
   try {
     await api('/api/attendance/delete', { body: { ym: ui.month, project: curProj.value } })
     toast('已删除')
-    attView()
+    await refreshStatus()
+    viewLoaded.value = false
+    view.value = { rows: {}, stats: {}, meta: {} }
   } catch (e) { alert(e.message) }
 }
 
@@ -231,16 +256,18 @@ function onDocClick(e) {
 function onMonthChange() {
   viewLoaded.value = false
   attLocked.value = false
+  refreshStatus()
 }
 
 watch(() => ui.month, onMonthChange)
-// 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目
-watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = false })
+// 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目（按钮状态由 status+curProj 派生，无需额外刷新）
+watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked })
 watch(() => auth.projects, (v) => { if (!isProj.value && !attProj.value && v.length) attProj.value = v[0] })
 
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   if (!isProj.value && !attProj.value && auth.projects.length) attProj.value = auth.projects[0]
+  refreshStatus()
 })
 
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
