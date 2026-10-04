@@ -12,7 +12,8 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class AttendanceController extends ApiController
 {
-    private const FIELD_MAP = [
+    /** 表头名 => 入库 record key（模板预填与上传解析共用，禁止两边各写一份导致漂移） */
+    public const FIELD_MAP = [
         '姓名' => 'name', '员工工号' => 'emp_no', '人员状态' => 'status', '岗位' => 'position',
         '应出勤(天)' => 'req_attend', '应出勤(手填)' => 'req_attend', '实际出勤' => 'act_attend', '实际出勤(天)' => 'act_attend',
         '月度奖励金额' => 'reward', '月度扣罚金额' => 'punish', '餐补' => 'meal_sub',
@@ -59,6 +60,18 @@ class AttendanceController extends ApiController
             'file' => ['required', 'file', 'mimes:xlsx,xls', 'max:51200']]);
         $ym = $request->string('ym')->toString();
         $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
+        $dryRun = in_array(strtolower((string) $request->input('dry_run')), ['1', 'true', 'yes'], true);
+
+        // 项目角色的 project 入口已被强制覆盖为自己的项目，虚拟哨兵到不了这里，只能走普通项目分支
+        $group = \App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS[$project] ?? null;
+        if ($group) {
+            [$rows, $errors] = $this->parseWorkbook($request->file('file')->getPathname());
+            if ($errors) {
+                return response()->json(['ok' => false, 'error' => implode('；', array_slice($errors, 0, 30))], 400);
+            }
+            return $this->uploadVirtualGroup($ym, $group, $rows, $dryRun);
+        }
+
         if (!DB::table('payroll_projects')->where('name', $project)->exists()) {
             return response()->json(['ok' => false, 'error' => '项目不存在'], 400);
         }
@@ -96,20 +109,102 @@ class AttendanceController extends ApiController
         }
         $key = $ym . '|' . $project;
         $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();
-        $dryRun = in_array(strtolower((string) $request->input('dry_run')), ['1', 'true', 'yes'], true);
         $response = ['preview' => $dryRun, 'count' => count($rows), 'overwrite' => (bool) $existing,
             'names' => array_slice(array_keys($rows), 0, 50),
             'has_calc' => DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)->exists()];
         if (!$dryRun) {
-            DB::table('payroll_attendance')->updateOrInsert(
-                ['record_key' => $key],
-                ['year_month' => $ym, 'project_name' => $project,
-                 'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE),
-                 'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $rows], JSON_UNESCAPED_UNICODE),
-                 'updated_at' => now(), 'created_at' => now()]
-            );
+            // 按人合并：只更新表中出现的人员，旧块里不在表中的行保留（防止重传冲掉汇总表/其他人数据；整表清空走删除按钮）
+            $this->mergeBlock($ym, $project, $rows);
         }
         return response()->json(['ok' => true] + $response);
+    }
+
+    /**
+     * 管理人员/案场人员汇总表上传：逐人按当月分类档案定位所属项目，
+     * 分组后按人合并进各项目考勤块。任一涉及项目归档/锁定则整单拒绝，不做部分写入。
+     */
+    private function uploadVirtualGroup(string $ym, array $group, array $rows, bool $dryRun): JsonResponse
+    {
+        $label = $group['label']; $category = $group['category'];
+        $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+        $candidates = DB::table('payroll_staff')->where('deleted', false)
+            ->get(['legacy_id', 'name', 'project_name', 'dingtalk_userid'])
+            ->filter(function ($p) use ($catMap, $category) {
+                if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
+                // 物业总部人员（含管理人员标记）走物业总部自己的项目入口，避免重复数据源
+                return !($category === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
+            })->values();
+
+        $unknown = array_values(array_diff(array_keys($rows), $candidates->pluck('name')->all()));
+        if ($unknown) {
+            return response()->json(['ok' => false, 'error' => "以下人员不在全公司{$label}档案中（{$label}表只受理{$label}，基层/案场/物业总部人员请走各自项目表）："
+                . implode('、', array_slice($unknown, 0, 10))], 400);
+        }
+        $byName = [];
+        foreach ($candidates as $p) { $byName[$p->name][] = $p; }
+        // 跨项目同名（含同项目多条档案）→ 按姓名无法定位归属，整单拒绝并给出项目消歧
+        $ambiguous = [];
+        foreach (array_keys($rows) as $nm) {
+            if (count($byName[$nm] ?? []) > 1) {
+                $projs = implode('、', array_values(array_unique(array_map(fn ($p) => $p->project_name, $byName[$nm]))));
+                $ambiguous[] = "{$nm}（{$projs}）";
+            }
+        }
+        if ($ambiguous) {
+            return response()->json(['ok' => false, 'error' => "以下姓名在{$label}档案中存在多条记录，跨项目无法按姓名匹配，请先在人员档案中处理同名（钉钉同步后每人有唯一ID）："
+                . implode('、', array_slice($ambiguous, 0, 10))], 400);
+        }
+
+        $byProject = [];
+        foreach ($rows as $name => $record) {
+            $p = $byName[$name][0];
+            $record['staff_id'] = (int) $p->legacy_id;
+            $record['dingtalk_userid'] = trim((string) ($p->dingtalk_userid ?? ''));
+            $byProject[$p->project_name][$name] = $record;
+        }
+        foreach (array_keys($byProject) as $proj) {
+            if ($this->isArchived($ym, $proj)) {
+                return response()->json(['ok' => false, 'error' => "项目「{$proj}」{$ym}工资已归档，请先撤销该项目归档后再上传{$label}表"], 400);
+            }
+            if ($this->isLocked($ym, $proj)) {
+                return response()->json(['ok' => false, 'error' => "项目「{$proj}」考勤已锁定为最终版本，请先解锁该项目后再上传{$label}表"], 400);
+            }
+        }
+
+        $projects = array_keys($byProject);
+        $existingKeys = DB::table('payroll_attendance')->where('year_month', $ym)
+            ->whereIn('project_name', $projects)->pluck('project_name')->all();
+        $response = ['preview' => $dryRun, 'count' => count($rows), 'overwrite' => (bool) $existingKeys,
+            'names' => array_slice(array_keys($rows), 0, 50),
+            'has_calc' => DB::table('payroll_results')->where('year_month', $ym)->whereIn('project_name', $projects)->exists()];
+        if (!$dryRun) {
+            foreach ($byProject as $proj => $incoming) {
+                $this->mergeBlock($ym, $proj, $incoming);
+            }
+        }
+        return response()->json(['ok' => true] + $response);
+    }
+
+    /**
+     * 按人合并写入一个项目的考勤块：incoming 中的人覆盖/新增，
+     * 旧块中不在 incoming 的人原样保留。locked 等字段不动（调用方需先做归档/锁定拦截）。
+     */
+    private function mergeBlock(string $ym, string $project, array $incoming): void
+    {
+        $key = $ym . '|' . $project;
+        $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();
+        $oldRows = $existing ? ($this->jsonValue((string) $existing->rows) ?: []) : [];
+        $merged = $incoming;
+        foreach ($oldRows as $nm => $rec) {
+            if (!array_key_exists($nm, $merged)) $merged[$nm] = $rec;
+        }
+        DB::table('payroll_attendance')->updateOrInsert(
+            ['record_key' => $key],
+            ['year_month' => $ym, 'project_name' => $project,
+             'rows' => json_encode($merged, JSON_UNESCAPED_UNICODE),
+             'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $merged], JSON_UNESCAPED_UNICODE),
+             'updated_at' => now(), 'created_at' => now()]
+        );
     }
 
     public function delete(Request $request): JsonResponse

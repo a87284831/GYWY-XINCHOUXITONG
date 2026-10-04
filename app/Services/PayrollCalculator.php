@@ -56,6 +56,18 @@ class PayrollCalculator
 
     public function __construct(private readonly CalcRules $rules = new CalcRules()) {}
 
+    /** 总部载体项目名：该项目人员走"物业总部"自己的考勤/工资入口，不计入跨项目管理表 */
+    public const HQ_PROJECT = '物业总部';
+
+    /**
+     * 考勤下拉框的跨项目虚拟"项目"：哨兵值 => [显示名, 人员分类]。
+     * 下载 = 全公司该类人员（按项目分组）一张表；上传 = 按人合并回各自项目考勤块。
+     */
+    public const ATT_VIRTUAL_GROUPS = [
+        '__managers__' => ['label' => '管理人员', 'category' => 'manager'],
+        '__case__'     => ['label' => '案场人员', 'category' => 'case'],
+    ];
+
     /**
      * 当月生效人员分类映射：legacy_id => category（staff/manager/case/hq）。
      *
@@ -64,7 +76,7 @@ class PayrollCalculator
      *   - 生效日 >  核算月月末：当前分类是该月之后才调整的，本月旧分类无记录可查，
      *     回退按基层员工（staff）核算并记日志——宁可少算，不冒算。
      */
-    private static function categoryMap(string $ym): array
+    public static function categoryMap(string $ym): array
     {
         $monthEnd = date('Y-m-t', strtotime($ym . '-01'));
         $rows = DB::table('payroll_staff')->where('deleted', false)

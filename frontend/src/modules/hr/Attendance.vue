@@ -7,17 +7,19 @@
         <span v-if="isProj" class="tag blue">本项目：{{ auth.user.project }}</span>
         <label v-else class="fld">项目 <select v-model="attProj">
           <option v-for="p in auth.projects" :key="p">{{ p }}</option>
+          <option v-for="g in VIRTUAL_ATT_GROUPS" :key="g.value" :value="g.value">{{ g.label }}（跨项目汇总）</option>
         </select></label>
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
         <input ref="fileEl" type="file" accept=".xlsx" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
-        <button class="btn" @click="attView">查看已上传数据</button>
-        <button class="btn" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
-        <button class="btn success" @click="attExport">导出考勤</button>
-        <button v-if="!isProj" class="btn danger sm" @click="attDelete">删除本项目本月考勤</button>
+        <button class="btn" :disabled="isVirtual" :title="isVirtual ? '汇总选项无单一考勤块，请选择具体项目查看' : ''" @click="attView">查看已上传数据</button>
+        <button class="btn" :disabled="isVirtual" :title="isVirtual ? '锁定按项目执行，请选择具体项目' : ''" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
+        <button class="btn success" :disabled="isVirtual" :title="isVirtual ? '导出按项目执行，请选择具体项目' : ''" @click="attExport">导出考勤</button>
+        <button v-if="!isProj && !isVirtual" class="btn danger sm" @click="attDelete">删除本项目本月考勤</button>
       </div>
       <div v-if="attMsg" v-html="attMsg"></div>
-      <div class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传直接覆盖。</div>
+      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；上传后按人合并进各自所属项目的考勤块，不影响块内其他人员。查看 / 锁定 / 导出 / 删除请选择具体项目。</div>
+      <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传按人合并——只更新表中出现的人员，块内其他人数据保留；整表清空请用"删除本项目本月考勤"。</div>
     </div>
     <div class="card">
       <h3>考勤统计预览</h3>
@@ -79,12 +81,15 @@ import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
+import { VIRTUAL_ATT_GROUPS, isVirtualAttGroup, attProjectLabel } from './attendanceGroups'
 
 const auth = useAuthStore()
 const ui = useUiStore()
 
 const isProj = computed(() => auth.user && auth.user.role === 'project')
 const curProj = computed(() => (isProj.value ? auth.user.project : attProj.value))
+const isVirtual = computed(() => isVirtualAttGroup(curProj.value))
+const projLabel = computed(() => attProjectLabel(curProj.value))
 
 const attProj = ref(auth.projects[0] || '')
 const fileEl = ref(null)
@@ -99,7 +104,7 @@ const hlName = ref('')
 const names = computed(() => Object.keys(view.value.rows || {}))
 
 async function attTemplate() {
-  download(`/api/attendance/template?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`, `考勤表模板_${curProj.value}_${ui.month}.xlsx`)
+  download(`/api/attendance/template?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`, `考勤表模板_${projLabel.value}_${ui.month}.xlsx`)
 }
 
 // 上传：先 dry_run 校验出预览，再确认正式上传（复刻 attUpload/attUploadConfirm 两段式）
@@ -117,8 +122,8 @@ async function attUpload(e) {
     const r = await api('/api/attendance/upload', { form })
     let warnHtml = ''
     if (r.resigned && r.resigned.length) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 以下人员本月之前已离职，不参与核算：${r.resigned.slice(0, 10).join('、')}${r.resigned.length > 10 ? '等' : ''}</div>`
-    if (r.has_calc) warnHtml += `<div style="color:#dc2626;margin-top:6px">⚠ ${ui.month} 已有该项目核算结果，确认上传后需重新核算！</div>`
-    if (r.overwrite) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 将覆盖已有的考勤数据！</div>`
+    if (r.has_calc) warnHtml += `<div style="color:#dc2626;margin-top:6px">⚠ ${ui.month} 已有${isVirtual.value ? '相关项目' : '该项目'}核算结果，确认上传后需重新核算！</div>`
+    if (r.overwrite) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
     attMsg.value = `<div class="msg ok" style="border-color:#16a34a">
       <div style="font-weight:600;margin-bottom:6px">校验通过：${r.count} 人${r.overwrite ? '（将覆盖旧数据）' : ''}</div>
       <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${r.names.join('、')}</div>
@@ -143,16 +148,18 @@ async function attUploadConfirm() {
   attMsg.value = `<div class="msg info">正在正式上传...</div>`
   try {
     const r = await api('/api/attendance/upload', { form })
-    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? '（已覆盖旧数据）' : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
+    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? '（已按人合并旧数据）' : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
     pendingFile.value = null
     if (fileEl.value) fileEl.value.value = ''
-    attView()
+    // 汇总选项没有单一项目块可预览，只提示成功
+    if (!isVirtual.value) attView()
   } catch (e) {
     attMsg.value = `<div class="msg err">${e.message}</div>`
   }
 }
 
 async function attView() {
+  if (isVirtual.value) return
   viewErr.value = ''
   try {
     const data = await api(`/api/attendance?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`)
@@ -227,6 +234,8 @@ function onMonthChange() {
 }
 
 watch(() => ui.month, onMonthChange)
+// 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目
+watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = false })
 watch(() => auth.projects, (v) => { if (!isProj.value && !attProj.value && v.length) attProj.value = v[0] })
 
 onMounted(() => {

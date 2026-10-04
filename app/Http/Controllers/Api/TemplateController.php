@@ -255,10 +255,14 @@ class TemplateController extends ApiController
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
         $ym = $request->string('ym')->toString();
+        // 项目角色的 project 入口即被强制覆盖为自己的项目，虚拟哨兵永远到不了这里，跨项目数据天然隔离
         $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
+        $group = \App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS[$project] ?? null;
         if ($project === '' || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
             return response()->json(['ok' => false, 'error' => '月份或项目无效'], 400);
         }
+        // 虚拟选项时标题/文件名用中文组名（project 本身是哨兵值，不能直接展示）
+        $titleName = $group['label'] ?? $project;
         $book = new Spreadsheet(); $sheet = $book->getActiveSheet(); $sheet->setTitle('考勤表');
 
         $daysInMonth = (int) date('t', strtotime($ym . '-01'));
@@ -301,7 +305,7 @@ class TemplateController extends ApiController
 
         // ===== 第1行：大标题 =====
         $sheet->mergeCells("A1:{$lastLetter}1");
-        $sheet->setCellValue('A1', "【{$project}】" . substr($ym, 0, 4) . '年' . (int) substr($ym, 5, 2) . "月考勤表（月度上传模板）");
+        $sheet->setCellValue('A1', "【{$titleName}】" . substr($ym, 0, 4) . '年' . (int) substr($ym, 5, 2) . "月考勤表（月度上传模板）");
         $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(14);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
         $sheet->getRowDimension(1)->setRowHeight(26);
@@ -370,12 +374,42 @@ class TemplateController extends ApiController
         // ===== 第5行起：人员数据 =====
         // 离职人员过滤：仅包含未离职（resign_date 为空）或离职日期 >= 当月1日的人员
         // （如 8/20 离职出现在 8 月模板、9 月模板不出现）
-        $staff = \Illuminate\Support\Facades\DB::table('payroll_staff')
-            ->where('project_name', $project)->where('deleted', false)
-            ->where(function ($q) use ($ym) {
-                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })->orWhere('resign_date', '>=', $ym . '-01');
-            })
-            ->orderBy('name')->get();
+        $resignGuard = function ($q) use ($ym) {
+            $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })->orWhere('resign_date', '>=', $ym . '-01');
+        };
+        if ($group) {
+            // 虚拟组：全公司当月分类口径人员（与工资核算同源 categoryMap），按项目分组排列；
+            // 物业总部人员（含管理标记）走物业总部自己的项目入口，排除避免重复数据源
+            $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+            $category = $group['category'];
+            $staff = \Illuminate\Support\Facades\DB::table('payroll_staff')->where('deleted', false)
+                ->where($resignGuard)->orderBy('project_name')->orderBy('name')->get()
+                ->filter(function ($p) use ($catMap, $category) {
+                    if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
+                    return !($category === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
+                })->values();
+        } else {
+            $staff = \Illuminate\Support\Facades\DB::table('payroll_staff')
+                ->where('project_name', $project)->where('deleted', false)->where($resignGuard)
+                ->orderBy('name')->get();
+        }
+        // 虚拟组预填：把各项目考勤块中这些人已上传的符号/手填数据带出，支持"下载查看→修改→回传"
+        $prefill = [];
+        if ($group && $staff->isNotEmpty()) {
+            $blocks = \Illuminate\Support\Facades\DB::table('payroll_attendance')->where('year_month', $ym)
+                ->whereIn('project_name', $staff->pluck('project_name')->unique()->all())->get();
+            foreach ($blocks as $b) {
+                $prefill[$b->project_name] = $this->jsonValue((string) $b->rows) ?: [];
+            }
+        }
+        // 表头名 => record key，仅人力可手填列（统计列是公式，绝不带出）
+        $writableKeys = ['req_attend', 'coef', 'reward', 'punish', 'meal_sub', 'night_sub', 'title_sub',
+            'pen', 'med', 'une', 'house', 'big', 'other_deduct', 'uniform_deduct', 'welfare', 'remark'];
+        $labelToKey = [];
+        foreach (\App\Http\Controllers\Api\AttendanceController::FIELD_MAP as $label => $key) {
+            if (in_array($key, $writableKeys, true)) $labelToKey[$label] = $key;
+        }
+        foreach ($__cfCols as $cf) { $labelToKey[$cf] = 'cf_' . $cf; }
         $row = 5;
         // 统计列公式（第2行标注"系统自动核算"，此处写入 Excel 公式让模板打开即自动统计；应出勤列保持手填不带公式）
         $dStartLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart); // 日期首列
@@ -417,6 +451,30 @@ class TemplateController extends ApiController
         foreach ($staff as $index => $person) {
             $sheet->setCellValue("A{$row}", $index + 1); $sheet->setCellValue("B{$row}", $person->name);
             $sheet->setCellValue("C{$row}", $person->status ?: '正式'); $sheet->setCellValue("D{$row}", $person->position ?: '');
+            if ($group) {
+                // 带出该人所属项目块中已上传的数据（仅日期符号与人力手填列）
+                $rec = $prefill[$person->project_name][$person->name] ?? null;
+                if (is_array($rec)) {
+                    foreach (array_values($rec['days'] ?? []) as $i => $sym) {
+                        if ($i >= $daysInMonth) break;
+                        $sym = trim((string) $sym);
+                        if ($sym !== '') {
+                            $sheet->setCellValue(
+                                \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $i) . $row, $sym);
+                        }
+                    }
+                    foreach ($labelToKey as $label => $key) {
+                        if (!array_key_exists($key, $rec)) continue;
+                        $val = $rec[$key];
+                        if ($val === null || $val === '') continue;
+                        $colIdx = array_search($label, $headers, true);
+                        if ($colIdx !== false) {
+                            $sheet->setCellValue(
+                                \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx + 1) . $row, $val);
+                        }
+                    }
+                }
+            }
             $sheet->getStyle("A{$row}:{$lastLetter}{$row}")->getBorders()->getAllBorders()
                 ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
             $sheet->getStyle("A{$row}:{$lastLetter}{$row}")->getAlignment()->setVertical('center');
@@ -490,7 +548,7 @@ class TemplateController extends ApiController
         $sheet->getStyle("{$tL}5:{$tL}{$maxRow}")->getProtection()->setLocked($unlock);
         $sheet->getProtection()->setSheet(true);
         $sheet->getProtection()->setPassword('');
-        return $this->xlsxResponse($book, '考勤表模板_' . $project . '_' . $ym . '.xlsx');
+        return $this->xlsxResponse($book, '考勤表模板_' . $titleName . '_' . $ym . '.xlsx');
     }
 
     private function xlsxResponse(Spreadsheet $book, string $filename)
