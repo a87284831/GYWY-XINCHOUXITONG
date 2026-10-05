@@ -1,8 +1,0 @@
-refactor(salary): 移除自定义薪酬项的 source 字段（未被任何逻辑使用）
-
-- 后端 CustomFieldController::save 不再存 source
-- 前端薪酬设置表删除「金额来源」列，添加行/规整逻辑同步移除
-- 清理本地 calc_rules custom_fields 中历史 source 键
-- 测试更新：phpunit 237/237、vitest 273/273、vite build 通过
-
-source 本意是区分「考勤导入/固定金额」，但模板生成与核算取值均按「考勤填值 ?? 默认值」统一处理，source 从未参与任何分支，属误导性配置，故移除。字段联动工资的正确方式=在公式中引用字段名（设置页已有公式参与提示）。
