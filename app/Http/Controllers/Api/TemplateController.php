@@ -294,7 +294,7 @@ class TemplateController extends ApiController
         $statEnd = $dateEnd + count($statCols);
         $moneyStart = $statEnd + 1;                       // 奖惩/补贴/五险一金/扣款首列
         $moneyEnd = $statEnd + count($moneyCols) + count($__cfCols);
-        $tailStart = $moneyEnd + 1;                       // 绩效/其他（备注）
+        $tailStart = $moneyEnd + 1;                       // 备注
         $tailEnd = $lastCol;
 
         // 分区配色（与用户模板完全一致）
@@ -302,7 +302,7 @@ class TemplateController extends ApiController
         $COL_DATE = 'E2EFDA';   // 每日出勤：浅绿
         $COL_STAT = 'F2F2F2';   // 出勤统计：浅灰
         $COL_MONEY = 'FFF2CC';  // 奖惩/补贴/五险一金/扣款：浅黄
-        $COL_TAIL = 'EDEDED';   // 绩效/其他：浅灰
+        $COL_TAIL = 'EDEDED';   // 备注：浅灰
 
         // ===== 第1行：大标题 =====
         $sheet->mergeCells("A1:{$lastLetter}1");
@@ -329,7 +329,7 @@ class TemplateController extends ApiController
         $sheet->mergeCells("{$m1}2:{$m2}2");
         $sheet->setCellValue("{$m1}2", '奖惩/补贴/五险一金/扣款/自定义项（人力填写）');
         $sheet->mergeCells("{$t1}2:{$t2}2");
-        $sheet->setCellValue("{$t1}2", '绩效/其他');
+        $sheet->setCellValue("{$t1}2", '备注');
         $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
         $sheet->getStyle("A2:{$lastLetter}2")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
         $sheet->getStyle("A2:F2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
