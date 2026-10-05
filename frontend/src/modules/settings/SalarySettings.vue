@@ -9,12 +9,11 @@
         <div class="hint" style="margin-bottom:12px;color:#047857">在此定义的字段会出现在考勤模板和工资表中，字段名可直接在下方核算公式中引用。</div>
         <div v-if="!fields.length" class="hint" style="padding:16px;text-align:center;background:#f9fafb;border-radius:6px">暂无自定义薪酬项，点击"添加薪酬项"创建。</div>
         <table v-else class="tb"><thead><tr>
-          <th>字段名称</th><th>类型</th><th>金额来源</th><th>默认值</th><th>参与公式</th><th>启用</th><th>操作</th>
+          <th>字段名称</th><th>类型</th><th>默认值</th><th>参与公式</th><th>启用</th><th>操作</th>
         </tr></thead><tbody>
           <tr v-for="(f, i) in fields" :key="i">
             <td><input type="text" style="width:120px" v-model="f.name"></td>
             <td><select style="width:80px" v-model="f.type"><option value="subsidy">补贴</option><option value="deduction">扣款</option></select></td>
-            <td><select style="width:100px" v-model="f.source"><option value="attendance">考勤表导入</option><option value="fixed">固定金额</option></select></td>
             <td><input type="number" step="0.01" style="width:70px" v-model.number="f.default"></td>
             <td style="font-size:12px">
               <span :style="{ display: 'inline-block', padding: '1px 6px', borderRadius: '3px', margin: '1px', background: inFormula(f.name, 'gross') ? '#dbeafe' : '#f3f4f6', color: inFormula(f.name, 'gross') ? '#1e40af' : '#9ca3af' }">应发{{ inFormula(f.name, 'gross') ? ' ✓' : '' }}</span>
@@ -343,7 +342,7 @@ function formulaReset() {
 }
 
 /* ---- 自定义薪酬项 ---- */
-function cfAdd() { fields.value.push({ name: '新薪酬项', type: 'subsidy', source: 'fixed', enabled: true, default: 0 }) }
+function cfAdd() { fields.value.push({ name: '新薪酬项', type: 'subsidy', enabled: true, default: 0 }) }
 function cfDel(i) {
   const f = fields.value[i]
   const fm2 = (rules.value && rules.value.formula) || {}

@@ -88,16 +88,16 @@ describe('evalFormulaSafe', () => {
 describe('normalizeCustomFields', () => {
   it('过滤空名并规整字段', () => {
     const out = normalizeCustomFields([
-      { name: ' 高温补贴 ', type: 'deduction', source: 'attendance', enabled: true, default: '300.5' },
+      { name: ' 高温补贴 ', type: 'deduction', enabled: true, default: '300.5' },
       { name: '   ', enabled: true },
       null,
     ])
     expect(out).toHaveLength(1)
-    expect(out[0]).toEqual({ name: '高温补贴', type: 'deduction', source: 'attendance', enabled: true, default: 300.5 })
+    expect(out[0]).toEqual({ name: '高温补贴', type: 'deduction', enabled: true, default: 300.5 })
   })
   it('缺省值补默认', () => {
     expect(normalizeCustomFields([{ name: 'x' }])).toEqual([
-      { name: 'x', type: 'subsidy', source: 'fixed', enabled: false, default: 0 },
+      { name: 'x', type: 'subsidy', enabled: false, default: 0 },
     ])
   })
 })

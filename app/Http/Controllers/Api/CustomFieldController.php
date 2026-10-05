@@ -28,11 +28,9 @@ class CustomFieldController extends ApiController
         foreach ($fields as $f) {
             if (!is_array($f) || empty($f['name'])) continue;
             $type = ($f['type'] ?? '') === 'deduction' ? 'deduction' : 'subsidy';
-            $source = ($f['source'] ?? '') === 'attendance' ? 'attendance' : 'fixed';
             $clean[] = [
                 'name' => trim((string)$f['name']),
                 'type' => $type,
-                'source' => $source,
                 'enabled' => !empty($f['enabled']),
                 'default' => round((float)($f['default'] ?? 0), 2),
             ];

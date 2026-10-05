@@ -79,7 +79,7 @@ export function evalFormulaSafe(expr, vars) {
 /* ---- 薪酬设置：自定义薪酬项规整 — 复刻 cfSave/saveAllSalarySettings（app.js:3386/3523） ---- */
 export function normalizeCustomFields(fields) {
   return (fields || []).filter((f) => f && f.name && f.name.trim()).map((f) => ({
-    name: f.name.trim(), type: f.type || 'subsidy', source: f.source || 'fixed',
+    name: f.name.trim(), type: f.type || 'subsidy',
     enabled: !!f.enabled, default: parseFloat(f.default) || 0,
   }))
 }
