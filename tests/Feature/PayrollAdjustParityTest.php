@@ -139,7 +139,11 @@ class PayrollAdjustParityTest extends TestCase
         return $row;
     }
 
-    private function checkRow(array $r, string $name, $got, $expect, float $tol = 0.02): void
+    /**
+     * 严格到分断言（问题1 方案A）：所有期望值本身均为"到分"的精确值，
+     * 落库值也必须精确相等，不再容忍 0.02 尾差。
+     */
+    private function checkRow(array $r, string $name, $got, $expect, float $tol = 0.0): void
     {
         $this->assertTrue(
             is_numeric($got) && is_numeric($expect) ? abs((float)$got - (float)$expect) <= $tol : $got == $expect,

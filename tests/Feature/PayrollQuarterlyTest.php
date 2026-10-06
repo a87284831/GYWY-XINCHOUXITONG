@@ -238,4 +238,32 @@ class PayrollQuarterlyTest extends TestCase
         $this->assertEquals(2850.0, (float) $r['perf_pay'], '1月应取上年 10-12 月累计并按上年 Q4 系数发放');
         $this->assertEquals('2026-Q4', $r['perf_detail']['period'] ?? null);
     }
+
+    /**
+     * 问题1 方案A：季度计提基数按"逐月到分后累计"，与台账展示的 months[].amount 口径一致。
+     * 非整除出勤（21/22）：月金额 round(1000×21/22,2)=954.55；
+     * 新口径 3×954.55=2863.65 → ×0.95 = 2720.47；
+     * 旧口径（未 round 累计）= 2863.6363… → 2720.45，本测试可区分两者。
+     */
+    public function test_quarter_base_accumulates_rounded_monthly_amounts(): void
+    {
+        $this->seedRules();
+        $this->seedManager(1, '张三');
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) {
+            $this->seedHistory(1, $m, 21, 22);
+        }
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
+        $r = $this->calcManager('2026-04', '张三');
+
+        $d = $r['perf_detail'] ?? null;
+        $this->assertNotNull($d);
+        $monthAmounts = array_map(fn($mm) => (float)$mm['amount'], $d['months']);
+        foreach ($monthAmounts as $a) {
+            $this->assertEquals(954.55, $a, '逐月计提金额必须到分');
+        }
+        $sumShown = round(array_sum($monthAmounts), 2);
+        $this->assertEquals(2863.65, $sumShown, '台账展示的各月金额之和即季度计提基数');
+        $this->assertEquals(2720.47, (float)$r['perf_pay'],
+            '季度绩效 = round(到分月值之和 × 系数 × 比例, 2)，不得用未舍入的月值累计');
+    }
 }

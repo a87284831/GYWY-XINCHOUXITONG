@@ -526,10 +526,11 @@ class PayrollWriteController extends ApiController
                     'night', 'meal', 'title_sub', 'reward', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
                     'uniform_d', 'gross', 'pen', 'med', 'une', 'house', 'big', 'soc_total', 'spec_total', 'actual_tax'];
                 $vals = [];
-                foreach ($numKeys as $k) $vals[$k] = $num($k, $row) ?? 0.0;
+                // 导入的历史金额统一规整到分（问题1 方案A：全口径到分；规范 Excel 只有两位小数，round 幂等）
+                foreach ($numKeys as $k) $vals[$k] = round((float)($num($k, $row) ?? 0.0), 2);
                 // 固定月薪/基本工资：Excel 留空时回退人员档案当前值
-                if (($fixedExcel = $num('fixed', $row)) === null) $vals['fixed'] = (float) ($staff->fixed_monthly ?? 0);
-                if (($baseExcel = $num('base', $row)) === null) $vals['base'] = (float) ($staff->base_salary ?? 0);
+                if (($fixedExcel = $num('fixed', $row)) === null) $vals['fixed'] = round((float) ($staff->fixed_monthly ?? 0), 2);
+                if (($baseExcel = $num('base', $row)) === null) $vals['base'] = round((float) ($staff->base_salary ?? 0), 2);
 
                 $gross = $vals['gross'];
                 $soc = $vals['soc_total'];
@@ -537,7 +538,7 @@ class PayrollWriteController extends ApiController
                 $welfare = $vals['welfare'];
                 // 实发：Excel 有值用 Excel；否则按系统公式 应发-五险一金-个税-已发福利
                 $netExcel = $num('net', $row);
-                $net = $netExcel !== null ? $netExcel : round($gross - $soc - $tax - $welfare, 2);
+                $net = $netExcel !== null ? round($netExcel, 2) : round($gross - $soc - $tax - $welfare, 2);
 
                 // 文本列：Excel 有值用 Excel，空值回退人员档案
                 $department = $txt('department', $row);

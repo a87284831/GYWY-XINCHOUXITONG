@@ -698,10 +698,14 @@ class PayrollCalculator
         $miss = round((float)($att['miss_deduct'] ?? 0) + $missPenalty, 2);
         $other = round((float)($att['other_deduct'] ?? 0) + $absentFine, 2);
 
-        // 五险一金（个人）
-        $social = array_sum(array_map(
-            fn($k) => (float)($att[$k] ?? 0), ['pen', 'med', 'une', 'house', 'big']
-        ));
+        // 五险一金（个人）：分项先各自四舍五入到分，再合计——
+        // 保证 soc_total 与五个落库分项"到分后之和"严格相等（问题1 方案A）
+        $pen = round((float)($att['pen'] ?? 0), 2);
+        $med = round((float)($att['med'] ?? 0), 2);
+        $une = round((float)($att['une'] ?? 0), 2);
+        $house = round((float)($att['house'] ?? 0), 2);
+        $big = round((float)($att['big'] ?? 0), 2);
+        $social = round($pen + $med + $une + $house + $big, 2);
 
         // 专项附加：读员工表；rules.special_deduction.items 里若有 disabled 则过滤
         $data = $this->jsonValue($person->data) ?: [];
@@ -718,8 +722,7 @@ class PayrollCalculator
                 $specials = $specials->reject(fn($x) => in_array((string)($x['type'] ?? $x['key'] ?? $x['name'] ?? ''), $disabled, true));
             }
         }
-        $spec = $specials->sum(fn($item) => (float)($item['amount'] ?? 0));
-        // 专项附加分项（供微调弹窗回显与全量重算，避免只改一项时其余项被清零）
+        // 专项附加：合计直接由六个"到分"分项汇总，保证 spec_total 与分项和严格相等
         $specKeyMap = [
             '租房租金' => 'spec_rent', '住房贷款' => 'spec_loan', '住房贷款利息' => 'spec_loan',
             '子女教育' => 'spec_child', '赡养老人' => 'spec_elder',
@@ -731,27 +734,29 @@ class PayrollCalculator
             $itemName = (string)($item['item'] ?? $item['name'] ?? $item['type'] ?? $item['key'] ?? '');
             foreach ($specKeyMap as $kw => $key) {
                 if ($itemName !== '' && mb_strpos($itemName, $kw) !== false) {
-                    $specBreak[$key] += (float)($item['amount'] ?? 0);
+                    $specBreak[$key] = round($specBreak[$key] + (float)($item['amount'] ?? 0), 2);
                     break;
                 }
             }
         }
+        $spec = round(array_sum($specBreak), 2);
 
-        // 奖惩整体开关
+        // 奖惩整体开关（金额分项一律先到分再进公式/落库，问题1 方案A）
         $rpEnabled = $this->rules->flag('reward_punish.enabled', true);
         $rpFull = $this->rules->flag('reward_punish.full_in_gross', true);
-        $reward  = $rpEnabled && $rpFull ? (float)($att['reward'] ?? 0) : 0.0;
-        $welfare = $rpEnabled && $rpFull ? (float)($att['welfare'] ?? 0) : 0.0;
-        $punish  = $rpEnabled ? (float)($att['punish'] ?? 0) : 0.0;
+        $reward  = $rpEnabled && $rpFull ? round((float)($att['reward'] ?? 0), 2) : 0.0;
+        $welfare = $rpEnabled && $rpFull ? round((float)($att['welfare'] ?? 0), 2) : 0.0;
+        $punish  = $rpEnabled ? round((float)($att['punish'] ?? 0), 2) : 0.0;
 
         // 餐补 / 其他津贴 mode（full=全额，prorate=按出勤折算且不超过全额，与旧版一致）
         $mealMode  = $this->rules->str('meal_subsidy.mode', 'full');
         $allowMode = $this->rules->str('allowances.mode', 'full');
         $prorate = static fn(float $v, string $mode): float =>
             $mode === 'prorate' && $h > 0 ? min($v, $v * ($actual / $h)) : $v;
-        $meal      = $prorate((float)($att['meal_sub'] ?? 0), $mealMode);
-        $night     = $prorate((float)($att['night_sub'] ?? 0), $allowMode);
-        $titleSub  = $prorate((float)($att['title_sub'] ?? 0), $allowMode);
+        // 折算会产生多位小数：折算后立即四舍五入到分
+        $meal      = round($prorate((float)($att['meal_sub'] ?? 0), $mealMode), 2);
+        $night     = round($prorate((float)($att['night_sub'] ?? 0), $allowMode), 2);
+        $titleSub  = round($prorate((float)($att['title_sub'] ?? 0), $allowMode), 2);
         // 迟到早退自动扣款：按统计次数核算（考勤表仅保留"迟到(次)/早退(次)"统计列，扣款列已移除）
         $lateEarlyEnabled = $this->rules->flag('deduction_rules.late_early.enabled', true);
         $lateEarlyPer = $this->rules->num('deduction_rules.late_early.per_time', 10);
@@ -759,8 +764,8 @@ class PayrollCalculator
             ? (float)(($stats['late'] ?? 0) + ($stats['early'] ?? 0)) * $lateEarlyPer
             : 0.0;
         // 兼容旧模板：若考勤表仍手填了迟到早退扣款，则取较大值（不重复叠加）
-        $lateD = max($lateD, (float)($att['late_deduct'] ?? 0));
-        $uniformD  = (float)($att['uniform_deduct'] ?? 0);
+        $lateD = round(max($lateD, (float)($att['late_deduct'] ?? 0)), 2);
+        $uniformD  = round((float)($att['uniform_deduct'] ?? 0), 2);
 
         // 变量池 → 交给用户公式
         $vars = [
@@ -773,7 +778,7 @@ class PayrollCalculator
             'h' => $h, 'actual' => $actual,
         ];
         $__cfVars = $this->rules->raw('custom_fields', []);
-        if (is_array($__cfVars)) { foreach ($__cfVars as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = (float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0); } }
+        if (is_array($__cfVars)) { foreach ($__cfVars as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = round((float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0), 2); } }
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS
         ), 2);
@@ -842,8 +847,8 @@ class PayrollCalculator
             'staff_id' => $person->legacy_id, 'project' => $person->project_name,
             'department' => $this->deptName($person->dept_path ?? null, $person->project_name),
             'position' => $person->position ?: '', 'name' => $person->name,
-            'status' => $this->rowStatus($person, $data, $ym), 'fixed' => (float)$person->fixed_monthly,
-            'base' => (float)$person->base_salary,
+            'status' => $this->rowStatus($person, $data, $ym), 'fixed' => round((float)$person->fixed_monthly, 2),
+            'base' => round((float)$person->base_salary, 2),
             'req_att' => $h, 'act_att' => $actual, 'perf_att' => $perfAttend, 'coef' => $coef,
             'base_pay' => $basePay, 'perf_pay' => $perfPay,
             'base_pay_ref' => $basePayRef, 'perf_pay_ref' => $perfPayRef,
@@ -852,19 +857,18 @@ class PayrollCalculator
             'reward' => $reward, 'welfare' => $welfare, 'punish' => $punish,
             'late_d' => $lateD, 'miss_d' => $miss, 'other_d' => $other,
             'uniform_d' => $uniformD, 'gross' => $gross,
-            'pen' => (float)($att['pen'] ?? 0), 'med' => (float)($att['med'] ?? 0),
-            'une' => (float)($att['une'] ?? 0), 'house' => (float)($att['house'] ?? 0),
-            'big' => (float)($att['big'] ?? 0), 'soc_total' => round($social, 2),
-            'spec_total' => round($spec, 2),
-            'spec_rent' => round($specBreak['spec_rent'], 2),
-            'spec_loan' => round($specBreak['spec_loan'], 2),
-            'spec_child' => round($specBreak['spec_child'], 2),
-            'spec_elder' => round($specBreak['spec_elder'], 2),
-            'spec_edu' => round($specBreak['spec_edu'], 2),
-            'spec_baby' => round($specBreak['spec_baby'], 2),
+            'pen' => $pen, 'med' => $med, 'une' => $une, 'house' => $house, 'big' => $big,
+            'soc_total' => $social,
+            'spec_total' => $spec,
+            'spec_rent' => $specBreak['spec_rent'],
+            'spec_loan' => $specBreak['spec_loan'],
+            'spec_child' => $specBreak['spec_child'],
+            'spec_elder' => $specBreak['spec_elder'],
+            'spec_edu' => $specBreak['spec_edu'],
+            'spec_baby' => $specBreak['spec_baby'],
             'cum_deduction' => round($cumDeduction, 2),
             'cum_taxable' => round($cumTaxable, 2),
-            'cum_tax' => $cumTax, 'paid_before' => round($taxBefore, 2),
+            'cum_tax' => round($cumTax, 2), 'paid_before' => round($taxBefore, 2),
             'withhold' => $tax, 'actual_tax' => $tax, 'tax_diff' => 0,
             'net' => $net, 'remark' => (string)($att['remark'] ?? ''),
             'bank_card' => $data['bank_card'] ?? '', 'overrides' => [],
@@ -875,29 +879,35 @@ class PayrollCalculator
     /** 微调后重算派生列（gross/net/tax），保持行内其它字段不变。 */
     public function recomputeDerived(array $row, ?int $staffId = null, ?string $ym = null): array
     {
+        // 与核算同口径（问题1 方案A）：进公式的分项一律先到分，保证行内勾稽
+        $m2 = static fn($v) => round((float)($v ?? 0), 2);
         $vars = [
-            'base_pay' => (float)($row['base_pay'] ?? 0),
-            'perf_pay' => (float)($row['perf_pay'] ?? 0),
-            'sick_pay' => (float)($row['sick_pay'] ?? 0),
-            'night' => (float)($row['night'] ?? 0), 'meal' => (float)($row['meal'] ?? 0),
-            'title_sub' => (float)($row['title_sub'] ?? 0),
-            'reward' => (float)($row['reward'] ?? 0), 'welfare' => (float)($row['welfare'] ?? 0),
-            'punish' => (float)($row['punish'] ?? 0),
-            'late_d' => (float)($row['late_d'] ?? 0), 'miss_d' => (float)($row['miss_d'] ?? 0),
-            'other_d' => (float)($row['other_d'] ?? 0), 'uniform_d' => (float)($row['uniform_d'] ?? 0),
+            'base_pay' => $m2($row['base_pay'] ?? 0),
+            'perf_pay' => $m2($row['perf_pay'] ?? 0),
+            'sick_pay' => $m2($row['sick_pay'] ?? 0),
+            'night' => $m2($row['night'] ?? 0), 'meal' => $m2($row['meal'] ?? 0),
+            'title_sub' => $m2($row['title_sub'] ?? 0),
+            'reward' => $m2($row['reward'] ?? 0), 'welfare' => $m2($row['welfare'] ?? 0),
+            'punish' => $m2($row['punish'] ?? 0),
+            'late_d' => $m2($row['late_d'] ?? 0), 'miss_d' => $m2($row['miss_d'] ?? 0),
+            'other_d' => $m2($row['other_d'] ?? 0), 'uniform_d' => $m2($row['uniform_d'] ?? 0),
             'coef' => (float)($row['coef'] ?? 1),
             'req_att' => (float)($row['req_att'] ?? 0), 'act_att' => (float)($row['act_att'] ?? 0),
         ];
         $__cfR = $this->rules->raw('custom_fields', []);
-        if (is_array($__cfR)) { foreach ($__cfR as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = (float)($row[$__cn] ?? $__f['default'] ?? 0); } }
+        if (is_array($__cfR)) { foreach ($__cfR as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $vars[$__cn] = $m2($row[$__cn] ?? $__f['default'] ?? 0); } }
         $gross = round($this->rules->evaluate(
             $this->rules->str('formula.gross', ''), $vars, self::DEFAULT_GROSS), 2);
         // 公式失败立即中止微调重算，不允许静默按 0 落库
         if ($err = $this->rules->getLastError()) {
             throw new RuntimeException("应发公式计算失败（微调重算）：{$err['error']}；表达式：{$err['expr']}");
         }
-        $soc = round(array_sum(array_map(
-            fn($f) => (float)($row[$f] ?? 0), ['pen', 'med', 'une', 'house', 'big'])), 2);
+        // 五险分项到分后回写并合计（与核算路径一致）
+        foreach (['pen', 'med', 'une', 'house', 'big'] as $sf) {
+            if (array_key_exists($sf, $row)) $row[$sf] = $m2($row[$sf]);
+        }
+        $soc = round($m2($row['pen'] ?? 0) + $m2($row['med'] ?? 0) + $m2($row['une'] ?? 0)
+            + $m2($row['house'] ?? 0) + $m2($row['big'] ?? 0), 2);
         $row['soc_total'] = $soc;
 
         // 专项附加：若行内带 spec_* 字段（微调过）则重新汇总，否则沿用原 spec_total
@@ -907,6 +917,7 @@ class PayrollCalculator
             // 缺失的分项沿用行内原值（旧结果可能只回传了被改的几项），避免误清零
             foreach ($specFields as $sf) {
                 if (!array_key_exists($sf, $row)) $row[$sf] = 0.0;
+                $row[$sf] = $m2($row[$sf]);
             }
             $spec = round(array_sum(array_map(fn($f) => (float)($row[$f] ?? 0), $specFields)), 2);
         } else {
@@ -962,12 +973,12 @@ class PayrollCalculator
             $tax        = max(0, round($cumTax - $taxBefore, 2));
             $row['cum_deduction'] = round($cumDeduction, 2);
             $row['cum_taxable'] = round($cumTaxable, 2);
-            $row['cum_tax'] = $cumTax;
+            $row['cum_tax'] = round($cumTax, 2);
             $row['paid_before'] = round($taxBefore, 2);
         } else {
             // 兜底：无 staffId/ym（历史调用）时按单月简化计税
             $monthTaxable = max(0, $gross - $soc - $basicDeduction - $spec);
-            $tax = $this->taxAmount($monthTaxable, $taxConfig);
+            $tax = round($this->taxAmount($monthTaxable, $taxConfig), 2);
         }
 
         $vars['gross'] = $gross; $vars['soc_total'] = $soc; $vars['actual_tax'] = $tax;
@@ -1324,15 +1335,17 @@ class PayrollCalculator
                 $histData = $this->jsonValue($histRow->row_data) ?: [];
                 $monthBase = max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
                 $monthAttend = (float)($histData['perf_att'] ?? 0);
-                $monthAmount = $monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1));
+                // 逐月基数先到分（与 months[].amount 展示口径一致），周期合计按"到分后"的月值累计——
+                // 避免"台账各月金额之和"与实际计提基数出现尾差（问题1 方案A）
+                $monthAmount = round($monthBase * $monthAttend / max(1, (float)($histData['req_att'] ?? 1)), 2);
                 $total += $monthAmount;
                 $months[] = [
                     'ym' => $m, 'perf_att' => $monthAttend,
-                    'base' => $monthBase, 'amount' => round($monthAmount, 2),
+                    'base' => $monthBase, 'amount' => $monthAmount,
                 ];
             }
         }
-        return [$total, $months];
+        return [round($total, 2), $months];
     }
 
     /** 查周期系数；未录入返回 null（区别于合法录入的 0.0） */
