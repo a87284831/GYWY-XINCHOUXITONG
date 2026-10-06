@@ -224,7 +224,7 @@
 
     <!-- 微调弹窗（复刻 openAdjust） -->
     <div v-if="adjRow" class="modal-mask" @mousedown.self="closeAdjust">
-      <div class="modal" style="width:780px;position:relative">
+      <div class="modal" v-disable-wheel style="width:780px;position:relative">
         <div @click="closeAdjust" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
         <h3>薪资微调 — {{ adjRow.name }}（{{ adjRow.project }}）</h3>
         <div class="msg info">修改后系统自动重算应发合计、个税累计预扣与实发工资；所有修改留存日志。</div>
@@ -309,6 +309,7 @@ import { useUiStore } from '@/stores/ui'
 import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
+import { vDisableWheel } from '@/directives/disableWheel'
 import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText } from './payrollLogic'
 
 const auth = useAuthStore()
