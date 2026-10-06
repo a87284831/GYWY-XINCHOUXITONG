@@ -91,10 +91,72 @@ class PayrollController extends ApiController
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->all()))->values();
         // 部门清单（供前端筛选下拉）
         $departments = $rows->pluck('department')->filter(fn ($d) => (string)$d !== '')->unique()->values();
+        // 微调日志（问题4）：按当前列表行的人员口径附带，员工/管理/案场/总部四视图天然隔离
+        $staffIds = $rows->pluck('staff_id')->filter()->values()->all();
+        $logs = $staffIds
+            ? DB::table('payroll_adjust_logs')->where('ym', $ym)
+                ->whereIn('staff_legacy_id', $staffIds)->orderBy('id', 'desc')->limit(500)->get()
+                ->map(fn ($l) => $this->formatAdjustLog($l))->values()
+            : collect();
         return response()->json(['ok' => true, 'ym' => $ym, 'rows' => $rows,
             'departments' => $departments,
             // 该月所有项目均已完成归档才视为"已核定锁定"（避免仅部分项目归档时误报已锁定）
-            'archived' => $managerView ? $this->allMgrsArchived($ym) : ($caseView ? $this->allCaseArchived($ym) : ($hqView ? $this->allHqArchived($ym) : $this->allArchived($ym)))]);
+            'archived' => $managerView ? $this->allMgrsArchived($ym) : ($caseView ? $this->allCaseArchived($ym) : ($hqView ? $this->allHqArchived($ym) : $this->allArchived($ym))),
+            'logs' => $logs]);
+    }
+
+    /**
+     * GET /api/payroll/adjust-logs?staff_id=X&ym=可选
+     * 单人微调历史（微调弹窗内展示）：admin 全量；项目账号限本项目人员且仅可见已归档月份。
+     */
+    public function adjustLogs(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) {
+            return $account;
+        }
+        $staffId = (int) $request->input('staff_id');
+        if ($staffId <= 0) {
+            return response()->json(['ok' => false, 'error' => 'staff_id 参数错误'], 400);
+        }
+        $query = DB::table('payroll_adjust_logs')->where('staff_legacy_id', $staffId);
+        $ym = trim((string) $request->input('ym', ''));
+        if ($ym !== '') {
+            $query->where('ym', $ym);
+        }
+        if ($this->isProjectScope($account)) {
+            $own = DB::table('payroll_staff')->where('legacy_id', $staffId)
+                ->where('project_name', (string) $account->project_name)->exists();
+            if (!$own) {
+                return response()->json(['ok' => false, 'error' => '仅可查看本项目人员的微调记录'], 403);
+            }
+            // 与工资列表可见性一致：仅返回本项目该人员已归档月份的记录
+            $archivedYms = DB::table('payroll_results')->where('staff_legacy_id', $staffId)
+                ->where('project_name', (string) $account->project_name)->where('archived', true)
+                ->pluck('year_month')->all();
+            $query->whereIn('ym', $archivedYms);
+        }
+        $logs = $query->orderBy('id', 'desc')->limit(100)->get()
+            ->map(fn ($l) => $this->formatAdjustLog($l))->values();
+        return response()->json(['ok' => true, 'logs' => $logs]);
+    }
+
+    /** 微调日志行输出：JSON 列解码为数组 */
+    private function formatAdjustLog(object $l): array
+    {
+        return [
+            'id' => (int) $l->id,
+            'staff_id' => (int) $l->staff_legacy_id,
+            'staff_name' => (string) $l->staff_name,
+            'project' => (string) $l->project_name,
+            'ym' => (string) $l->ym,
+            'changes' => json_decode((string) ($l->changes ?? '[]'), true) ?: [],
+            'row_after' => json_decode((string) ($l->row_after ?? '{}'), true) ?: [],
+            'reason' => (string) ($l->reason ?? ''),
+            'operator' => (string) $l->operator,
+            'operator_role' => (string) $l->operator_role,
+            'created_at' => (string) $l->created_at,
+        ];
     }
 
     /** 该月案场人员工资表是否已全部归档锁定 */
@@ -164,11 +226,16 @@ class PayrollController extends ApiController
             ->where('is_hq_row', true)->get();
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }
-    /** 该月所有项目是否均已归档（部分归档不算整体锁定；仅按项目表行判定，管理人员表独立锁定） */
+    /**
+     * 该月所有项目是否均已归档（部分归档不算整体锁定；仅按员工表行判定，
+     * 管理/案场/总部人员表各自独立锁定）。
+     * 口径必须与员工视图查询一致：排除 is_manager_row / is_case_row / is_hq_row，
+     * 否则案场行归档会让员工工资表误报"已锁定"（问题5）。
+     */
     private function allArchived(string $ym): bool
     {
         $rows = DB::table('payroll_results')->where('year_month', $ym)
-            ->where('is_manager_row', false)->where('is_hq_row', false)
+            ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
             ->select('project_name', DB::raw('MAX(archived) AS archived'))->groupBy('project_name')->get();
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }

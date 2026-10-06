@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   summaryTotals, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows,
-  isZeroPayRow, groupNotices, archiveBlockerText,
+  isZeroPayRow, groupNotices, archiveBlockerText, formatLogChanges, formatLogTime,
+  adjustDisabledReason, lockedRecalcConfirmText,
 } from './payrollLogic'
 
 describe('summaryTotals（复刻 renderSummary 合计口径）', () => {
@@ -208,5 +209,89 @@ describe('archiveBlockerText（归档确认文案）', () => {
     const text = archiveBlockerText([])
     expect(text).toContain('以下 0 条薪资异常未处理：')
     expect(text).toContain('确认仍要归档吗？忽略异常可能导致错误工资发放。')
+  })
+})
+
+describe('formatLogChanges（微调日志字段变化文本）', () => {
+  it('单字段：中文名 + 旧值→新值', () => {
+    const text = formatLogChanges([{ field: 'reward', old: 0, new: 100 }])
+    expect(text).toBe('月度奖励: 0 → 100')
+  })
+
+  it('多字段用中文分号连接，保持后端给定顺序', () => {
+    const text = formatLogChanges([
+      { field: 'actual_tax', old: 180, new: 198 },
+      { field: 'miss_d', old: 0, new: 30 },
+    ])
+    expect(text).toBe('本月实缴个税: 180 → 198；缺卡扣款: 0 → 30')
+  })
+
+  it('旧值为 null/undefined 按 0 展示（首次微调）', () => {
+    expect(formatLogChanges([{ field: 'meal', old: null, new: 200 }])).toBe('餐补: 0 → 200')
+    expect(formatLogChanges([{ field: 'meal', new: 200 }])).toBe('餐补: 0 → 200')
+  })
+
+  it('数值去掉多余尾零但保留必要小数', () => {
+    expect(formatLogChanges([{ field: 'coef', old: 1, new: 0.8 }])).toBe('绩效系数: 1 → 0.8')
+  })
+
+  it('备注字段展示文本新旧值', () => {
+    expect(formatLogChanges([{ field: 'remark', old: '', new: '已沟通' }])).toBe('备注: (空) → 已沟通')
+  })
+
+  it('空变化返回空串', () => {
+    expect(formatLogChanges([])).toBe('')
+    expect(formatLogChanges(null)).toBe('')
+  })
+})
+
+describe('formatLogTime（微调日志时间展示）', () => {
+  it('去掉秒，保留到分钟', () => {
+    expect(formatLogTime('2026-10-06 16:34:44')).toBe('2026-10-06 16:34')
+  })
+  it('空值安全返回空串', () => {
+    expect(formatLogTime('')).toBe('')
+    expect(formatLogTime(null)).toBe('')
+  })
+})
+
+describe('adjustDisabledReason（微调按钮禁用原因，问题5）', () => {
+  it('管理员且未锁定：可微调，返回 null', () => {
+    expect(adjustDisabledReason(false, true)).toBeNull()
+  })
+  it('已锁定：任何角色均返回锁定提示', () => {
+    expect(adjustDisabledReason(true, true)).toContain('锁定')
+    expect(adjustDisabledReason(true, false)).toContain('锁定')
+  })
+  it('非管理员（项目账号）未锁定：返回权限提示', () => {
+    expect(adjustDisabledReason(false, false)).toContain('权限')
+  })
+})
+
+describe('lockedRecalcConfirmText（重算遇锁定行 409 的二次确认文案）', () => {
+  const error = '所选范围内已有 2 人的工资核定锁定；重新核算将覆盖锁定数据。确认要强制重算吗？'
+  it('含后端错误文案 + 名单（姓名（项目））+ 总数', () => {
+    const text = lockedRecalcConfirmText({
+      error,
+      locked: [
+        { staff_id: 1, name: '张三', project: '甲项目' },
+        { staff_id: 2, name: '李四', project: '乙项目' },
+      ],
+    })
+    expect(text).toContain(error)
+    expect(text).toContain('张三（甲项目）')
+    expect(text).toContain('李四（乙项目）')
+    expect(text).toContain('共 2 人')
+  })
+  it('名单超过 8 人只列前 8 并提示其余数量', () => {
+    const locked = Array.from({ length: 10 }, (_, i) => ({ staff_id: i + 1, name: `员${i + 1}`, project: 'P' }))
+    const text = lockedRecalcConfirmText({ error, locked })
+    expect(text).toContain('员1（P）')
+    expect(text).toContain('员8（P）')
+    expect(text).not.toContain('员9（P）')
+    expect(text).toContain('等共 10 人')
+  })
+  it('无名单时仅返回错误文案', () => {
+    expect(lockedRecalcConfirmText({ error, locked: [] })).toBe(error)
   })
 })

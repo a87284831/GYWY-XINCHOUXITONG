@@ -78,7 +78,7 @@
                   <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                   <td class="num">{{ money(r.actual_tax) }}</td>
                   <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
-                  <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
+                  <td><button class="btn sm" :disabled="!!empAdjustReason" :title="empAdjustReason || '人工微调该行薪资'" @click.stop="openAdjust(r)">微调</button></td>
                   <td class="remark-cell">{{ r.remark || '' }}</td>
                 </tr>
               </tbody>
@@ -104,15 +104,18 @@
             </table>
           </div>
           <div class="hint">点击"微调"可对单人补贴/扣款/社保/个税等字段人工修正（留存操作日志）。归档后禁止修改、重传考勤、重算，仅超管可解锁。微调日志见下方。</div>
-          <template v-if="empMeta.logs && empMeta.logs.length">
-            <h3 style="margin-top:14px">微调日志（本月）</h3>
-            <div class="table-wrap" style="max-height:200px">
+          <template v-if="empLogs.length">
+            <h3 style="margin-top:14px">微调日志（本月 {{ empLogs.length }} 条，最新在前）</h3>
+            <div class="table-wrap" style="max-height:240px">
               <table class="tb">
-                <thead><tr><th>时间</th><th>操作人</th><th>姓名</th><th>字段</th><th>原值</th><th>新值</th><th>原因</th></tr></thead>
+                <thead><tr><th>时间</th><th>操作人</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
                 <tbody>
-                  <tr v-for="(l, i) in empLogs" :key="i">
-                    <td>{{ l.ts }}</td><td>{{ l.by }}</td><td>{{ l.staff }}</td><td>{{ FIELD_CN[l.field] || l.field }}</td>
-                    <td class="num">{{ l.old }}</td><td class="num">{{ l.new }}</td><td>{{ l.reason }}</td>
+                  <tr v-for="l in empLogs" :key="l.id">
+                    <td style="white-space:nowrap">{{ formatLogTime(l.created_at) }}</td>
+                    <td>{{ l.operator }}</td><td>{{ l.staff_name }}</td>
+                    <td>{{ formatLogChanges(l.changes) }}</td>
+                    <td class="num">{{ l.row_after && l.row_after.net != null ? money(l.row_after.net) : '' }}</td>
+                    <td>{{ l.reason }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -186,7 +189,7 @@
                       <td class="num">{{ money(r.actual_tax) }}</td>
                       <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
                       <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
-                      <td><button class="btn sm" @click.stop="openAdjust(r)">微调</button></td>
+                      <td><button class="btn sm" :disabled="!!typeAdjustReason(tp)" :title="typeAdjustReason(tp) || '人工微调该行薪资'" @click.stop="openAdjust(r)">微调</button></td>
                       <td class="remark-cell">{{ r.remark || '' }}</td>
                     </tr>
                 </tbody>
@@ -213,6 +216,23 @@
               </table>
             </div>
             <div class="hint">{{ TP_META[tp].tableHint }}</div>
+            <template v-if="typeLogs[tp].length">
+              <h3 style="margin-top:14px">微调日志（本月 {{ typeLogs[tp].length }} 条，最新在前）</h3>
+              <div class="table-wrap" style="max-height:240px">
+                <table class="tb">
+                  <thead><tr><th>时间</th><th>操作人</th><th>项目</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
+                  <tbody>
+                    <tr v-for="l in typeLogs[tp]" :key="l.id">
+                      <td style="white-space:nowrap">{{ formatLogTime(l.created_at) }}</td>
+                      <td>{{ l.operator }}</td><td>{{ l.project }}</td><td>{{ l.staff_name }}</td>
+                      <td>{{ formatLogChanges(l.changes) }}</td>
+                      <td class="num">{{ l.row_after && l.row_after.net != null ? money(l.row_after.net) : '' }}</td>
+                      <td>{{ l.reason }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
           </template>
           <div v-else-if="!typeErr[tp]">
             <div v-html="attStatusHtml"></div>
@@ -240,6 +260,25 @@
         <div class="form-grid" style="margin-top:10px">
           <label class="full">备注<input type="text" v-model="adjRemark" /></label>
           <label class="full">修改原因（记入日志）<input type="text" v-model="adjReason" placeholder="必填" /></label>
+        </div>
+        <div style="margin-top:12px">
+          <h4 style="margin:0 0 6px;font-size:13px;color:#475569">历史微调记录（{{ adjHistory.length }} 条，最新在前）</h4>
+          <div class="table-wrap" style="max-height:160px">
+            <table class="tb">
+              <thead><tr><th>月份</th><th>时间</th><th>调整内容</th><th>调整后实发</th><th>原因</th><th>操作人</th></tr></thead>
+              <tbody>
+                <tr v-if="adjHistoryLoading"><td colspan="6" style="color:#94a3b8">加载中…</td></tr>
+                <tr v-else-if="!adjHistory.length"><td colspan="6" style="color:#94a3b8">该人员暂无历史微调记录</td></tr>
+                <tr v-for="l in adjHistory" v-else :key="l.id">
+                  <td>{{ l.ym }}</td>
+                  <td style="white-space:nowrap">{{ formatLogTime(l.created_at) }}</td>
+                  <td>{{ formatLogChanges(l.changes) }}</td>
+                  <td class="num">{{ l.row_after && l.row_after.net != null ? money(l.row_after.net) : '' }}</td>
+                  <td>{{ l.reason }}</td><td>{{ l.operator }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <div class="row end" style="margin-top:14px">
           <button class="btn" @click="closeAdjust">取消</button>
@@ -310,7 +349,7 @@ import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -363,6 +402,7 @@ const payProjFilter = ref('')
 const payDeptFilter = ref('')
 const paySel = ref('')
 const typeRows = reactive({ mgr: [], case: [], hq: [] })
+const typeLogs = reactive({ mgr: [], case: [], hq: [] })
 const typeArchived = reactive({ mgr: false, case: false, hq: false })
 const typeErr = reactive({ mgr: '', case: '', hq: '' })
 const typeMsg = reactive({ mgr: '', case: '', hq: '' })
@@ -377,6 +417,8 @@ const adjRow = ref(null)
 const adjValues = reactive({})
 const adjRemark = ref('')
 const adjReason = ref('')
+const adjHistory = ref([])
+const adjHistoryLoading = ref(false)
 
 // 季度/半年度系数录入弹窗
 const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
@@ -408,7 +450,30 @@ function perfAmt(r, key) {
   const v = perfDetailCell(r, key)
   return v === null ? '' : money(v)
 }
-const empLogs = computed(() => (empMeta.value.logs || []).slice(-50).reverse())
+// 微调日志：列表接口已按 id 倒序（最新在前），最多展示 50 条
+const empLogs = computed(() => (empMeta.value.logs || []).slice(0, 50))
+
+// 微调禁用原因（问题5）：锁定或项目账号 → 按钮置灰并给出明确提示
+const empAdjustReason = computed(() => adjustDisabledReason(empArchived.value, isAdmin.value))
+function typeAdjustReason(tp) {
+  return adjustDisabledReason(typeArchived[tp], isAdmin.value)
+}
+
+/**
+ * 重算接口统一处理归档保护 409：首次返回锁定名单 → 二次确认 → 带 force 重试。
+ * callApi(force) 返回 Promise；用户取消时返回 { __cancelled: true }。
+ */
+async function calcWithLockGuard(callApi) {
+  try {
+    return await callApi(false)
+  } catch (e) {
+    if (e && e.status === 409 && e.payload && e.payload.need_confirm) {
+      if (!confirm(lockedRecalcConfirmText(e.payload))) return { __cancelled: true }
+      return await callApi(true)
+    }
+    throw e
+  }
+}
 
 const attStatusHtml = computed(() => {
   let s = `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;padding:5px 10px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><span style="font-weight:600;font-size:12px;color:#475569">考勤上传：</span>`
@@ -465,6 +530,7 @@ async function loadType(tp) {
     const [data, st] = await Promise.all([api(url), api(`/api/attendance/status?ym=${ui.month}`)])
     attStatus.value = st
     typeRows[tp] = data.rows || []
+    typeLogs[tp] = (data.logs || []).slice(0, 50)
     typeArchived[tp] = !!data.archived
     typeProjFilter[tp] = ''
     typeSel[tp] = ''
@@ -500,7 +566,10 @@ async function doCalc() {
   if (!calcProjects.value.length) return toast('请至少选择一个项目', false)
   if (!confirm(`确认核算 ${ui.month}：${calcProjects.value.length} 个项目？同月重复核算将自动覆盖旧数据。`)) return
   try {
-    const r = await api('/api/payroll/calc', { body: { ym: ui.month, projects: calcProjects.value } })
+    const r = await calcWithLockGuard((force) => api('/api/payroll/calc', {
+      body: { ym: ui.month, projects: calcProjects.value, force },
+    }))
+    if (r.__cancelled) return
     const notices = groupNotices(r.missing || [], r.warnings || [])
     const dangerTxt = notices.danger.length
       ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
@@ -556,7 +625,8 @@ async function doCalcType(tp) {
   const scope = tp === 'mgr' ? '（所有项目管理人员）' : tp === 'case' ? '（所有项目案场人员）' : '（物业总部所有人员）'
   if (!confirm(`确认核算 ${ui.month} ${label}${scope}？同月重复核算将覆盖旧数据。`)) return
   try {
-    const r = await api(TP_META[tp].calcApi, { body: { ym: ui.month } })
+    const r = await calcWithLockGuard((force) => api(TP_META[tp].calcApi, { body: { ym: ui.month, force } }))
+    if (r.__cancelled) return
     const notices = groupNotices(r.missing || [], r.warnings || [])
     const dangerTxt = notices.danger.length
       ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
@@ -624,14 +694,34 @@ function exportType(tp) {
 }
 
 function openAdjust(r) {
+  // 双保险（问题5）：按钮已置灰，此处防止旧数据/异常入口在锁定或无权限时打开弹窗
+  const archived = payTab.value === 'emp' ? empArchived.value : typeArchived[payTab.value]
+  const reason = adjustDisabledReason(!!archived, isAdmin.value)
+  if (reason) return toast(reason, false)
   adjRow.value = r
   for (const g of ADJUST_GROUPS) for (const f of g) adjValues[f] = r[f] === null || r[f] === undefined ? '' : String(r[f])
   adjRemark.value = r.remark || ''
   adjReason.value = ''
+  adjHistory.value = []
+  loadAdjustHistory(r.staff_id)
+}
+
+// 弹窗内单人历史微调记录（跨月份，后端最多返回 100 条、时间倒序）
+async function loadAdjustHistory(staffId) {
+  adjHistoryLoading.value = true
+  try {
+    const data = await api(`/api/payroll/adjust-logs?staff_id=${encodeURIComponent(staffId)}`)
+    adjHistory.value = data.logs || []
+  } catch (e) {
+    adjHistory.value = []
+  } finally {
+    adjHistoryLoading.value = false
+  }
 }
 
 function closeAdjust() {
   adjRow.value = null
+  adjHistory.value = []
 }
 
 async function saveAdjust() {

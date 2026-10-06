@@ -201,3 +201,55 @@ export function archiveBlockerText(blockers) {
   lines.push('确认仍要归档吗？忽略异常可能导致错误工资发放。')
   return lines.join('\n')
 }
+
+/** 微调日志数值展示：null/undefined 按 0；去掉多余尾零（100.00 → 100，0.80 → 0.8） */
+function logNum(v) {
+  if (v === null || v === undefined || v === '') return '0'
+  const n = Number(v)
+  return Number.isFinite(n) ? String(n) : String(v)
+}
+
+/**
+ * 微调日志 changes 数组（[{field, old, new}]）渲染为单行文本：
+ * 数字字段「中文名: 旧 → 新」；备注字段展示文本；多字段中文分号连接。
+ */
+export function formatLogChanges(changes) {
+  if (!Array.isArray(changes) || !changes.length) return ''
+  return changes.map((c) => {
+    const label = FIELD_CN[c.field] || c.field
+    if (c.field === 'remark') {
+      const old = c.old === null || c.old === undefined || c.old === '' ? '(空)' : c.old
+      return `备注: ${old} → ${c.new || '(空)'}`
+    }
+    return `${label}: ${logNum(c.old)} → ${logNum(c.new)}`
+  }).join('；')
+}
+
+/** 日志时间：'2026-10-06 16:34:44' → '2026-10-06 16:34' */
+export function formatLogTime(ts) {
+  return ts ? String(ts).slice(0, 16) : ''
+}
+
+/**
+ * 微调按钮禁用原因（问题5）：返回 null 表示可微调，否则返回给用户的明确提示。
+ * 已锁定优先于角色判断（锁定状态对任何角色都禁止微调）。
+ */
+export function adjustDisabledReason(archived, isAdmin) {
+  if (archived) return '工资已核定锁定：如需微调请先由管理员解锁归档'
+  if (!isAdmin) return '项目账号仅有查看权限，薪资微调需总部管理员操作'
+  return null
+}
+
+/**
+ * 重新核算命中归档保护（HTTP 409 need_confirm）时的二次确认文案：
+ * 后端错误说明 + 锁定名单预览（最多 8 人）+ 总数。
+ */
+export function lockedRecalcConfirmText(payload) {
+  const error = (payload && payload.error) || '所选范围内存在已核定锁定的工资数据，确认强制重算？'
+  const locked = Array.isArray(payload && payload.locked) ? payload.locked : []
+  if (!locked.length) return error
+  const PREVIEW = 8
+  const head = locked.slice(0, PREVIEW).map((p) => `${p.name || ('#' + p.staff_id)}（${p.project || '-'}）`).join('、')
+  const tail = locked.length > PREVIEW ? `等共 ${locked.length} 人` : `（共 ${locked.length} 人）`
+  return `${error}\n锁定名单：${head}${tail}\n\n点击"确定"强制重算（锁定行的手工微调将被公式结果覆盖）。`
+}

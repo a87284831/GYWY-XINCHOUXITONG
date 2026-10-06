@@ -39,6 +39,9 @@ class PayrollWriteController extends ApiController
         if ($notLocked) {
             return response()->json(['ok' => false, 'error' => '以下项目考勤尚未锁定为最终版本，不能核算：' . implode('、', $notLocked) . '。请通知项目人力上传并锁定考勤后再核算。'], 400);
         }
+        // 锁定保护（问题5）：范围内已有核定锁定行时，首次 409，需 force 二次确认
+        $blocked = $this->archivedCalcBlocker($request, $ym, false, false, false, $projects);
+        if ($blocked) return $blocked;
         try {
             $result = $calc->calculate($ym, $projects);
             if (!empty($result['skipped'])) {
@@ -67,6 +70,8 @@ class PayrollWriteController extends ApiController
         if ($this->isProjectScope($account)) {
             return response()->json(['ok' => false, 'error' => '管理人员工资表仅总部可核算，项目账号无权限'], 403);
         }
+        $blocked = $this->archivedCalcBlocker($request, $ym, true, false, false);
+        if ($blocked) return $blocked;
         try {
             $result = $calc->calculateManagers($ym);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
@@ -92,6 +97,8 @@ class PayrollWriteController extends ApiController
         if ($this->isProjectScope($account)) {
             return response()->json(['ok' => false, 'error' => '案场人员工资表仅总部可核算，项目账号无权限'], 403);
         }
+        $blocked = $this->archivedCalcBlocker($request, $ym, false, true, false);
+        if ($blocked) return $blocked;
         try {
             $result = $calc->calculateCaseStaff($ym);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
@@ -117,6 +124,8 @@ class PayrollWriteController extends ApiController
         if ($this->isProjectScope($account)) {
             return response()->json(['ok' => false, 'error' => '总部人员工资表仅总部可核算，项目账号无权限'], 403);
         }
+        $blocked = $this->archivedCalcBlocker($request, $ym, false, false, true);
+        if ($blocked) return $blocked;
         try {
             $result = $calc->calculateHq($ym);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
@@ -164,6 +173,50 @@ class PayrollWriteController extends ApiController
     }
 
     /**
+     * 重新核算前的归档保护（问题5）。
+     * 目标核算范围内若存在已锁定（archived）行：首次请求返回 409 + 锁定名单，
+     * 调用方须带 force=true 二次确认才放行。
+     * 背景：withCalcLock 重算时删除旧行后按公式结果重新插入，仅恢复 archived 标记——
+     * 不拦截则锁定行的 row_data（含手工微调）会被静默覆盖。
+     *
+     * @param string   $ym
+     * @param bool     $isManager 范围=管理人员行
+     * @param bool     $isCase    范围=案场人员行
+     * @param bool     $isHq      范围=总部人员行
+     * @param string[] $projects  staff 范围限定项目；其余三类忽略
+     */
+    private function archivedCalcBlocker(Request $request, string $ym, bool $isManager, bool $isCase, bool $isHq, array $projects = []): ?JsonResponse
+    {
+        if ((bool) $request->input('force')) {
+            return null;
+        }
+        $query = DB::table('payroll_results')->where('year_month', $ym);
+        if ($isManager) {
+            $query->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($isCase) {
+            $query->where('is_case_row', true)->where('is_hq_row', false);
+        } elseif ($isHq) {
+            $query->where('is_hq_row', true);
+        } else {
+            $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+            if ($projects) $query->whereIn('project_name', $projects);
+        }
+        $records = $query->where('archived', true)->get();
+        if ($records->isEmpty()) return null;
+        $locked = $records->map(fn ($r) => [
+            'staff_id' => (int) $r->staff_legacy_id,
+            'name' => (string) (($this->jsonValue($r->row_data)['name'] ?? '')),
+            'project' => (string) $r->project_name,
+        ])->values();
+        return response()->json([
+            'ok' => false,
+            'need_confirm' => true,
+            'locked' => $locked,
+            'error' => '所选范围内已有 ' . $locked->count() . ' 人的工资核定锁定；重新核算将用公式结果覆盖锁定数据，手工微调会丢失。确认要强制重算吗？',
+        ], 409);
+    }
+
+    /**
      * 手动微调某一行 → 用当前"工资计算规则"的公式重算派生列（gross/soc/tax/net）。
      * 若用户在 $changes 里显式给了 actual_tax 就以其为准，不再套公式。
      */
@@ -192,7 +245,13 @@ class PayrollWriteController extends ApiController
         if ($record->archived) return response()->json(['ok' => false, 'error' => '已归档，不能微调'], 400);
         $row = $this->jsonValue($record->row_data) ?: [];
         $userGaveTax = array_key_exists('actual_tax', $changes);
-        foreach ($changes as $field => $value) $row[$field] = $field === 'remark' ? (string)$value : round((float)$value, 2);
+        // 日志明细：记录每个字段旧值→新值（旧值取微调前的 row）
+        $changeItems = [];
+        foreach ($changes as $field => $value) {
+            $newVal = $field === 'remark' ? (string) $value : round((float) $value, 2);
+            $changeItems[] = ['field' => $field, 'old' => $row[$field] ?? null, 'new' => $newVal];
+            $row[$field] = $newVal;
+        }
 
         // 出勤/绩效相关字段被微调时，按满勤基准重算 base_pay / perf_pay，
         // 否则应发不会跟着出勤变化（如把出勤改成 0 应发仍不变）。
@@ -243,6 +302,26 @@ class PayrollWriteController extends ApiController
         DB::table('payroll_results')->where('id', $record->id)->update([
             'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
         ]);
+
+        // 微调审计日志（问题4）：只存字段级旧→新与关键合计快照，不存整行，避免表膨胀
+        DB::table('payroll_adjust_logs')->insert([
+            'staff_legacy_id' => $staffId,
+            'staff_name' => (string) ($row['name'] ?? ''),
+            'project_name' => (string) ($record->project_name ?? ($row['project'] ?? '')),
+            'ym' => $ym,
+            'changes' => json_encode($changeItems, JSON_UNESCAPED_UNICODE),
+            'row_after' => json_encode([
+                'gross' => isset($row['gross']) ? round((float) $row['gross'], 2) : null,
+                'net' => isset($row['net']) ? round((float) $row['net'], 2) : null,
+                'actual_tax' => isset($row['actual_tax']) ? round((float) $row['actual_tax'], 2) : null,
+                'soc_total' => isset($row['soc_total']) ? round((float) $row['soc_total'], 2) : null,
+            ], JSON_UNESCAPED_UNICODE),
+            'reason' => mb_substr(trim((string) $request->input('reason', '')), 0, 255),
+            'operator' => (string) ($account->name ?? $account->username ?? 'admin'),
+            'operator_role' => (string) ($account->role ?? ''),
+            'created_at' => now(),
+        ]);
+
         return response()->json(['ok' => true, 'row' => $row]);
     }
 
