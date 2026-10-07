@@ -25,6 +25,14 @@ class ExportController extends ApiController
     private const COL_SOC  = 'FFF2CC';   // 五险一金：浅黄
     private const COL_NET  = 'FCE4D6';   // 个税/实发：浅橙
 
+    /** 绩效周期兑现错误码 → 台账中文状态（显式失败，禁止静默显示 0） */
+    private const PERF_ERROR_LABELS = [
+        'missing_coef'       => '缺周期系数，未发放（请录入系数后重新核算）',
+        'missing_pay_grade'  => '缺薪酬档位',
+        'invalid_pay_grade'  => '薪酬档位非法',
+        'missing_pay_rule'   => '该档位未配置绩效规则',
+    ];
+
     /** 每列归属的分区（与 COLUMNS 一一对应） */
     private function columnBand(int $idx): string
     {
@@ -673,9 +681,276 @@ class ExportController extends ApiController
         return response()->download($zipPath, '全部项目工资表_' . $ym . '.zip', ['Content-Type' => 'application/zip'])->deleteFileAfterSend(true);
     }
 
+    /**
+     * 绩效工资专项表（GET /api/export/performance?ym=&project=）
+     * Sheet1「当月绩效发放台账」：四类人员每人一行——发放方式（月度/季度/半年度）、
+     *   系数、计提基数、应发绩效工资；缺系数/缺档位等异常显式标注，不静默按 0 展示。
+     * Sheet2「周期兑现逐月基数」：季度/半年度兑现展开逐月绩效出勤/月基数/月计提额+周期系数+比例+小计。
+     * 权限：项目账号限本项目且须总部核定（归档）后；管理/总部行仅总部可见。
+     */
     public function performance(Request $request)
     {
-        return $request->filled('project') ? $this->project($request) : $this->summary($request);
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份无效'], 400);
+        }
+        $deny = $this->denyProjectNotArchived($account, $ym);
+        if ($deny) return $deny;
+
+        $projScope = $this->isProjectScope($account);
+        $project = $projScope ? (string) $account->project_name : $request->string('project')->toString();
+
+        $query = DB::table('payroll_results')->where('year_month', $ym);
+        if ($project !== '') $query->where('project_name', $project);
+        if ($projScope) $query->where('is_manager_row', false)->where('is_hq_row', false);
+
+        $records = $query->orderBy('id')->get();
+        if ($records->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+
+        $catWeight = ['staff' => 0, 'case' => 1, 'manager' => 2, 'hq' => 3];
+        $ledger = [];
+        foreach ($records as $rec) {
+            $row = $this->jsonValue($rec->row_data) ?: [];
+            if (!$row) continue;
+            $cat = $rec->is_hq_row ? 'hq' : ($rec->is_manager_row ? 'manager' : ($rec->is_case_row ? 'case' : 'staff'));
+            $ledger[] = $this->perfLedgerEntry($row, $cat);
+        }
+        usort($ledger, fn ($a, $b) =>
+            ($catWeight[$a['cat']] <=> $catWeight[$b['cat']])
+            ?: strcmp($a['project'], $b['project'])
+            ?: strcmp($a['name'], $b['name']));
+
+        $book = new Spreadsheet();
+        $this->fillPerfLedgerSheet($book->getActiveSheet(), $ledger, $ym);
+
+        $blocks = [];
+        foreach ($ledger as $entry) {
+            foreach ($entry['blocks'] as $block) $blocks[] = ['entry' => $entry, 'block' => $block];
+        }
+        if ($blocks) $this->fillPerfPeriodSheet($book->createSheet(), $blocks, $ym);
+        $book->setActiveSheetIndex(0);
+
+        return $this->xlsx($book, '绩效工资专项表_' . $ym . ($project !== '' ? '_' . $project : '') . '.xlsx');
+    }
+
+    /** 单行工资结果 → 绩效台账条目（含可展开的周期兑现块） */
+    private function perfLedgerEntry(array $row, string $cat): array
+    {
+        $catLabels = ['staff' => '基层员工', 'case' => '案场人员', 'manager' => '管理人员', 'hq' => '总部人员'];
+        $perfPay = round((float) ($row['perf_pay'] ?? 0), 2);
+        $entry = [
+            'cat' => $cat, 'catLabel' => $catLabels[$cat],
+            'project' => (string) ($row['project'] ?? ''),
+            'department' => (string) ($row['department'] ?? ''),
+            'position' => (string) ($row['position'] ?? ''),
+            'name' => (string) ($row['name'] ?? ''),
+            'grade' => '', 'mode' => '月度发放', 'coef' => '', 'base' => '',
+            'perf_pay' => $perfPay, 'status' => '', 'blocks' => [],
+        ];
+
+        $d = is_array($row['perf_detail'] ?? null) ? $row['perf_detail'] : null;
+        if ($d === null) {
+            // 月度发放：基数按"应发÷月系数"反推（保证 基数×系数≈应发 可核对）；系数 0 时基数无意义留空
+            $coef = (float) ($row['coef'] ?? 0);
+            $entry['coef'] = $coef;
+            $entry['base'] = $coef != 0.0 ? round($perfPay / $coef, 2) : '';
+            $entry['status'] = $perfPay > 0 ? '正常' : '本月绩效为0';
+            return $entry;
+        }
+
+        // 周期兑现（季度/半年度）
+        $entry['grade'] = (string) ($d['pay_grade'] ?? '');
+        $qErr = $d['error'] ?? null;
+        $h = is_array($d['half_year'] ?? null) ? $d['half_year'] : null;
+        $hErr = $h ? ($h['error'] ?? null) : null;
+        $qOk = !$qErr && is_array($d['months'] ?? null);
+        $hOk = $h && !$hErr && is_array($h['months'] ?? null);
+
+        $modes = []; $notes = []; $baseSum = 0.0; $singleCoef = '';
+        if ($qOk) {
+            $modes[] = '季度兑现';
+            $qBase = round(array_sum(array_map(fn ($m) => (float) ($m['amount'] ?? 0), $d['months'])), 2);
+            $entry['blocks'][] = [
+                'kind' => '季度', 'period' => (string) ($d['period'] ?? ''),
+                'coef' => (float) ($d['coef'] ?? 0),
+                'ratio' => array_key_exists('ratio', $d) ? (float) $d['ratio'] : 1.0,
+                'months' => $d['months'],
+            ];
+            $baseSum += $qBase;
+            $singleCoef = (float) ($d['coef'] ?? 0);
+        } elseif ($qErr) {
+            $notes[] = '季度：' . (self::PERF_ERROR_LABELS[$qErr] ?? $qErr);
+        }
+        if ($hOk) {
+            $modes[] = '半年度兑现';
+            $hBase = round(array_sum(array_map(fn ($m) => (float) ($m['amount'] ?? 0), $h['months'])), 2);
+            $entry['blocks'][] = [
+                'kind' => '半年度', 'period' => (string) ($h['period'] ?? ''),
+                'coef' => (float) ($h['coef'] ?? 0),
+                'ratio' => array_key_exists('ratio', $h) ? (float) $h['ratio'] : 1.0,
+                'months' => $h['months'],
+            ];
+            $baseSum += $hBase;
+            if (!$qOk) $singleCoef = (float) ($h['coef'] ?? 0);
+        } elseif ($hErr) {
+            $notes[] = '半年度：' . (self::PERF_ERROR_LABELS[$hErr] ?? $hErr);
+        }
+
+        $entry['mode'] = $modes ? implode('+', $modes) : '周期兑现失败';
+        // 仅单笔兑现时展示系数（两笔混合系数不同，单一数字会误导）；基数为各笔逐月计提合计
+        $entry['coef'] = count($modes) === 1 ? $singleCoef : '';
+        $entry['base'] = $baseSum > 0 ? $baseSum : '';
+        $entry['status'] = $notes
+            ? implode('；', array_merge($modes ? ['正常发放：' . implode('+', $modes)] : [], $notes))
+            : '正常';
+        return $entry;
+    }
+
+    /** Sheet1：当月绩效发放台账 */
+    private function fillPerfLedgerSheet($sheet, array $ledger, string $ym): void
+    {
+        $head = ['序号', '项目', '部门', '岗位', '姓名', '人员类别', '薪酬档位', '发放方式',
+            '绩效系数', '计提基数', '应发绩效工资', '状态'];
+        $widths = [6, 16, 12, 12, 10, 10, 10, 20, 9, 11, 12, 34];
+        $bands = [self::COL_BASE, self::COL_BASE, self::COL_BASE, self::COL_BASE, self::COL_BASE,
+            self::COL_BASE, self::COL_ATT, self::COL_ATT, self::COL_PAY, self::COL_PAY, self::COL_PAY, self::COL_NET];
+
+        $sheet->setTitle('当月绩效发放台账');
+        $sheet->mergeCells('A1:L1');
+        $sheet->setCellValue('A1', $ym . ' 绩效工资发放台账（月度发放 / 季度·半年度兑现）');
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+        $sheet->getRowDimension(1)->setRowHeight(28);
+        foreach ($head as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
+            $sheet->setCellValue($col, $v);
+            $st = $sheet->getStyle($col);
+            $st->getFont()->setBold(true);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($bands[$ci]);
+            $st->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension(2)->setRowHeight(24);
+
+        $r = 3;
+        foreach ($ledger as $i => $e) {
+            $values = [$i + 1, $e['project'], $e['department'], $e['position'], $e['name'], $e['catLabel'],
+                $e['grade'], $e['mode'], $e['coef'], $e['base'], $e['perf_pay'], $e['status']];
+            foreach ($values as $ci => $v) {
+                $letter = Coordinate::stringFromColumnIndex($ci + 1);
+                $sheet->setCellValue($letter . $r, $v);
+                $st = $sheet->getStyle($letter . $r);
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
+                if (in_array($ci + 1, [9, 10, 11], true)) {
+                    $st->getNumberFormat()->setFormatCode('#,##0.00');
+                    $st->getAlignment()->setHorizontal('right');
+                } elseif ($ci === 11) {
+                    $st->getAlignment()->setHorizontal('left')->setWrapText(true);
+                } else {
+                    $st->getAlignment()->setHorizontal('center')->setVertical('center');
+                }
+            }
+            // 异常状态整行标红字
+            if ($e['status'] !== '正常') {
+                $sheet->getStyle('L' . $r)->getFont()->getColor()->setRGB('C00000');
+            }
+            $sheet->getStyle('K' . $r)->getFont()->setBold(true);
+            $sheet->getRowDimension($r)->setRowHeight(20);
+            $r++;
+        }
+
+        // 合计行
+        $sheet->setCellValue('A' . $r, '合计（' . count($ledger) . '人）');
+        $sheet->mergeCells("A{$r}:J{$r}");
+        $sheet->getStyle("A{$r}")->getAlignment()->setHorizontal('right');
+        $sheet->setCellValue('K' . $r, '=SUM(K3:K' . ($r - 1) . ')');
+        $sheet->getStyle('K' . $r)->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle("A{$r}:L{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:L{$r}")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+
+        foreach ($widths as $ci => $w) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($ci + 1))->setWidth($w);
+        }
+        $sheet->freezePane('F3');
+    }
+
+    /** Sheet2：周期兑现逐月基数（每人每周期一块，逐月行 + 小计行） */
+    private function fillPerfPeriodSheet($sheet, array $blocks, string $ym): void
+    {
+        $head = ['序号', '项目', '姓名', '人员类别', '兑现类型', '周期', '月份',
+            '绩效出勤(天)', '月基数', '月计提额', '周期系数', '兑现比例', '本笔兑现额'];
+        $widths = [6, 16, 10, 10, 9, 10, 10, 11, 10, 11, 9, 9, 12];
+
+        $sheet->setTitle('周期兑现逐月基数');
+        $sheet->mergeCells('A1:M1');
+        $sheet->setCellValue('A1', $ym . ' 季度/半年度绩效兑现逐月基数表');
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+        $sheet->getRowDimension(1)->setRowHeight(28);
+        foreach ($head as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
+            $sheet->setCellValue($col, $v);
+            $st = $sheet->getStyle($col);
+            $st->getFont()->setBold(true);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB(self::COL_SOC);
+            $st->getAlignment()->setHorizontal('center');
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension(2)->setRowHeight(24);
+
+        $r = 3; $seq = 0;
+        foreach ($blocks as $item) {
+            $e = $item['entry']; $b = $item['block'];
+            $sumAmount = 0.0;
+            foreach ($b['months'] as $m) {
+                $seq++;
+                $values = [$seq, $e['project'], $e['name'], $e['catLabel'], $b['kind'], $b['period'],
+                    (string) ($m['ym'] ?? ''), (float) ($m['perf_att'] ?? 0), (float) ($m['base'] ?? 0),
+                    (float) ($m['amount'] ?? 0), $b['coef'], $b['ratio'], ''];
+                foreach ($values as $ci => $v) {
+                    $letter = Coordinate::stringFromColumnIndex($ci + 1);
+                    $sheet->setCellValue($letter . $r, $v);
+                    $st = $sheet->getStyle($letter . $r);
+                    $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
+                    if (in_array($ci + 1, [9, 10], true)) {
+                        $st->getNumberFormat()->setFormatCode('#,##0.00');
+                        $st->getAlignment()->setHorizontal('right');
+                    } elseif ($ci === 11) {
+                        $st->getNumberFormat()->setFormatCode('0.00');
+                        $st->getAlignment()->setHorizontal('center');
+                    } else {
+                        $st->getAlignment()->setHorizontal('center')->setVertical('center');
+                    }
+                }
+                $sumAmount += (float) ($m['amount'] ?? 0);
+                $r++;
+            }
+            // 小计行：兑现额 = Σ月计提 × 周期系数 × 兑现比例（与 PayrollCalculator 同口径，到分）
+            $pay = round($sumAmount * (float) $b['coef'] * (float) $b['ratio'], 2);
+            $sheet->setCellValue('A' . $r, $e['name'] . ' ' . $b['period'] . $b['kind'] . '小计');
+            $sheet->mergeCells("A{$r}:I{$r}");
+            $sheet->getStyle("A{$r}")->getAlignment()->setHorizontal('right');
+            $sheet->setCellValue('J' . $r, round($sumAmount, 2));
+            $sheet->setCellValue('K' . $r, $b['coef']);
+            $sheet->setCellValue('L' . $r, $b['ratio']);
+            $sheet->setCellValue('M' . $r, $pay);
+            foreach (['J', 'M'] as $c) {
+                $sheet->getStyle($c . $r)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle($c . $r)->getAlignment()->setHorizontal('right');
+            }
+            $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$r}:M{$r}")->getFill()
+                ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDF3E0');
+            $r++;
+        }
+
+        foreach ($widths as $ci => $w) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($ci + 1))->setWidth($w);
+        }
+        $sheet->freezePane('C3');
     }
 
     public function dashboard(Request $request)
