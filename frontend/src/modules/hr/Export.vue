@@ -5,7 +5,7 @@
       <label class="fld">核算月份 <input type="month" v-model="ui.month" /></label>
     </div>
     <div class="row" style="margin-top:12px">
-      <button class="btn primary" @click="go('summary')">① 汇总导出（整体汇总Sheet+各项目明细Sheet）</button>
+      <button class="btn primary" @click="go('summary')">① 工资全量数据包（汇总报表 + 基层/管理/案场/总部全部明细 Sheet）</button>
       <button class="btn primary" @click="go('projectsAll')">② 全部项目批量导出（基层工资表一键打包）</button>
     </div>
     <div class="row" style="margin-top:12px">
@@ -69,7 +69,7 @@ onMounted(() => {
 function go(mode) {
   const ym = ui.month
   if (mode === 'summary') {
-    download(`/api/export/summary?ym=${ym}`, `工资汇总_${ym}.xlsx`)
+    download(`/api/export/summary?ym=${ym}`, `工资全量数据包_${ym}.xlsx`)
   } else if (mode === 'projectsAll') {
     download(`/api/export/projects_all?ym=${ym}`, `全部项目工资表_${ym}.zip`)
   } else if (mode === 'projectTyped') {
