@@ -839,6 +839,7 @@ class PayrollCalculator
         if ($err = $this->rules->getLastError()) {
             throw new RuntimeException("实发公式计算失败（员工 {$person->name}）：{$err['error']}；表达式：{$err['expr']}");
         }
+        // 核算时个税补差恒为 0（tax_diff 是微调修正项，落库占位 0；微调重算时才叠加，见 recomputeDerived）
 
         $__cfResult = [];
         $__cfList = $this->rules->raw('custom_fields', []);
@@ -987,6 +988,8 @@ class PayrollCalculator
         if ($err = $this->rules->getLastError()) {
             throw new RuntimeException("实发公式计算失败（微调重算）：{$err['error']}；表达式：{$err['expr']}");
         }
+        // 个税补差：公式外人工修正项（可正可负），直接计入实发、不参与计税；旧行无此字段按 0 处理
+        $net = round($net + (float)($row['tax_diff'] ?? 0), 2);
 
         $row['gross'] = $gross;
         $row['actual_tax'] = $tax;

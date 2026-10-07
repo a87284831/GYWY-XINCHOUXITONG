@@ -16,7 +16,7 @@ class ExportController extends ApiController
     private const COLUMNS = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '固定月薪', '基本工资', '应出勤', '实际出勤',
         '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
         '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计', '养老保险',
-        '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '实发工资', '备注'];
+        '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '个税补差', '实发工资', '备注'];
 
     /** 表头分区配色（列序号从 1 开始），与考勤模板风格一致 */
     private const COL_BASE = 'DDEBF7';   // 基本信息：浅蓝
@@ -1135,7 +1135,7 @@ class ExportController extends ApiController
         $rowNumber = 3;
         $baseColCount = count(self::COLUMNS);
         $detailIdx = array_keys($detailCols);
-        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
+        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35];
         for ($c = $baseColCount + 1; $c <= $colCount; $c++) $moneyCols[] = $c;
         foreach ($rows->values() as $index => $row) {
             $values = [$index + 1, $row['project'] ?? '', $row['department'] ?? '', $row['position'] ?? '', $row['name'] ?? '',
@@ -1144,7 +1144,7 @@ class ExportController extends ApiController
                 $row['night'] ?? 0, $row['meal'] ?? 0, $row['title_sub'] ?? 0, $row['reward'] ?? 0, $row['welfare'] ?? 0,
                 $row['punish'] ?? 0, $row['late_d'] ?? 0, $row['miss_d'] ?? 0, $row['other_d'] ?? 0, $row['uniform_d'] ?? 0,
                 $row['gross'] ?? 0, $row['pen'] ?? 0, $row['med'] ?? 0, $row['une'] ?? 0, $row['house'] ?? 0, $row['big'] ?? 0,
-                $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? ''];
+                $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['tax_diff'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? ''];
             // 逐月绩效明细列值（无该月明细 → 空）
             foreach ($detailIdx as $k) {
                 [$tag, $ym] = explode('|', $k);
@@ -1173,22 +1173,22 @@ class ExportController extends ApiController
                     $cellStyle->getAlignment()->setHorizontal('right');
                 } elseif (in_array($c, [9, 10, 11], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
-                } elseif ($c === 35) {
+                } elseif ($c === 36) {
                     $cellStyle->getAlignment()->setHorizontal('left');
                 } else {
                     $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
                 }
             }
-            // 应发合计(25)、实发(34)加粗
+            // 应发合计(25)、实发(35)加粗
             $sheet->getStyle(Coordinate::stringFromColumnIndex(25) . $rowNumber)->getFont()->setBold(true);
-            $sheet->getStyle(Coordinate::stringFromColumnIndex(34) . $rowNumber)->getFont()->setBold(true);
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(35) . $rowNumber)->getFont()->setBold(true);
             $sheet->getRowDimension($rowNumber)->setRowHeight(20);
             $rowNumber++;
         }
 
         // ===== 合计行 =====
         $totalRow = $rowNumber;
-        $sumCols = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
+        $sumCols = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35];
         for ($c = $baseColCount + 1; $c <= $colCount; $c++) $sumCols[] = $c;
         $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
         $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);

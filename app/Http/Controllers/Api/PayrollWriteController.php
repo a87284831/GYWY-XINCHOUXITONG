@@ -235,7 +235,7 @@ class PayrollWriteController extends ApiController
 
         $editable = ['night', 'meal', 'title_sub', 'reward', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
             'uniform_d', 'pen', 'med', 'une', 'house', 'big', 'coef', 'req_att', 'act_att', 'perf_att',
-            'actual_tax', 'spec_rent', 'spec_loan', 'spec_child', 'spec_elder', 'spec_edu', 'spec_baby', 'remark'];
+            'actual_tax', 'tax_diff', 'spec_rent', 'spec_loan', 'spec_child', 'spec_elder', 'spec_edu', 'spec_baby', 'remark'];
         foreach ($changes as $field => $value) {
             if (!in_array($field, $editable, true)) return response()->json(['ok' => false, 'error' => "字段不允许微调：{$field}"], 400);
             if ($field !== 'remark' && !is_numeric($value)) return response()->json(['ok' => false, 'error' => "字段数值无效：{$field}"], 400);
@@ -284,7 +284,7 @@ class PayrollWriteController extends ApiController
             report($e);
             return response()->json(['ok' => false, 'error' => '微调重算失败：' . $e->getMessage()], 400);
         }
-        // 用户显式改过 actual_tax → 覆盖回去并按公式重算 net
+        // 用户显式改过 actual_tax → 覆盖回去并按公式重算 net（叠加个税补差，口径与核算/微调重算一致）
         if ($userGaveTax) {
             $row['actual_tax'] = round((float)$changes['actual_tax'], 2);
             $row['withhold'] = $row['actual_tax'];
@@ -293,10 +293,11 @@ class PayrollWriteController extends ApiController
                 'actual_tax' => $row['actual_tax'], 'welfare' => (float)($row['welfare'] ?? 0),
             ];
             $defaultNet = 'gross - soc_total - actual_tax - welfare';
-            $row['net'] = round($rules->evaluate($rules->str('formula.net', ''), $vars, $defaultNet), 2);
+            $net = round($rules->evaluate($rules->str('formula.net', ''), $vars, $defaultNet), 2);
             if ($rules->getLastError()) {
                 return response()->json(['ok' => false, 'error' => '实发公式计算失败：' . ($rules->getLastError()['error'] ?? '未知错误')], 400);
             }
+            $row['net'] = round($net + (float)($row['tax_diff'] ?? 0), 2);
         }
 
         DB::table('payroll_results')->where('id', $record->id)->update([

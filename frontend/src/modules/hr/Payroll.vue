@@ -77,6 +77,7 @@
                   <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
                   <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                   <td class="num">{{ money(r.actual_tax) }}</td>
+                  <td class="num">{{ money(r.tax_diff) }}</td>
                   <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
                   <td><button class="btn sm" :disabled="!!empAdjustReason" :title="empAdjustReason || '人工微调该行薪资'" @click.stop="openAdjust(r)">微调</button></td>
                   <td class="remark-cell">{{ r.remark || '' }}</td>
@@ -97,6 +98,7 @@
                   <td class="num">{{ money(tot.sums.soc_total) }}</td>
                   <td class="num">{{ money(tot.sums.spec_total) }}</td>
                   <td class="num">{{ money(tot.sums.actual_tax) }}</td>
+                  <td class="num">{{ money(tot.sums.tax_diff) }}</td>
                   <td class="num" style="color:#16a34a;font-weight:bold">{{ money(tot.sums.net) }}</td>
                   <td></td><td></td>
                 </tr>
@@ -187,6 +189,7 @@
                       <td class="num" style="font-weight:bold">{{ money(r.gross) }}</td>
                       <td class="num">{{ money(r.soc_total) }}</td><td class="num">{{ money(r.spec_total) }}</td>
                       <td class="num">{{ money(r.actual_tax) }}</td>
+                      <td class="num">{{ money(r.tax_diff) }}</td>
                       <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
                       <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
                       <td><button class="btn sm" :disabled="!!typeAdjustReason(tp)" :title="typeAdjustReason(tp) || '人工微调该行薪资'" @click.stop="openAdjust(r)">微调</button></td>
@@ -208,6 +211,7 @@
                     <td class="num">{{ money(typeTot[tp].sums.soc_total) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.spec_total) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.actual_tax) }}</td>
+                    <td class="num">{{ money(typeTot[tp].sums.tax_diff) }}</td>
                     <td class="num" style="color:#16a34a;font-weight:bold">{{ money(typeTot[tp].sums.net) }}</td>
                     <td v-for="c in perfCols[tp]" :key="'t' + c.key"></td>
                     <td></td><td></td>
@@ -358,7 +362,7 @@ const isAdmin = computed(() => auth.user && auth.user.role === 'admin')
 const STATUS_TAG = { 正式: 'green', 新聘: 'blue', 转正: 'purple', 试用: 'orange', 离职: 'gray' }
 const PAY_HEADS = ['项目', '部门', '职位', '姓名', '员工状态', '固定月薪', '基本工资', '应出勤', '出勤', '绩效计薪', '系数',
   '基本工资(折算)', '绩效工资', '病假天数', '病假工资', '夜班/话费', '餐补', '其他补贴', '奖励', '福利',
-  '扣罚', '迟早扣', '缺卡扣', '其他扣', '工装扣', '应发合计', '社保合计', '附加扣除', '本月个税', '实发工资', '操作']
+  '扣罚', '迟早扣', '缺卡扣', '其他扣', '工装扣', '应发合计', '社保合计', '附加扣除', '本月个税', '个税补差', '实发工资', '操作']
 // 管理/案场/总部表：固定数据列（不含末列「操作」，操作列在模板中固定渲染于季度明细列之后，避免列错位）
 const payHeadsData = PAY_HEADS.slice(0, -1)
 // 微调弹窗字段组（出勤四项之后），顺序复刻 openAdjust
