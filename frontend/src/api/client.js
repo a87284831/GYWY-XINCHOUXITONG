@@ -27,7 +27,13 @@ export async function api(path, opts = {}) {
       throw new Error('未登录')
     }
     if (!data.ok) {
-      const err = new Error(data.error || data.msg || '操作失败')
+      // Laravel ValidationException 422: {message, errors:{field:[msg]}}——把字段级错误信息也带出来
+      let msg = data.error || data.msg || data.message || '操作失败'
+      if (data.errors && typeof data.errors === 'object') {
+        const first = Object.values(data.errors).flat()[0]
+        if (first) msg = String(first)
+      }
+      const err = new Error(msg)
       err.status = res.status
       err.payload = data
       throw err
