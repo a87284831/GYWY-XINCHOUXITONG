@@ -10,6 +10,7 @@ use Tests\TestCase;
 /**
  * 选人下拉数据源 /api/org/staff-options：
  *  - 不得截断：超过 300 人时必须全量返回（生产 1408 人曾因 limit(300) 只见 6/18 个项目）
+ *  - 离职人员不显示（生产 509 个"未分配项目"档案里 493 个是离职，曾混入选人下拉）
  *  - 项目账号仍只见本项目人员
  *  - kw 关键词搜索（姓名/岗位）不受影响
  */
@@ -61,6 +62,21 @@ class StaffOptionsTest extends TestCase
         $projs = array_unique(array_column($staff, 'project'));
         sort($projs);
         $this->assertSame(['丙项目', '乙项目', '甲项目'], array_values($projs), '所有项目的人都应可见');
+    }
+
+    public function test_excludes_resigned_staff(): void
+    {
+        $this->seedStaff(3, ['甲项目']);
+        DB::table('payroll_staff')->where('legacy_id', 10001)->update(['status' => '离职']);
+        DB::table('payroll_staff')->where('legacy_id', 10002)->update(['status' => '试用']);
+
+        $resp = $this->getJson('/api/org/staff-options', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $names = array_column($resp->json('staff'), 'name');
+
+        $this->assertNotContains('员工1', $names, '离职人员不得出现在选人下拉');
+        $this->assertContains('员工2', $names, '试用人员应显示');
+        $this->assertContains('员工3', $names, '正式人员应显示');
     }
 
     public function test_kw_search_still_filters_by_name_or_position(): void

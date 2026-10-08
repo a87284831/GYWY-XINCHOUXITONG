@@ -352,6 +352,8 @@ class OrgController extends ApiController
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
         $query = DB::table('payroll_staff')->where('deleted', false);
+        // 离职人员不进选人下拉（口径与核算一致：钉钉离职名单 status='离职' 为权威，PayrollCalculator 同源）
+        $query->where(fn($q) => $q->whereNull('status')->orWhere('status', '<>', '离职'));
         if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
         if ($request->filled('kw')) {
             $kw = $request->string('kw');
