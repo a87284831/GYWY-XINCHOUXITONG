@@ -279,7 +279,8 @@ async function quickSetRole(u, roleId) {
 
 function userEdit(u) {
   const isNew = !u
-  const v = u || { username: '', name: '', role: 'project', project: '', enabled: true }
+  // 新增账号默认挂到左侧当前选中的角色（payroll_roles 里不存在内置 'project' 行，写死会报"账号类型不存在"）
+  const v = u || { username: '', name: '', role: roleTypeId.value || '', project: '', enabled: true }
   um.isNew = isNew
   um.isAdmin = v.role === 'admin' || v.username === 'admin'
   um.id = v.id || 0
