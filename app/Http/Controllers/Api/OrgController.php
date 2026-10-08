@@ -358,7 +358,8 @@ class OrgController extends ApiController
             $query->where(fn($q) => $q->where('name', 'like', '%' . $kw . '%')
                 ->orWhere('position', 'like', '%' . $kw . '%'));
         }
-        $rows = $query->orderBy('project_name')->orderBy('name')->limit(300)->get();
+        // 不设 limit：截断会让部分项目的人在下拉里消失（生产 1408 人曾因 limit(300) 只见 6/18 个项目）
+        $rows = $query->orderBy('project_name')->orderBy('name')->get();
         return response()->json(['ok' => true, 'staff' => $rows->map(function ($r) {
             $d = $this->jsonValue($r->data) ?: [];
             return [

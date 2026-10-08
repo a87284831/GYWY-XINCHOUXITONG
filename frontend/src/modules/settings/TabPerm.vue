@@ -87,10 +87,23 @@
       <div class="form-grid">
         <label>用户名<input type="text" v-model="um.username" :readonly="!um.isNew" :style="!um.isNew ? 'background:#f5f5f5' : ''"></label>
         <label>姓名<input type="text" v-model="um.name" readonly style="background:#f5f5f5"></label>
-        <label class="full">绑定人员（选人后自动带姓名与项目）<select v-model="um.staff_id" @change="onUserStaffChange">
-          <option value="">{{ um.isAdmin ? '（admin 内置账号，可不绑定）' : '— 请选择在职人员（一人一号）—' }}</option>
-          <option v-for="x in staffList" :key="x.id" :value="String(x.id)">{{ x.name }}（{{ x.project }}{{ x.dept_path ? '/' + x.dept_path : '' }}）</option>
-        </select></label>
+        <label class="full">绑定人员（选人后自动带姓名与项目；支持搜索或按项目/部门筛选）
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <input type="text" v-model="staffKw" placeholder="输入姓名/岗位关键词" style="flex:2;min-width:0">
+            <select v-model="staffProj" @change="staffDept = ''" style="flex:1.2;min-width:0">
+              <option value="">全部项目</option>
+              <option v-for="p in staffProjects" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <select v-model="staffDept" style="flex:1.2;min-width:0">
+              <option value="">全部部门</option>
+              <option v-for="d in staffDepts" :key="d" :value="d">{{ d }}</option>
+            </select>
+          </div>
+          <select v-model="um.staff_id" @change="onUserStaffChange">
+            <option value="">{{ um.isAdmin ? '（admin 内置账号，可不绑定）' : '— 请选择在职人员（一人一号，当前可选 ' + staffOpts.length + ' 人）—' }}</option>
+            <option v-for="x in staffOpts" :key="x.id" :value="String(x.id)">{{ x.name }}（{{ x.project }}{{ x.dept_path ? '/' + x.dept_path : '' }}）</option>
+          </select>
+        </label>
         <label>账号类型<select v-model="um.role" @change="onUserRoleChange">
           <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select></label>
@@ -129,6 +142,9 @@ const draftScope = ref('all')
 const openMods = ref(new Set())
 const userModal = ref(false)
 const staffList = ref([])
+const staffKw = ref('')
+const staffProj = ref('')
+const staffDept = ref('')
 const um = reactive({ isNew: false, isAdmin: false, id: 0, username: '', name: '', role: 'project', project: '', staff_id: '', enabledStr: '1', password: '' })
 
 const curRole = computed(() => roles.value.find((x) => x.id === roleTypeId.value) || null)
@@ -137,6 +153,31 @@ const roleUsers = computed(() => usersList.value.filter((u) => u.role === roleTy
 const umShowProj = computed(() => {
   const r = roles.value.find((x) => x.id === um.role)
   return !!(r && r.scope === 'project')
+})
+
+// 绑定人员筛选：搜索姓名/岗位 + 项目/部门级联（前端本地过滤，数据已全量在手）
+const staffProjects = computed(() => [...new Set(staffList.value.map((x) => x.project).filter(Boolean))].sort())
+const staffDepts = computed(() => {
+  const pool = staffProj.value ? staffList.value.filter((x) => x.project === staffProj.value) : staffList.value
+  return [...new Set(pool.map((x) => x.dept_path).filter(Boolean))].sort()
+})
+const staffFiltered = computed(() => {
+  const kw = staffKw.value.trim().toLowerCase()
+  return staffList.value.filter((x) => {
+    if (staffProj.value && x.project !== staffProj.value) return false
+    if (staffDept.value && x.dept_path !== staffDept.value) return false
+    if (kw && !((x.name || '').toLowerCase().includes(kw) || (x.position || '').toLowerCase().includes(kw))) return false
+    return true
+  })
+})
+// 编辑时已绑定人员不在过滤结果里也要出现在选项中，避免回显丢值
+const staffOpts = computed(() => {
+  const list = staffFiltered.value
+  if (um.staff_id && !list.some((x) => String(x.id) === String(um.staff_id))) {
+    const cur = staffList.value.find((x) => String(x.id) === String(um.staff_id))
+    if (cur) return [cur, ...list]
+  }
+  return list
 })
 
 function modChecked(m) {
@@ -247,6 +288,9 @@ function userEdit(u) {
   um.staff_id = v.staff_id != null ? String(v.staff_id) : ''
   um.enabledStr = v.enabled ? '1' : '0'
   um.password = ''
+  staffKw.value = ''
+  staffProj.value = ''
+  staffDept.value = ''
   userModal.value = true
   staffOptions().then((s) => { staffList.value = s })
 }
