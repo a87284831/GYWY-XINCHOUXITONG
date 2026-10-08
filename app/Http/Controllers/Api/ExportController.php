@@ -220,8 +220,8 @@ class ExportController extends ApiController
         $mYtd = round(array_sum(array_column(array_diff_key($ytdMgr, ['物业总部' => true]), 'gross')), 2);
         $cYtd = round(array_sum(array_column($ytdCase, 'gross')), 2);
 
-        // 管理人员合计行（仅总部；管理数据项目账号完全不可见）
-        if (!$isProjScope && $sumM['cnt'] > 0) {
+        // 管理人员合计行（仅总部；管理数据项目账号完全不可见；无数据也显示固定结构，便于核对遗漏）
+        if (!$isProjScope) {
             $mGross = round($sumM['gross'], 2);
             $prevMgrNoHq = array_diff_key($prevMgr, ['物业总部' => true]);
             $mPrev = round(array_sum(array_column($prevMgrNoHq, 'gross')), 2);
@@ -237,8 +237,8 @@ class ExportController extends ApiController
             $r++;
         }
 
-        // 案场人员合计行（纯案场项目只在此体现）
-        if ($sumCase['cnt'] > 0 || $curCase) {
+        // 案场人员合计行（纯案场项目只在此体现；无数据也显示固定结构）
+        if (true) {
             $cCnt = array_sum(array_column($curCase, 'cnt'));
             $cGross = round(array_sum(array_column($curCase, 'gross')), 2);
             $cPrev = round(array_sum(array_column($isProjScope ? array_intersect_key($prevCase, $curCase) : $prevCase, 'gross')), 2);
