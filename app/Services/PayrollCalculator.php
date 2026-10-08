@@ -693,7 +693,7 @@ class PayrollCalculator
         $missFirst3 = $this->rules->num('deduction_rules.miss_punch.first_3', 30);
         $missAfter3 = $this->rules->num('deduction_rules.miss_punch.after_3', 50);
         $missPenalty = $missPunchEnabled
-            ? min($stats['miss'], 3) * $missFirst3 + max(0, $stats['miss'] - 3) * $missAfter3
+            ? self::missPunchAmount($stats['miss'], $missFirst3, $missAfter3)
             : 0.0;
         $miss = round((float)($att['miss_deduct'] ?? 0) + $missPenalty, 2);
         $other = round((float)($att['other_deduct'] ?? 0) + $absentFine, 2);
@@ -1277,6 +1277,15 @@ class PayrollCalculator
             if ($cat) $stats[$cat]++;
         }
         return $stats;
+    }
+
+    /**
+     * 缺卡阶梯扣款金额（attView 预览与 computeRow 核算共用，避免漂移）：
+     * 前 3 次 × first_3 + 第 4 次起 × after_3
+     */
+    public static function missPunchAmount(int $missCount, float $first3 = 30.0, float $after3 = 50.0): float
+    {
+        return min($missCount, 3) * $first3 + max(0, $missCount - 3) * $after3;
     }
 
     private function jsonValue($v): ?array

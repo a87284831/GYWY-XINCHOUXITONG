@@ -27,8 +27,26 @@ class PayrollController extends ApiController
                 'rows' => [], 'stats' => []]);
         }
         $symbols = \App\Services\PayrollCalculator::symbols(); $stats = [];
+        // 缺卡阶梯规则（attView 预览金额与核算一致）
+        $rules = new \App\Services\CalcRules();
+        $missEnabled = $rules->flag('deduction_rules.miss_punch.enabled', true);
+        $missFirst3 = $rules->num('deduction_rules.miss_punch.first_3', 30);
+        $missAfter3 = $rules->num('deduction_rules.miss_punch.after_3', 50);
         foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
-            $stats[$name] = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+            $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+            // 应出勤按 value 加权（让"半"符号算 0.5 天，与人力手填口径对齐；required 仍按 in_required 计 1 天，核算逻辑不变）
+            $st['required_value'] = 0.0;
+            foreach (($attendance['days'] ?? []) as $d) {
+                $d = trim((string)$d); if ($d === '') continue;
+                $item = \App\Services\PayrollCalculator::symbolLookup($d, $symbols);
+                if ($item && !empty($item['in_required'])) $st['required_value'] += (float)($item['value'] ?? 1);
+            }
+            // 上传后即可见的缺卡扣款预览（用户手填 miss_deduct 优先，否则按阶梯规则算）
+            $st['miss_deduct'] = $missEnabled
+                ? round((float)($attendance['miss_deduct'] ?? 0)
+                    + \App\Services\PayrollCalculator::missPunchAmount($st['miss'], $missFirst3, $missAfter3), 2)
+                : (float)($attendance['miss_deduct'] ?? 0);
+            $stats[$name] = $st;
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows), 'stats' => $stats,

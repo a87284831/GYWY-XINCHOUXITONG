@@ -46,7 +46,7 @@
                 <td>{{ n }}</td><td>{{ view.rows[n].position }}</td><td>{{ view.rows[n].status || '-' }}</td>
                 <td class="num">{{ view.rows[n].req_attend || '-' }}</td>
                 <td class="num">{{ view.rows[n].act_attend > 0 ? view.rows[n].act_attend : (view.stats[n] || {}).attend }}</td>
-                <td class="num">{{ (view.stats[n] || {}).required }}</td>
+                <td class="num">{{ (view.stats[n] || {}).required_value ?? (view.stats[n] || {}).required }}</td>
                 <td class="num">{{ (view.stats[n] || {}).personal }}</td>
                 <td class="num">{{ (view.stats[n] || {}).sick }}</td>
                 <td class="num">{{ (view.stats[n] || {}).maternity }}</td>
@@ -61,7 +61,7 @@
                 <td class="num">{{ moneyOrDash(view.rows[n].pen) }}</td><td class="num">{{ moneyOrDash(view.rows[n].med) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].une) }}</td><td class="num">{{ moneyOrDash(view.rows[n].house) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].big) }}</td>
-                <td class="num">{{ moneyOrDash(view.rows[n].miss_deduct) }}</td>
+                <td class="num">{{ moneyOrDash((view.stats[n] || {}).miss_deduct ?? view.rows[n].miss_deduct) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].late_deduct) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].other_deduct) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].uniform_deduct) }}</td>
