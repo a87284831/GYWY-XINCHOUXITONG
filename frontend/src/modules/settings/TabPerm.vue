@@ -86,7 +86,6 @@
     <Modal :title="(um.isNew ? '新增账号' : '编辑账号 — ' + um.username)" :show="userModal" :width="620" @close="userModal = false">
       <div class="form-grid">
         <label>用户名<input type="text" v-model="um.username" :readonly="!um.isNew" :style="!um.isNew ? 'background:#f5f5f5' : ''"></label>
-        <label>姓名<input type="text" v-model="um.name" readonly style="background:#f5f5f5"></label>
         <label class="full">绑定人员（选人后自动带姓名与项目；支持搜索或按项目/部门筛选）
           <div style="display:flex;gap:6px;margin-bottom:6px">
             <input type="text" v-model="staffKw" placeholder="输入姓名/岗位关键词" style="flex:2;min-width:0">
@@ -104,9 +103,10 @@
             <option v-for="x in staffOpts" :key="x.id" :value="String(x.id)">{{ x.name }}（{{ x.project }}{{ x.dept_path ? '/' + x.dept_path : '' }}）</option>
           </select>
         </label>
-        <label>账号类型<select v-model="um.role" @change="onUserRoleChange">
-          <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
-        </select></label>
+        <label>账号类型<input v-if="um.isNew" type="text" :value="curRoleName" readonly style="background:#f5f5f5" title="新增账号挂到你左侧当前选中的角色下；如需其他类型请到对应角色下新增">
+          <select v-else v-model="um.role" @change="onUserRoleChange">
+            <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+          </select></label>
         <label v-show="umShowProj">绑定项目<select v-model="um.project"><option value="">-</option><option v-for="p in auth.projects" :key="p" :value="p">{{ p }}</option></select></label>
         <label>账号状态<select v-model="um.enabledStr"><option value="1">启用</option><option value="0">停用</option></select></label>
         <label class="full">{{ um.isNew ? '初始密码（至少8位）' : '重置密码（留空则不修改）' }}<input type="password" v-model="um.password"></label>
@@ -148,6 +148,8 @@ const staffDept = ref('')
 const um = reactive({ isNew: false, isAdmin: false, id: 0, username: '', name: '', role: 'project', project: '', staff_id: '', enabledStr: '1', password: '' })
 
 const curRole = computed(() => roles.value.find((x) => x.id === roleTypeId.value) || null)
+// 新增账号时弹窗内只读展示当前角色名（账号类型由左侧选择决定，不再二次选择）
+const curRoleName = computed(() => curRole.value ? curRole.value.name : '')
 const isAdmin = computed(() => curRole.value && curRole.value.id === 'admin')
 const roleUsers = computed(() => usersList.value.filter((u) => u.role === roleTypeId.value))
 const umShowProj = computed(() => {
@@ -283,7 +285,8 @@ function userEdit(u) {
   um.id = v.id || 0
   um.username = v.username || ''
   um.name = v.name || ''
-  um.role = v.role || 'project'
+  // 新增账号直接挂到左侧当前选中的角色（此前写死 'project'，在自定义角色下新增会"消失"）
+  um.role = v.role || roleTypeId.value || 'project'
   um.project = v.project || ''
   um.staff_id = v.staff_id != null ? String(v.staff_id) : ''
   um.enabledStr = v.enabled ? '1' : '0'
