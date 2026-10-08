@@ -85,7 +85,13 @@ class AttendanceController extends ApiController
         if ($errors) {
             return response()->json(['ok' => false, 'error' => implode('；', array_slice($errors, 0, 30))], 400);
         }
+        // 离职人员不参与同名校验：与模板下载 resignGuard 一致口径
+        // （status='离职' 且 resign_date 早于当月 1 日的人不进 staffRows，避免离职档案挡住同名在岗人员上传）
         $staffRows = DB::table('payroll_staff')->where('project_name', $project)->where('deleted', false)
+            ->where(function ($q) use ($ym) {
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
+                  ->orWhere('resign_date', '>=', $ym . '-01');
+            })
             ->get(['legacy_id', 'name', 'dingtalk_userid']);
         $staffNames = $staffRows->pluck('name')->all();
         $unknown = array_values(array_diff(array_keys($rows), $staffNames));
@@ -128,6 +134,11 @@ class AttendanceController extends ApiController
         $label = $group['label']; $category = $group['category'];
         $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
         $candidates = DB::table('payroll_staff')->where('deleted', false)
+            ->where(function ($q) use ($ym) {
+                // 虚拟组同样过滤离职（与项目分支、模板下载一致）
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
+                  ->orWhere('resign_date', '>=', $ym . '-01');
+            })
             ->get(['legacy_id', 'name', 'project_name', 'dingtalk_userid'])
             ->filter(function ($p) use ($catMap, $category) {
                 if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
