@@ -141,13 +141,17 @@ async function attUpload(e) {
   form.append('dry_run', '1')
   try {
     const r = await api('/api/attendance/upload', { form })
+    // 防御：后端返回非预期结构时不让 .join 把整个错误盖住
+    if (!r || typeof r !== 'object' || !('names' in r)) {
+      throw new Error(r && r.error ? r.error : '校验失败：服务端返回数据异常，请重试或联系管理员')
+    }
     let warnHtml = ''
     if (r.resigned && r.resigned.length) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 以下人员本月之前已离职，不参与核算：${r.resigned.slice(0, 10).join('、')}${r.resigned.length > 10 ? '等' : ''}</div>`
     if (r.has_calc) warnHtml += `<div style="color:#dc2626;margin-top:6px">⚠ ${ui.month} 已有${isVirtual.value ? '相关项目' : '该项目'}核算结果，确认上传后需重新核算！</div>`
     if (r.overwrite) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
     attMsg.value = `<div class="msg ok" style="border-color:#16a34a">
       <div style="font-weight:600;margin-bottom:6px">校验通过：${r.count} 人${r.overwrite ? '（将覆盖旧数据）' : ''}</div>
-      <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${r.names.join('、')}</div>
+      <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${(r.names || []).join('、')}</div>
       ${warnHtml}
       <div class="row" style="margin-top:10px">
         <button class="btn success" data-act="confirm-upload">③ 确认上传</button>
@@ -177,6 +181,7 @@ async function attUploadConfirm() {
     if (!isVirtual.value) attView()
   } catch (e) {
     attMsg.value = `<div class="msg err">${e.message}</div>`
+    pendingFile.value = null
   }
 }
 

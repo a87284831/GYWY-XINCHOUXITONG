@@ -7,7 +7,7 @@ function esc(s) {
 
 export async function api(path, opts = {}) {
   const auth = useAuthStore()
-  const headers = { 'X-Token': auth.token }
+  const headers = { 'X-Token': auth.token, 'Accept': 'application/json' }
   let body
   if (opts.form) {
     body = opts.form
