@@ -13,7 +13,7 @@ use ZipArchive;
 
 class ExportController extends ApiController
 {
-    private const COLUMNS = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '固定月薪', '基本工资', '应出勤', '实际出勤',
+    private const COLUMNS = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '入职日期', '固定月薪', '基本工资', '应出勤', '实际出勤',
         '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
         '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计', '养老保险',
         '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税', '个税补差', '实发工资', '备注'];
@@ -37,10 +37,10 @@ class ExportController extends ApiController
     private function columnBand(int $idx): string
     {
         return match (true) {
-            $idx <= 8                       => self::COL_BASE,  // 序号..基本工资
-            $idx <= 11                      => self::COL_ATT,   // 应出勤..绩效系数
-            $idx <= 25                      => self::COL_PAY,   // 应发基本..应发合计
-            $idx <= 31                      => self::COL_SOC,   // 五险..五险一金合计
+            $idx <= 9                       => self::COL_BASE,  // 序号..基本工资（含入职日期）
+            $idx <= 12                      => self::COL_ATT,   // 应出勤..绩效系数
+            $idx <= 26                      => self::COL_PAY,   // 应发基本..应发合计
+            $idx <= 32                      => self::COL_SOC,   // 五险..五险一金合计
             default                         => self::COL_NET,   // 专项/个税/实发/备注
         };
     }
@@ -1135,11 +1135,11 @@ class ExportController extends ApiController
         $rowNumber = 3;
         $baseColCount = count(self::COLUMNS);
         $detailIdx = array_keys($detailCols);
-        $moneyCols = [7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35];
+        $moneyCols = [8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36];
         for ($c = $baseColCount + 1; $c <= $colCount; $c++) $moneyCols[] = $c;
         foreach ($rows->values() as $index => $row) {
             $values = [$index + 1, $row['project'] ?? '', $row['department'] ?? '', $row['position'] ?? '', $row['name'] ?? '',
-                $row['status'] ?? '', $row['fixed'] ?? 0, $row['base'] ?? 0, $row['req_att'] ?? 0, $row['act_att'] ?? 0,
+                $row['status'] ?? '', $row['hire_date'] ?? '', $row['fixed'] ?? 0, $row['base'] ?? 0, $row['req_att'] ?? 0, $row['act_att'] ?? 0,
                 $row['coef'] ?? 0, $row['base_pay'] ?? 0, $row['perf_pay'] ?? 0, $row['sick_pay'] ?? 0,
                 $row['night'] ?? 0, $row['meal'] ?? 0, $row['title_sub'] ?? 0, $row['reward'] ?? 0, $row['welfare'] ?? 0,
                 $row['punish'] ?? 0, $row['late_d'] ?? 0, $row['miss_d'] ?? 0, $row['other_d'] ?? 0, $row['uniform_d'] ?? 0,
@@ -1171,24 +1171,24 @@ class ExportController extends ApiController
                 if (in_array($c, $moneyCols, true)) {
                     $cellStyle->getNumberFormat()->setFormatCode('#,##0.00');
                     $cellStyle->getAlignment()->setHorizontal('right');
-                } elseif (in_array($c, [9, 10, 11], true)) {
+                } elseif (in_array($c, [10, 11, 12], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
-                } elseif ($c === 36) {
+                } elseif ($c === 37) {
                     $cellStyle->getAlignment()->setHorizontal('left');
                 } else {
                     $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
                 }
             }
-            // 应发合计(25)、实发(35)加粗
-            $sheet->getStyle(Coordinate::stringFromColumnIndex(25) . $rowNumber)->getFont()->setBold(true);
-            $sheet->getStyle(Coordinate::stringFromColumnIndex(35) . $rowNumber)->getFont()->setBold(true);
+            // 应发合计(26)、实发(36)加粗
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(26) . $rowNumber)->getFont()->setBold(true);
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(36) . $rowNumber)->getFont()->setBold(true);
             $sheet->getRowDimension($rowNumber)->setRowHeight(20);
             $rowNumber++;
         }
 
         // ===== 合计行 =====
         $totalRow = $rowNumber;
-        $sumCols = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35];
+        $sumCols = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36];
         for ($c = $baseColCount + 1; $c <= $colCount; $c++) $sumCols[] = $c;
         $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
         $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);
@@ -1208,8 +1208,30 @@ class ExportController extends ApiController
         }
         $sheet->getRowDimension($totalRow)->setRowHeight(22);
 
+        // ===== 部门合并单元格（C 列，数据行 3..totalRow-1，居中显示）=====
+        // rows 已按 project→department→position→name 排序（orderRows），部门连续可合并
+        $deptColLetter = 'C';
+        $dataStart = 3;
+        $dataEnd = $totalRow - 1;
+        if ($dataEnd >= $dataStart) {
+            $mergeStart = $dataStart;
+            $prevDept = $sheet->getCell($deptColLetter . $dataStart)->getValue();
+            for ($r = $dataStart + 1; $r <= $dataEnd + 1; $r++) {
+                $curDept = $r <= $dataEnd ? $sheet->getCell($deptColLetter . $r)->getValue() : null;
+                if ($curDept !== $prevDept) {
+                    if ($r - 1 > $mergeStart) {
+                        $sheet->mergeCells($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1));
+                    }
+                    $sheet->getStyle($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1))
+                        ->getAlignment()->setHorizontal('center')->setVertical('center');
+                    $mergeStart = $r;
+                    $prevDept = $curDept;
+                }
+            }
+        }
+
         // ===== 列宽 =====
-        $widths = [6, 14, 12, 12, 10, 9, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
+        $widths = [6, 14, 12, 12, 10, 9, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
             10, 10, 10, 11, 8, 12, 12, 10, 12, 16];
         for ($c = 1; $c <= $colCount; $c++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);

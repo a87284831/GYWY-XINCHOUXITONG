@@ -72,15 +72,15 @@ class ExportPerfDetailTest extends TestCase
         $res = $this->getJson('/api/export/managers?ym=2026-04', ['X-Token' => $this->token]);
         $res->assertOk();
         $sheet = $this->loadSheet($res->streamedContent());
-        // 36 个标准列之后应有 3 个明细列
-        $this->assertEquals('Q1·1月绩效', $sheet->getCell('AK2')->getValue(), 'AK2 应为 Q1·1月绩效（第37列表头）');
-        $this->assertEquals('Q1·2月绩效', $sheet->getCell('AL2')->getValue());
-        $this->assertEquals('Q1·3月绩效', $sheet->getCell('AM2')->getValue());
+        // 37 个标准列之后应有 3 个明细列（加入职日期列后整体后移 1 列）
+        $this->assertEquals('Q1·1月绩效', $sheet->getCell('AL2')->getValue(), 'AL2 应为 Q1·1月绩效（第38列表头）');
+        $this->assertEquals('Q1·2月绩效', $sheet->getCell('AM2')->getValue());
+        $this->assertEquals('Q1·3月绩效', $sheet->getCell('AN2')->getValue());
         // 数据行（第3行）明细列金额
-        $this->assertEquals(1000, (float) $sheet->getCell('AK3')->getValue());
-        $this->assertEquals(1000, (float) $sheet->getCell('AM3')->getValue());
+        $this->assertEquals(1000, (float) $sheet->getCell('AL3')->getValue());
+        $this->assertEquals(1000, (float) $sheet->getCell('AN3')->getValue());
         // 合计行（第4行）求和公式
-        $this->assertEquals('=SUM(AK3:AK3)', $sheet->getCell('AK4')->getValue());
+        $this->assertEquals('=SUM(AL3:AL3)', $sheet->getCell('AL4')->getValue());
     }
 
     public function test_managers_export_distinguishes_half_year_columns(): void
@@ -102,10 +102,10 @@ class ExportPerfDetailTest extends TestCase
         $res = $this->getJson('/api/export/managers?ym=2026-07', ['X-Token' => $this->token]);
         $res->assertOk();
         $sheet = $this->loadSheet($res->streamedContent());
-        $this->assertEquals('Q2·4月绩效', $sheet->getCell('AK2')->getValue());
-        $this->assertEquals('H1·4月绩效', $sheet->getCell('AL2')->getValue(), '半年度明细列应与季度同月列区分');
-        $this->assertEquals(950, (float) $sheet->getCell('AK3')->getValue());
-        $this->assertEquals(50, (float) $sheet->getCell('AL3')->getValue());
+        $this->assertEquals('Q2·4月绩效', $sheet->getCell('AL2')->getValue());
+        $this->assertEquals('H1·4月绩效', $sheet->getCell('AM2')->getValue(), '半年度明细列应与季度同月列区分');
+        $this->assertEquals(950, (float) $sheet->getCell('AL3')->getValue());
+        $this->assertEquals(50, (float) $sheet->getCell('AM3')->getValue());
     }
 
     public function test_export_without_perf_detail_keeps_36_columns(): void
@@ -120,7 +120,7 @@ class ExportPerfDetailTest extends TestCase
         $res = $this->getJson('/api/export/managers?ym=2026-03', ['X-Token' => $this->token]);
         $res->assertOk();
         $sheet = $this->loadSheet($res->streamedContent());
-        $this->assertEquals('备注', $sheet->getCell('AJ2')->getValue(), 'AJ2 应为第36列备注');
-        $this->assertNull($sheet->getCell('AK2')->getValue(), '无 perf_detail 时不应有第37列');
+        $this->assertEquals('备注', $sheet->getCell('AK2')->getValue(), 'AK2 应为第37列备注（加入职日期列后移）');
+        $this->assertNull($sheet->getCell('AL2')->getValue(), '无 perf_detail 时不应有第38列');
     }
 }

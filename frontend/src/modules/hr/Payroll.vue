@@ -64,6 +64,7 @@
                 >
                   <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
                   <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
+                  <td>{{ r.hire_date || '' }}</td>
                   <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
                   <td class="num">{{ r.req_att }}</td><td class="num">{{ r.act_att }}</td>
                   <td class="num">{{ r.perf_att }}</td><td class="num">{{ r.coef }}</td>
@@ -85,7 +86,7 @@
               </tbody>
               <tfoot v-if="empFiltered.length">
                 <tr style="background:#f0fdf4;font-weight:bold">
-                  <td colspan="11" style="text-align:right">合计（{{ empFiltered.length }}人）：</td>
+                  <td colspan="12" style="text-align:right">合计（{{ empFiltered.length }}人）：</td>
                   <td class="num">{{ money(tot.sums.base_pay) }}</td>
                   <td class="num">{{ money(tot.sums.perf_pay) }}</td><td></td>
                   <td class="num">{{ money(tot.sums.sick_pay) }}</td>
@@ -176,6 +177,7 @@
                       <td>{{ r.project }}</td>
                       <td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
                       <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
+                      <td>{{ r.hire_date || '' }}</td>
                       <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
                       <td class="num">{{ r.req_att }}</td><td class="num">{{ r.act_att }}</td>
                       <td class="num">{{ r.perf_att }}</td><td class="num">{{ r.coef }}</td>
@@ -198,7 +200,7 @@
                 </tbody>
                 <tfoot v-if="typeFiltered[tp].length">
                   <tr style="background:#f0fdf4;font-weight:bold">
-                    <td colspan="11" style="text-align:right">合计（{{ typeFiltered[tp].length }}人）：</td>
+                    <td colspan="12" style="text-align:right">合计（{{ typeFiltered[tp].length }}人）：</td>
                     <td class="num">{{ money(typeTot[tp].sums.base_pay) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.perf_pay) }}</td><td></td>
                     <td class="num">{{ money(typeTot[tp].sums.sick_pay) }}</td>
@@ -360,7 +362,7 @@ const ui = useUiStore()
 
 const isAdmin = computed(() => auth.user && auth.user.role === 'admin')
 const STATUS_TAG = { 正式: 'green', 新聘: 'blue', 转正: 'purple', 试用: 'orange', 离职: 'gray' }
-const PAY_HEADS = ['项目', '部门', '职位', '姓名', '员工状态', '固定月薪', '基本工资', '应出勤', '出勤', '绩效计薪', '系数',
+const PAY_HEADS = ['项目', '部门', '职位', '姓名', '员工状态', '入职日期', '固定月薪', '基本工资', '应出勤', '出勤', '绩效计薪', '系数',
   '基本工资(折算)', '绩效工资', '病假天数', '病假工资', '夜班/话费', '餐补', '其他补贴', '奖励', '福利',
   '扣罚', '迟早扣', '缺卡扣', '其他扣', '工装扣', '应发合计', '社保合计', '附加扣除', '本月个税', '个税补差', '实发工资', '操作']
 // 管理/案场/总部表：固定数据列（不含末列「操作」，操作列在模板中固定渲染于季度明细列之后，避免列错位）

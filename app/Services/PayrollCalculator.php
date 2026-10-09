@@ -846,9 +846,11 @@ class PayrollCalculator
         if (is_array($__cfList)) { foreach ($__cfList as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $__cfResult[$__cn] = round((float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0), 2); } }
         return array_merge([
             'staff_id' => $person->legacy_id, 'project' => $person->project_name,
-            'department' => $this->deptName($person->dept_path ?? null, $person->project_name),
+            'department' => self::deptName($person->dept_path ?? null, $person->project_name),
             'position' => $person->position ?: '', 'name' => $person->name,
-            'status' => $this->rowStatus($person, $data, $ym), 'fixed' => round((float)$person->fixed_monthly, 2),
+            'status' => $person->status ?: '正式',
+            'hire_date' => $person->hire_date ? substr((string)$person->hire_date, 0, 10) : '',
+            'fixed' => round((float)$person->fixed_monthly, 2),
             'base' => round((float)$person->base_salary, 2),
             'req_att' => $h, 'act_att' => $actual, 'perf_att' => $perfAttend, 'coef' => $coef,
             'base_pay' => $basePay, 'perf_pay' => $perfPay,
@@ -1215,8 +1217,9 @@ class PayrollCalculator
 
     /**
      * 从 dept_path（形如 "罗庄春暖花开/客服部"）解析末级部门名；末级等于项目名时回退上一级。
+     * 考勤表导出与工资导出共用此方法，保证部门解析口径一致。
      */
-    private function deptName(?string $deptPath, string $project): string
+    public static function deptName(?string $deptPath, string $project): string
     {
         $path = trim((string)$deptPath);
         if ($path === '') return '';

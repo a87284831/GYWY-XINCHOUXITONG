@@ -194,11 +194,11 @@ class PayrollTaxDiffTest extends TestCase
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         unlink($tmp);
 
-        // 表头：第34列「个税补差」在第35列「实发工资」之前，第36列「备注」
-        $this->assertSame('个税补差', $sheet->getCell('AH2')->getValue());
-        $this->assertSame('实发工资', $sheet->getCell('AI2')->getValue());
-        $this->assertSame('备注', $sheet->getCell('AJ2')->getValue());
+        // 表头：加入职日期列后整体后移 1 列：第35列「个税补差」在第36列「实发工资」之前，第37列「备注」
+        $this->assertSame('个税补差', $sheet->getCell('AI2')->getValue());
+        $this->assertSame('实发工资', $sheet->getCell('AJ2')->getValue());
+        $this->assertSame('备注', $sheet->getCell('AK2')->getValue());
         // 数据行（第3行）补差值
-        $this->assertEqualsWithDelta(88.88, (float) $sheet->getCell('AH3')->getValue(), 0.001);
+        $this->assertEqualsWithDelta(88.88, (float) $sheet->getCell('AI3')->getValue(), 0.001);
     }
 }

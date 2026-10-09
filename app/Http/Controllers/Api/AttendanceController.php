@@ -321,11 +321,28 @@ class AttendanceController extends ApiController
         }
 
         // 查员工档案，按 person_type 筛选（与工资核算的管理/案场/总部/员工分类同源）
-        $staffQuery = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false);
+        // 离职过滤：当月离职的保留（要算离职当月工资），永久/上月离职的排除
+        $staffQuery = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false)
+            ->where(function ($q) use ($ym) {
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
+                  ->orWhere('resign_date', '>=', $ym . '-01');
+            });
         if ($staffType !== '') {
             $staffQuery->where('person_type', $staffTypeMap[$staffType]);
         }
-        $staff = $staffQuery->orderBy('project_name')->orderBy('position')->orderBy('name')->get();
+        $staff = $staffQuery->get();
+        // PHP 端排序：项目→部门→岗位→姓名（与 PayrollCalculator::orderRows 一致）
+        foreach ($staff as $person) {
+            $person->_dept = \App\Services\PayrollCalculator::deptName($person->dept_path ?? null, $person->project_name);
+        }
+        $staff = $staff->all();
+        usort($staff, function ($a, $b) {
+            foreach (['project_name', '_dept', 'position', 'name'] as $k) {
+                $cmp = strcmp((string)($a->$k ?? ''), (string)($b->$k ?? ''));
+                if ($cmp !== 0) return $cmp;
+            }
+            return 0;
+        });
         $filtered = [];
         foreach ($staff as $person) {
             $att = $attByProject[$person->project_name][$person->name] ?? null;
@@ -341,7 +358,9 @@ class AttendanceController extends ApiController
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
         $sheet->setTitle('考勤表');
-        $baseCols = ['序号', '姓名', '人员状态', '岗位'];
+        $baseCols = count($projects) > 1
+            ? ['序号', '项目', '部门', '岗位', '姓名', '员工状态', '入职日期']
+            : ['序号', '部门', '岗位', '姓名', '员工状态', '入职日期'];
         $dateCols = [];
         for ($d = 1; $d <= $daysInMonth; $d++) $dateCols[] = (string) $d;
         $statCols = ['应出勤(天)', '实际出勤(天)', '绩效系数', '事假(天)', '病假(天)', '产假(天)',
@@ -373,13 +392,18 @@ class AttendanceController extends ApiController
 
         $symbols = \App\Services\PayrollCalculator::symbols();
         $row = 3;
+        $deptColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
+            count($projects) > 1 ? 3 : 2
+        );
         foreach ($filtered as $i => $person) {
             $att = $person->_att;
             $stats = \App\Services\PayrollCalculator::attendanceStats($att['days'] ?? [], $symbols);
-            $sheet->setCellValue("A{$row}", $i + 1);
-            $sheet->setCellValue("B{$row}", $person->name);
-            $sheet->setCellValue("C{$row}", $person->status ?: '正式');
-            $sheet->setCellValue("D{$row}", $person->position ?: '');
+            // 基础列动态写入（单项目省"项目"列）
+            $hireDate = $person->hire_date ? substr((string)$person->hire_date, 0, 10) : '';
+            $baseValues = count($projects) > 1
+                ? [$i + 1, $person->project_name, $person->_dept, $person->position ?: '', $person->name, $person->status ?: '正式', $hireDate]
+                : [$i + 1, $person->_dept, $person->position ?: '', $person->name, $person->status ?: '正式', $hireDate];
+            $sheet->fromArray($baseValues, null, "A{$row}");
             foreach (($att['days'] ?? []) as $dayIdx => $sym) {
                 $col = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $dayIdx);
                 $sheet->setCellValue("{$col}{$row}", $sym);
@@ -415,6 +439,26 @@ class AttendanceController extends ApiController
         $sheet->getStyle("A2:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
         $sheet->freezePane('E3');
+
+        // 部门列合并单元格：相同部门连续行合并，内容水平+垂直居中
+        $deptStart = 3;
+        $deptEnd = $row - 1;
+        if ($deptEnd >= $deptStart) {
+            $mergeStart = $deptStart;
+            $prevDept = $sheet->getCell($deptColLetter . $deptStart)->getValue();
+            for ($r = $deptStart + 1; $r <= $deptEnd + 1; $r++) {
+                $curDept = $r <= $deptEnd ? $sheet->getCell($deptColLetter . $r)->getValue() : null;
+                if ($curDept !== $prevDept) {
+                    if ($r - 1 > $mergeStart) {
+                        $sheet->mergeCells($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1));
+                    }
+                    $sheet->getStyle($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1))
+                        ->getAlignment()->setHorizontal('center')->setVertical('center');
+                    $mergeStart = $r;
+                    $prevDept = $curDept;
+                }
+            }
+        }
         for ($d = 1; $d <= $daysInMonth; $d++) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $d - 1))->setWidth(3.4);
         }
