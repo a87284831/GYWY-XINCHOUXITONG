@@ -361,8 +361,8 @@ class TemplateController extends ApiController
         // ===== 第4行：星期 =====
         $sheet->mergeCells("A4:{$baseEndLetter}4");
         $sheet->setCellValue('A4', '星期');
-        $sheet->getStyle('A4:{$baseEndLetter}4')->getFont()->setName('微软雅黑')->setSize(9);
-        $sheet->getStyle('A4:{$baseEndLetter}4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        $sheet->getStyle("A4:{$baseEndLetter}4")->getFont()->setName('微软雅黑')->setSize(9);
+        $sheet->getStyle("A4:{$baseEndLetter}4")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
         $weekNames = ['日', '一', '二', '三', '四', '五', '六'];
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $col = $dateStart + $day - 1;
