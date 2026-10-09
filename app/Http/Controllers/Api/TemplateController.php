@@ -553,13 +553,14 @@ class TemplateController extends ApiController
             $validation->setError('只能填写考勤符号：' . implode('、', $symbols) . '（可点击单元格右侧箭头选择）');
         }
 
-        // ===== 列宽（与用户模板一致）=====
-        $sheet->getColumnDimension('A')->setWidth(5);
-        $sheet->getColumnDimension('B')->setWidth(9);
-        $sheet->getColumnDimension('C')->setWidth(9);
-        $sheet->getColumnDimension('D')->setWidth(11);
-        $sheet->getColumnDimension('E')->setWidth(14);  // 项目
-        $sheet->getColumnDimension('F')->setWidth(12);  // 入职日期
+        // ===== 列宽（岗位宽一点，员工状态窄一点，与所有表格统一）=====
+        foreach ($baseCols as $bi => $h) {
+            $w = match($h) {
+                '序号' => 5, '项目' => 14, '部门' => 12, '岗位' => 14, '姓名' => 10,
+                '员工状态' => 8, '入职日期' => 12, default => 11,
+            };
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($bi + 1))->setWidth($w);
+        }
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $day - 1))->setWidth(3.4);
         }

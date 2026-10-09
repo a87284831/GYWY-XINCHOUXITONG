@@ -1231,7 +1231,7 @@ class ExportController extends ApiController
         }
 
         // ===== 列宽 =====
-        $widths = [6, 14, 12, 12, 10, 9, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
+        $widths = [6, 14, 12, 14, 10, 8, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
             10, 10, 10, 11, 8, 12, 12, 10, 12, 16];
         for ($c = 1; $c <= $colCount; $c++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);

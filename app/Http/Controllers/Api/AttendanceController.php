@@ -438,6 +438,14 @@ class AttendanceController extends ApiController
         }
         $sheet->getStyle("A2:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        // 基础列宽（岗位宽一点，员工状态窄一点，与所有表格统一）
+        foreach ($baseCols as $bi => $h) {
+            $w = match($h) {
+                '序号' => 5, '项目' => 14, '部门' => 12, '岗位' => 14, '姓名' => 10,
+                '员工状态' => 8, '入职日期' => 12, default => 11,
+            };
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($bi + 1))->setWidth($w);
+        }
         $sheet->freezePane('E3');
 
         // 部门列合并单元格：相同部门连续行合并，内容水平+垂直居中
