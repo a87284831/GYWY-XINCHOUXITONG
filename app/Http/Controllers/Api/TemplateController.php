@@ -525,16 +525,6 @@ class TemplateController extends ApiController
             }
         }
 
-        // 空白填考勤区浅色背景：基础列之后到末尾列，视觉区分避免填错行
-        $dataEnd = $row - 1;
-        if ($dataEnd >= 5) {
-            $fillStartIdx = count($baseCols) + 1;
-            $fillStartLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($fillStartIdx);
-            $sheet->getStyle("{$fillStartLetter}5:{$lastLetter}{$dataEnd}")
-                ->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
-                ->getStartColor()->setRGB('FFFDE7');
-        }
-
         // ===== 每日出勤符号下拉框（从 symbols.json 读取，与上传解析一致）=====
         $symbols = [];
         $symSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'symbols.json')->first();
