@@ -266,8 +266,12 @@ class TemplateController extends ApiController
         $book = new Spreadsheet(); $sheet = $book->getActiveSheet(); $sheet->setTitle('考勤表');
 
         $daysInMonth = (int) date('t', strtotime($ym . '-01'));
-        // 基本信息区：2026-10-04 新增「项目」「入职日期」两列（自动带出，只读信息列，上传不按列读回）
-        $baseCols = ['序号', '姓名', '人员状态', '岗位', '项目', '入职日期'];
+        // 基本信息区：列序与考勤导出一致（序号|[项目]|部门|岗位|姓名|员工状态|入职日期）
+        // 虚拟组跨项目含"项目"列；单项目省略"项目"列；部门列用于合并显示
+        $baseCols = $group
+            ? ['序号', '项目', '部门', '岗位', '姓名', '员工状态', '入职日期']
+            : ['序号', '部门', '岗位', '姓名', '员工状态', '入职日期'];
+        $baseEndLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($baseCols));
         $dateCols = [];
         for ($day = 1; $day <= $daysInMonth; $day++) $dateCols[] = (string) $day;
         // 出勤统计：应出勤(手填)、实际出勤(天)、月度绩效系数(挪至实际出勤后)、是否满勤、各假缺卡旷工迟到早退
@@ -320,7 +324,7 @@ class TemplateController extends ApiController
         $m2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyEnd);
         $t1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart);
         $t2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailEnd);
-        $sheet->mergeCells("A2:F2");
+        $sheet->mergeCells("A2:{$baseEndLetter}2");
         $sheet->setCellValue('A2', '基本信息');
         $sheet->mergeCells("{$d1}2:{$d2}2");
         $sheet->setCellValue("{$d1}2", '每日出勤记录（符号录入）');
@@ -332,7 +336,7 @@ class TemplateController extends ApiController
         $sheet->setCellValue("{$t1}2", '备注');
         $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
         $sheet->getStyle("A2:{$lastLetter}2")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-        $sheet->getStyle("A2:F2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        $sheet->getStyle("A2:{$baseEndLetter}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
         $sheet->getStyle("{$d1}2:{$d2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
         $sheet->getStyle("{$s1}2:{$s2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_STAT);
         $sheet->getStyle("{$m1}2:{$m2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_MONEY);
@@ -345,7 +349,7 @@ class TemplateController extends ApiController
         $sheet->fromArray($headers, null, 'A3');
         $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
         $sheet->getStyle("A3:{$lastLetter}3")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-        $sheet->getStyle("A3:F3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        $sheet->getStyle("A3:{$baseEndLetter}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
         $sheet->getStyle("{$d1}3:{$d2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
         $sheet->getStyle("{$s1}3:{$s2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_STAT);
         $sheet->getStyle("{$m1}3:{$m2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_MONEY);
@@ -355,10 +359,10 @@ class TemplateController extends ApiController
         $sheet->getRowDimension(3)->setRowHeight(30);
 
         // ===== 第4行：星期 =====
-        $sheet->mergeCells("A4:F4");
+        $sheet->mergeCells("A4:{$baseEndLetter}4");
         $sheet->setCellValue('A4', '星期');
-        $sheet->getStyle('A4:F4')->getFont()->setName('微软雅黑')->setSize(9);
-        $sheet->getStyle('A4:F4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        $sheet->getStyle('A4:{$baseEndLetter}4')->getFont()->setName('微软雅黑')->setSize(9);
+        $sheet->getStyle('A4:{$baseEndLetter}4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
         $weekNames = ['日', '一', '二', '三', '四', '五', '六'];
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $col = $dateStart + $day - 1;
@@ -394,6 +398,19 @@ class TemplateController extends ApiController
                 ->where('project_name', $project)->where('deleted', false)->where($resignGuard)
                 ->orderBy('name')->get();
         }
+        // PHP 端排序：项目→部门→岗位→姓名（与考勤导出/工资导出口径一致）
+        foreach ($staff as $person) {
+            $person->_dept = \App\Services\PayrollCalculator::deptName($person->dept_path ?? null, $person->project_name);
+        }
+        $staffArr = $staff->all();
+        usort($staffArr, function ($a, $b) {
+            foreach (['project_name', '_dept', 'position', 'name'] as $k) {
+                $cmp = strcmp((string)($a->$k ?? ''), (string)($b->$k ?? ''));
+                if ($cmp !== 0) return $cmp;
+            }
+            return 0;
+        });
+        $staff = collect($staffArr);
         // 虚拟组预填：把各项目考勤块中这些人已上传的符号/手填数据带出，支持"下载查看→修改→回传"
         $prefill = [];
         if ($group && $staff->isNotEmpty()) {
@@ -450,11 +467,12 @@ class TemplateController extends ApiController
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + 11) . $r, '=' . str_replace('{rng}', $range, $catF('早退')));
         }
         foreach ($staff as $index => $person) {
-            $sheet->setCellValue("A{$row}", $index + 1); $sheet->setCellValue("B{$row}", $person->name);
-            $sheet->setCellValue("C{$row}", $person->status ?: '正式'); $sheet->setCellValue("D{$row}", $person->position ?: '');
-            // 新增只读信息列：项目（人员归属，跨项目汇总表必需）+ 入职日期（payroll_staff.hire_date，钉钉花名册已同步）
-            $sheet->setCellValue("E{$row}", $person->project_name ?: '');
-            $sheet->setCellValue("F{$row}", $person->hire_date ?: '');
+            // 基础列动态写入（单项目省"项目"列），列序与考勤导出一致
+            $hireDate = $person->hire_date ? substr((string)$person->hire_date, 0, 10) : '';
+            $baseValues = $group
+                ? [$index + 1, $person->project_name ?: '', $person->_dept, $person->position ?: '', $person->name, $person->status ?: '正式', $hireDate]
+                : [$index + 1, $person->_dept, $person->position ?: '', $person->name, $person->status ?: '正式', $hireDate];
+            $sheet->fromArray($baseValues, null, "A{$row}");
             if ($group) {
                 // 带出该人所属项目块中已上传的数据（仅日期符号与人力手填列）
                 $rec = $prefill[$person->project_name][$person->name] ?? null;
@@ -484,6 +502,27 @@ class TemplateController extends ApiController
             $sheet->getStyle("A{$row}:{$lastLetter}{$row}")->getAlignment()->setVertical('center');
             $sheet->getStyle("A{$row}:{$lastLetter}{$row}")->getFont()->setName('微软雅黑')->setSize(10);
             $row++;
+        }
+
+        // ===== 部门合并单元格（与考勤导出一致，居中显示）=====
+        $deptColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($group ? 3 : 2);
+        $dataStart = 5;
+        $dataEnd = $row - 1;
+        if ($dataEnd >= $dataStart) {
+            $mergeStart = $dataStart;
+            $prevDept = $sheet->getCell($deptColLetter . $dataStart)->getValue();
+            for ($r = $dataStart + 1; $r <= $dataEnd + 1; $r++) {
+                $curDept = $r <= $dataEnd ? $sheet->getCell($deptColLetter . $r)->getValue() : null;
+                if ($curDept !== $prevDept) {
+                    if ($r - 1 > $mergeStart) {
+                        $sheet->mergeCells($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1));
+                    }
+                    $sheet->getStyle($deptColLetter . $mergeStart . ':' . $deptColLetter . ($r - 1))
+                        ->getAlignment()->setHorizontal('center')->setVertical('center');
+                    $mergeStart = $r;
+                    $prevDept = $curDept;
+                }
+            }
         }
 
         // ===== 每日出勤符号下拉框（从 symbols.json 读取，与上传解析一致）=====
