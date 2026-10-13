@@ -37,6 +37,7 @@ Route::post('/attendance/lock', [AttendanceController::class, 'lock']);
 Route::get('/attendance/export', [AttendanceController::class, 'export']);
 Route::get('/payroll', [PayrollController::class, 'payroll']);
 Route::get('/payroll/adjust-logs', [PayrollController::class, 'adjustLogs']);
+Route::get('/payroll/adjust-logs/export', [PayrollController::class, 'exportAdjustLogs']);
 Route::get('/summary', [PayrollController::class, 'summary']);
 Route::post('/payroll/period-coef/save', [PayrollController::class, 'savePeriodCoef']);
 Route::get('/payroll/period-coef/list', [PayrollController::class, 'listPeriodCoef']);

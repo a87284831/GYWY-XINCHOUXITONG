@@ -59,10 +59,11 @@
                 <tr
                   v-for="r in empFiltered"
                   :key="r.staff_id"
-                  :class="{ 'pay-sel': paySel === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
+                  :class="{ 'pay-sel': paySel === r.staff_id, 'row-zero-pay': isZeroPayRow(r), 'row-adjusted': isAdjusted(r) }"
                   @click="paySel = r.staff_id"
                 >
-                  <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
+                  <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td>
+                  <td>{{ r.name }}<span v-if="isAdjusted(r)" class="tag orange" style="margin-left:4px" title="本月有人工微调">调</span></td>
                   <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
                   <td>{{ r.hire_date || '' }}</td>
                   <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
@@ -108,7 +109,7 @@
           </div>
           <div class="hint">点击"微调"可对单人补贴/扣款/社保/个税等字段人工修正（留存操作日志）。归档后禁止修改、重传考勤、重算，仅超管可解锁。微调日志见下方。</div>
           <template v-if="empLogs.length">
-            <h3 style="margin-top:14px">微调日志（本月 {{ empLogs.length }} 条，最新在前）</h3>
+            <h3 style="margin-top:14px">微调日志（本月 {{ empLogs.length }} 条，最新在前）<button v-if="isAdmin" class="btn sm" style="margin-left:8px" @click="exportAdjustLogs">导出日志</button></h3>
             <div class="table-wrap" style="max-height:240px">
               <table class="tb">
                 <thead><tr><th>时间</th><th>操作人</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
@@ -171,11 +172,12 @@
                   <tr
                     v-for="r in typeFiltered[tp]"
                     :key="r.staff_id"
-                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
+                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id, 'row-zero-pay': isZeroPayRow(r), 'row-adjusted': isAdjusted(r) }"
                     @click="typeSel[tp] = r.staff_id"
                   >
                       <td>{{ r.project }}</td>
-                      <td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
+                      <td>{{ r.department || '' }}</td><td>{{ r.position }}</td>
+                      <td>{{ r.name }}<span v-if="isAdjusted(r)" class="tag orange" style="margin-left:4px" title="本月有人工微调">调</span></td>
                       <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
                       <td>{{ r.hire_date || '' }}</td>
                       <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
@@ -223,7 +225,7 @@
             </div>
             <div class="hint">{{ TP_META[tp].tableHint }}</div>
             <template v-if="typeLogs[tp].length">
-              <h3 style="margin-top:14px">微调日志（本月 {{ typeLogs[tp].length }} 条，最新在前）</h3>
+              <h3 style="margin-top:14px">微调日志（本月 {{ typeLogs[tp].length }} 条，最新在前）<button v-if="isAdmin" class="btn sm" style="margin-left:8px" @click="exportAdjustLogs">导出日志</button></h3>
               <div class="table-wrap" style="max-height:240px">
                 <table class="tb">
                   <thead><tr><th>时间</th><th>操作人</th><th>项目</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
@@ -410,6 +412,7 @@ const paySel = ref('')
 const typeRows = reactive({ mgr: [], case: [], hq: [] })
 const typeLogs = reactive({ mgr: [], case: [], hq: [] })
 const typeArchived = reactive({ mgr: false, case: false, hq: false })
+const typeAdjusted = reactive({ mgr: [], case: [], hq: [] })
 const typeErr = reactive({ mgr: '', case: '', hq: '' })
 const typeMsg = reactive({ mgr: '', case: '', hq: '' })
 const typeProjFilter = reactive({ mgr: '', case: '', hq: '' })
@@ -458,6 +461,11 @@ function perfAmt(r, key) {
 }
 // 微调日志：列表接口已按 id 倒序（最新在前），最多展示 50 条
 const empLogs = computed(() => (empMeta.value.logs || []).slice(0, 50))
+// 微调高亮：本月有微调日志的人员集合（后端 adjusted_staff_ids），行标黄+“调”标签
+function isAdjusted(r) {
+  const ids = payTab.value === 'emp' ? (empMeta.value.adjusted_staff_ids || []) : (typeAdjusted[payTab.value] || [])
+  return ids.includes(r.staff_id)
+}
 
 // 微调禁用原因（问题5）：锁定或项目账号 → 按钮置灰并给出明确提示
 const empAdjustReason = computed(() => adjustDisabledReason(empArchived.value, isAdmin.value))
@@ -529,6 +537,11 @@ async function loadPayroll() {
   } catch (e) { empErr.value = e.message }
 }
 
+// 微调日志 Excel 导出（仅总部管理员）：当月全部微调记录留档对账
+function exportAdjustLogs() {
+  download(`/api/payroll/adjust-logs/export?ym=${ui.month}`, `微调日志_${ui.month}.xlsx`)
+}
+
 async function loadType(tp) {
   typeErr[tp] = ''
   try {
@@ -537,6 +550,7 @@ async function loadType(tp) {
     attStatus.value = st
     typeRows[tp] = data.rows || []
     typeLogs[tp] = (data.logs || []).slice(0, 50)
+    typeAdjusted[tp] = data.adjusted_staff_ids || []
     typeArchived[tp] = !!data.archived
     typeProjFilter[tp] = ''
     typeSel[tp] = ''
@@ -813,6 +827,13 @@ tr.pay-sel td {
 }
 tr.row-zero-pay td {
   background: #fff7ed;
+}
+/* 微调高亮：本月有人工微调的行，琥珀底色+加粗姓名列，与选中/零实发行区分 */
+tr.row-adjusted td {
+  background: #fef3c7;
+}
+tr.row-adjusted td:nth-child(4) {
+  font-weight: bold;
 }
 td.zero-pay {
   font-weight: bold;

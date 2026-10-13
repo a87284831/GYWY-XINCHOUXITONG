@@ -120,16 +120,24 @@ class AttendanceGroupTemplateTest extends TestCase
         ] + $extra, ['X-Token' => $token]);
     }
 
-    /** 读取下载响应中的姓名列（数据从第5行开始） */
+    /** 读取下载响应中的姓名列（表头第3行按“姓名”动态定位，兼容单项目/多项目两种列序；数据从第5行开始） */
     private function namesFromDownload(\Illuminate\Testing\TestResponse $resp): array
     {
         $tmp = tempnam(sys_get_temp_dir(), 'dl') . '.xlsx';
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
+        $nameCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') {
+                $nameCol = $letter;
+                break;
+            }
+        }
         $names = [];
         for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
-            $v = trim((string) $sheet->getCell("B{$r}")->getValue());
+            $v = trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue());
             if ($v !== '') $names[] = $v;
         }
         return $names;
@@ -177,13 +185,22 @@ class AttendanceGroupTemplateTest extends TestCase
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
-        // 找到经理甲所在行；基本信息区扩为6列后，日期区从 G 列起，1 日 = G 列
+        // 找到经理甲所在行与姓名列（表头第3行按“姓名”定位）；日期区从姓名列后第3列起（员工状态、入职日期），1 日 = 该列
+        $nameCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') { $nameCol = $letter; break; }
+        }
+        $this->assertNotNull($nameCol);
         $jiaRow = null;
         for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
-            if (trim((string) $sheet->getCell("B{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
         }
         $this->assertNotNull($jiaRow);
-        $this->assertSame('√', trim((string) $sheet->getCell("G{$jiaRow}")->getValue()));
+        $day1Col = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
+            \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($nameCol) + 3
+        );
+        $this->assertSame('√', trim((string) $sheet->getCell("{$day1Col}{$jiaRow}")->getValue()));
     }
 
     public function test_project_role_with_sentinel_only_gets_own_project_template(): void

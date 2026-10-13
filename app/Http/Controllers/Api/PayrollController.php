@@ -6,6 +6,9 @@ use App\Services\CalcRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PayrollController extends ApiController
 {
@@ -116,10 +119,17 @@ class PayrollController extends ApiController
                 ->whereIn('staff_legacy_id', $staffIds)->orderBy('id', 'desc')->limit(500)->get()
                 ->map(fn ($l) => $this->formatAdjustLog($l))->values()
             : collect();
+        // 微调高亮名单：本月有微调日志的人员（前端标黄，与日志口径一致）
+        $adjustedIds = $staffIds
+            ? DB::table('payroll_adjust_logs')->where('ym', $ym)
+                ->whereIn('staff_legacy_id', $staffIds)->distinct()->pluck('staff_legacy_id')
+                ->map(fn ($v) => (int) $v)->values()->all()
+            : [];
         return response()->json(['ok' => true, 'ym' => $ym, 'rows' => $rows,
             'departments' => $departments,
             // 该月所有项目均已完成归档才视为"已核定锁定"（避免仅部分项目归档时误报已锁定）
             'archived' => $managerView ? $this->allMgrsArchived($ym) : ($caseView ? $this->allCaseArchived($ym) : ($hqView ? $this->allHqArchived($ym) : $this->allArchived($ym))),
+            'adjusted_staff_ids' => $adjustedIds,
             'logs' => $logs]);
     }
 
@@ -175,6 +185,89 @@ class PayrollController extends ApiController
             'operator_role' => (string) $l->operator_role,
             'created_at' => (string) $l->created_at,
         ];
+    }
+
+    /** 微调字段中文标签（导出用，与前端 FIELD_CN 保持一致） */
+    private const ADJUST_FIELD_CN = [
+        'req_att' => '应出勤', 'act_att' => '实际出勤', 'perf_att' => '绩效计薪出勤', 'coef' => '绩效系数',
+        'night' => '夜班/话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴', 'reward' => '月度奖励', 'welfare' => '已发福利(计税不发现金)',
+        'punish' => '月度扣罚', 'late_d' => '迟到早退扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款', 'uniform_d' => '工装扣款',
+        'pen' => '养老保险', 'med' => '医疗保险', 'une' => '失业保险', 'house' => '公积金', 'big' => '大病',
+        'spec_rent' => '租房租金', 'spec_loan' => '住房贷款利息', 'spec_child' => '子女教育', 'spec_elder' => '赡养老人',
+        'spec_edu' => '继续教育', 'spec_baby' => '婴幼儿照护',
+        'actual_tax' => '本月实缴个税', 'tax_diff' => '个税补差(±计实发)', 'remark' => '备注',
+    ];
+
+    /** 日志数值格式化：去尾零（0 → "0"，200.0 → "200"，30.5 → "30.5"） */
+    private function logNum(mixed $v): string
+    {
+        if ($v === null || $v === '') return '(空)';
+        if (!is_numeric($v)) return (string) $v;
+        $s = number_format((float) $v, 2, '.', '');
+        return rtrim(rtrim($s, '0'), '.');
+    }
+
+    /** 单条日志的调整内容中文描述：'餐补: 0 → 200；月度奖励: 0 → 100' */
+    private function formatChangesCn(array $changes): string
+    {
+        $parts = [];
+        foreach ($changes as $c) {
+            $label = self::ADJUST_FIELD_CN[$c['field'] ?? ''] ?? (string) ($c['field'] ?? '');
+            if (($c['field'] ?? '') === 'remark') {
+                $old = ($c['old'] ?? '') === '' ? '(空)' : (string) $c['old'];
+                $new = ($c['new'] ?? '') === '' ? '(空)' : (string) $c['new'];
+                $parts[] = "备注: {$old} → {$new}";
+                continue;
+            }
+            $parts[] = "{$label}: {$this->logNum($c['old'] ?? null)} → {$this->logNum($c['new'] ?? null)}";
+        }
+        return implode('；', $parts);
+    }
+
+    /**
+     * GET /api/payroll/adjust-logs/export?ym=YYYY-MM
+     * 微调日志 Excel 导出（仅总部管理员，薪酬微调专项改造）：当月全部微调记录留档对账。
+     */
+    public function exportAdjustLogs(Request $request): StreamedResponse|JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅总部管理员可导出微调日志'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => 'ym 参数格式应为 YYYY-MM'], 400);
+        }
+        $logs = DB::table('payroll_adjust_logs')->where('ym', $ym)->orderBy('id')->get();
+
+        $headers = ['时间', '操作人', '角色', '项目', '姓名', '月份', '调整内容', '调整后实发', '原因'];
+        return response()->streamDownload(function () use ($logs, $headers) {
+            $ss = new Spreadsheet();
+            $sheet = $ss->getActiveSheet()->setTitle('微调日志');
+            $sheet->fromArray($headers, null, 'A1');
+            $r = 2;
+            foreach ($logs as $l) {
+                $rowAfter = json_decode((string) ($l->row_after ?? '{}'), true) ?: [];
+                $sheet->fromArray([
+                    (string) $l->created_at,
+                    (string) $l->operator,
+                    (string) $l->operator_role,
+                    (string) $l->project_name,
+                    (string) $l->staff_name,
+                    (string) $l->ym,
+                    $this->formatChangesCn(json_decode((string) ($l->changes ?? '[]'), true) ?: []),
+                    isset($rowAfter['net']) && $rowAfter['net'] !== null ? round((float) $rowAfter['net'], 2) : '',
+                    (string) ($l->reason ?? ''),
+                ], null, "A{$r}");
+                $r++;
+            }
+            foreach (range('A', 'I') as $col) $sheet->getColumnDimension($col)->setAutoSize(true);
+            $writer = new Xlsx($ss);
+            $writer->save('php://output');
+        }, "微调日志_{$ym}.xlsx", [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     /** 该月案场人员工资表是否已全部归档锁定 */
