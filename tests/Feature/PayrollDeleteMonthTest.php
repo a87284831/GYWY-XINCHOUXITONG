@@ -112,9 +112,8 @@ class PayrollDeleteMonthTest extends TestCase
         $this->insertResultRow(self::YM, 1, '员工A');
         $this->insertResultRow(self::YM, 2, '员工B');
         $this->insertResultRow(self::YM, 3, '经理A', type: 'manager');
-        $this->insertResultRow(self::YM, 4, '案场A', type: 'case');
-        $this->insertResultRow(self::YM, 5, '总部A', type: 'hq');
         $this->insertAdjustLog(self::YM, 1, '员工A');
+        $this->insertAdjustLog(self::YM, 3, '经理A');
 
         $resp = $this->postJson('/api/payroll/delete-month', ['ym' => self::YM],
             ['X-Token' => $this->token]);
@@ -123,18 +122,19 @@ class PayrollDeleteMonthTest extends TestCase
         $this->assertFalse($json['ok']);
         $this->assertTrue($json['need_confirm']);
         $scope = $json['scope'];
-        $this->assertSame(5, $scope['total_rows']);
+        // 默认 staff 维度：仅统计员工行与员工微调日志
+        $this->assertSame('staff', $scope['scope_type']);
+        $this->assertSame('员工', $scope['scope_label']);
+        $this->assertSame(2, $scope['total_rows']);
         $this->assertSame(2, $scope['staff_rows']);
-        $this->assertSame(1, $scope['manager_rows']);
-        $this->assertSame(1, $scope['case_rows']);
-        $this->assertSame(1, $scope['hq_rows']);
+        $this->assertSame(0, $scope['manager_rows']);
         $this->assertSame(1, $scope['adjust_logs']);
         $this->assertContains(self::PROJ, $scope['projects']);
-        $this->assertEquals(40000.0, $scope['total_gross']);
-        $this->assertEquals(32500.0, $scope['total_net']);
+        $this->assertEquals(16000.0, $scope['total_gross']);
+        $this->assertEquals(13000.0, $scope['total_net']);
     }
 
-    public function test_force_delete_clears_both_tables_and_writes_log(): void
+    public function test_force_delete_scoped_clears_only_scope_and_writes_log(): void
     {
         $this->insertResultRow(self::YM, 1, '员工A');
         $this->insertResultRow(self::YM, 2, '经理A', type: 'manager');
@@ -145,18 +145,90 @@ class PayrollDeleteMonthTest extends TestCase
             ['X-Token' => $this->token]);
         $resp->assertOk()->assertJson(['ok' => true]);
 
-        $this->assertSame(0, DB::table('payroll_results')->where('year_month', self::YM)->count());
-        $this->assertSame(0, DB::table('payroll_adjust_logs')->where('ym', self::YM)->count());
+        // 范围隔离：员工行与员工A微调日志被删，管理行与经理A日志保留
+        $remaining = DB::table('payroll_results')->where('year_month', self::YM)->get();
+        $this->assertCount(1, $remaining);
+        $this->assertSame(1, (int) $remaining->first()->is_manager_row);
+        $logs = DB::table('payroll_adjust_logs')->where('ym', self::YM)->get();
+        $this->assertCount(1, $logs);
+        $this->assertSame(2, (int) $logs->first()->staff_legacy_id);
 
         $log = DB::table('payroll_delete_logs')->where('ym', self::YM)->first();
         $this->assertNotNull($log);
         $this->assertSame('总部管理员', $log->operator);
         $this->assertSame('admin', $log->operator_role);
         $scope = json_decode($log->scope_info, true);
-        $this->assertSame(2, $scope['total_rows']);
+        $this->assertSame('staff', $scope['scope_type']);
+        $this->assertSame(1, $scope['total_rows']);
         $this->assertSame(1, $scope['staff_rows']);
-        $this->assertSame(1, $scope['manager_rows']);
-        $this->assertSame(2, $scope['adjust_logs']);
+        $this->assertSame(0, $scope['manager_rows']);
+        $this->assertSame(1, $scope['adjust_logs']);
+    }
+
+    public function test_delete_manager_scope_only_removes_manager_rows(): void
+    {
+        $this->insertResultRow(self::YM, 1, '员工A');
+        $this->insertResultRow(self::YM, 2, '经理A', type: 'manager');
+        $this->insertResultRow(self::YM, 3, '经理B', type: 'manager');
+        $this->insertAdjustLog(self::YM, 1, '员工A');
+        $this->insertAdjustLog(self::YM, 2, '经理A');
+
+        $resp = $this->postJson('/api/payroll/delete-month', ['ym' => self::YM, 'type' => 'manager', 'force' => true],
+            ['X-Token' => $this->token]);
+        $resp->assertOk()->assertJson(['ok' => true]);
+        $this->assertSame(2, $resp->json('deleted.total_rows'));
+        $this->assertSame('manager', $resp->json('deleted.scope_type'));
+        $this->assertSame('管理人员', $resp->json('deleted.scope_label'));
+
+        $remaining = DB::table('payroll_results')->where('year_month', self::YM)->get();
+        $this->assertCount(1, $remaining);
+        $this->assertSame(0, (int) $remaining->first()->is_manager_row);
+        $this->assertSame('员工A', json_decode($remaining->first()->row_data, true)['name']);
+        // 微调日志：经理A的随删除清除，员工A的保留
+        $logs = DB::table('payroll_adjust_logs')->where('ym', self::YM)->get();
+        $this->assertCount(1, $logs);
+        $this->assertSame(1, (int) $logs->first()->staff_legacy_id);
+    }
+
+    public function test_invalid_type_returns_400(): void
+    {
+        $this->insertResultRow(self::YM, 1, '员工A');
+        $resp = $this->postJson('/api/payroll/delete-month', ['ym' => self::YM, 'type' => 'bogus', 'force' => true],
+            ['X-Token' => $this->token]);
+        $resp->assertStatus(400);
+    }
+
+    public function test_scope_without_data_returns_404(): void
+    {
+        $this->insertResultRow(self::YM, 1, '员工A');
+        $resp = $this->postJson('/api/payroll/delete-month', ['ym' => self::YM, 'type' => 'hq', 'force' => true],
+            ['X-Token' => $this->token]);
+        $resp->assertStatus(404);
+        $this->assertStringContainsString('总部人员', $resp->json('error'));
+    }
+
+    public function test_archived_other_scope_does_not_block(): void
+    {
+        // 管理行已归档，但删除员工维度不受影响
+        $this->insertResultRow(self::YM, 1, '员工A');
+        $this->insertResultRow(self::YM, 2, '经理A', type: 'manager', archived: true);
+
+        $this->postJson('/api/payroll/delete-month', ['ym' => self::YM, 'force' => true],
+            ['X-Token' => $this->token])->assertOk();
+
+        $this->assertSame(1, DB::table('payroll_results')->where('year_month', self::YM)->count());
+    }
+
+    public function test_archived_same_scope_blocks(): void
+    {
+        $this->insertResultRow(self::YM, 1, '员工A');
+        $this->insertResultRow(self::YM, 2, '经理A', type: 'manager', archived: true);
+
+        $resp = $this->postJson('/api/payroll/delete-month', ['ym' => self::YM, 'type' => 'manager', 'force' => true],
+            ['X-Token' => $this->token]);
+        $resp->assertStatus(400);
+        $this->assertStringContainsString('已归档', $resp->json('error'));
+        $this->assertSame(2, DB::table('payroll_results')->where('year_month', self::YM)->count());
     }
 
     public function test_delete_does_not_affect_other_months(): void

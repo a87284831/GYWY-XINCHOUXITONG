@@ -306,7 +306,7 @@ class PayrollController extends ApiController
         }
         $logs = DB::table('payroll_delete_logs')->orderBy('id', 'desc')->limit(2000)->get();
 
-        $headers = ['时间', '操作人', '角色', '删除月份', '总行数', '员工行', '管理行', '案场行', '总部行', '微调日志', '涉及项目', '应发合计', '实发合计'];
+        $headers = ['时间', '操作人', '角色', '删除月份', '删除维度', '总行数', '员工行', '管理行', '案场行', '总部行', '微调日志', '涉及项目', '应发合计', '实发合计'];
         return response()->streamDownload(function () use ($logs, $headers) {
             $ss = new Spreadsheet();
             $sheet = $ss->getActiveSheet()->setTitle('删除日志');
@@ -319,6 +319,7 @@ class PayrollController extends ApiController
                     (string) $l->operator,
                     (string) $l->operator_role,
                     (string) $l->ym,
+                    (string) ($scope['scope_label'] ?? '全部维度'),
                     (int) ($scope['total_rows'] ?? 0),
                     (int) ($scope['staff_rows'] ?? 0),
                     (int) ($scope['manager_rows'] ?? 0),
@@ -331,7 +332,7 @@ class PayrollController extends ApiController
                 ], null, "A{$r}");
                 $r++;
             }
-            foreach (range('A', 'M') as $col) $sheet->getColumnDimension($col)->setAutoSize(true);
+            foreach (range('A', 'N') as $col) $sheet->getColumnDimension($col)->setAutoSize(true);
             $writer = new Xlsx($ss);
             $writer->save('php://output');
         }, '薪资删除日志.xlsx', [
