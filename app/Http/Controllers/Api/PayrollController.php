@@ -270,6 +270,75 @@ class PayrollController extends ApiController
         ]);
     }
 
+    /**
+     * GET /api/payroll/delete-logs
+     * 删除日志列表（仅总部管理员）：整月删除操作的审计留痕。
+     */
+    public function deleteLogs(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅总部管理员可查看删除日志'], 403);
+        }
+        $logs = DB::table('payroll_delete_logs')->orderBy('id', 'desc')->limit(200)->get()
+            ->map(fn ($l) => [
+                'id' => (int) $l->id,
+                'ym' => (string) $l->ym,
+                'scope' => json_decode((string) ($l->scope_info ?? '{}'), true) ?: [],
+                'operator' => (string) $l->operator,
+                'operator_role' => (string) $l->operator_role,
+                'created_at' => (string) $l->created_at,
+            ])->values();
+        return response()->json(['ok' => true, 'logs' => $logs]);
+    }
+
+    /**
+     * GET /api/payroll/delete-logs/export
+     * 删除日志 Excel 导出（仅总部管理员）。
+     */
+    public function exportDeleteLogs(Request $request): StreamedResponse|JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅总部管理员可导出删除日志'], 403);
+        }
+        $logs = DB::table('payroll_delete_logs')->orderBy('id', 'desc')->limit(2000)->get();
+
+        $headers = ['时间', '操作人', '角色', '删除月份', '总行数', '员工行', '管理行', '案场行', '总部行', '微调日志', '涉及项目', '应发合计', '实发合计'];
+        return response()->streamDownload(function () use ($logs, $headers) {
+            $ss = new Spreadsheet();
+            $sheet = $ss->getActiveSheet()->setTitle('删除日志');
+            $sheet->fromArray($headers, null, 'A1');
+            $r = 2;
+            foreach ($logs as $l) {
+                $scope = json_decode((string) ($l->scope_info ?? '{}'), true) ?: [];
+                $sheet->fromArray([
+                    (string) $l->created_at,
+                    (string) $l->operator,
+                    (string) $l->operator_role,
+                    (string) $l->ym,
+                    (int) ($scope['total_rows'] ?? 0),
+                    (int) ($scope['staff_rows'] ?? 0),
+                    (int) ($scope['manager_rows'] ?? 0),
+                    (int) ($scope['case_rows'] ?? 0),
+                    (int) ($scope['hq_rows'] ?? 0),
+                    (int) ($scope['adjust_logs'] ?? 0),
+                    implode('、', $scope['projects'] ?? []),
+                    $scope['total_gross'] ?? '',
+                    $scope['total_net'] ?? '',
+                ], null, "A{$r}");
+                $r++;
+            }
+            foreach (range('A', 'M') as $col) $sheet->getColumnDimension($col)->setAutoSize(true);
+            $writer = new Xlsx($ss);
+            $writer->save('php://output');
+        }, '薪资删除日志.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
     /** 该月案场人员工资表是否已全部归档锁定 */
     private function allCaseArchived(string $ym): bool
     {

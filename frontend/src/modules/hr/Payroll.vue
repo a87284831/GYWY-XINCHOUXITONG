@@ -24,6 +24,9 @@
             <button class="btn" @click="histFile.click()">导入历史工资</button>
             <input type="file" ref="histFile" accept=".xlsx,.xls" style="display:none" @change="importHistory" />
             <span v-html="archiveHtml"></span>
+            <span style="flex:1"></span>
+            <button class="btn danger" @click="openDeleteDialog">删除当月全部薪资数据</button>
+            <button class="btn" @click="openDeleteLogs">删除日志</button>
           </div>
           <div class="checkbox-list" style="margin-top:10px">
             <label v-for="p in projChecks" :key="p">
@@ -345,6 +348,65 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除当月全部薪资数据确认弹窗 -->
+    <div v-if="deleteDialog.show" class="modal-mask" @mousedown.self="deleteDialog.show = false">
+      <div class="modal" style="width:520px;position:relative">
+        <div @click="deleteDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <h3 style="color:#dc2626">删除 {{ ui.month }} 全部薪资数据</h3>
+        <div class="msg err">⚠ 该操作不可恢复！该月全部薪资核算结果（员工/管理/案场/总部）与微调日志将被永久删除。</div>
+        <div v-if="deleteDialog.loading" class="msg info">查询删除范围…</div>
+        <div v-else-if="deleteDialog.err" class="msg err">{{ deleteDialog.err }}</div>
+        <template v-else-if="deleteDialog.scope">
+          <table class="tb">
+            <tbody>
+              <tr><td style="width:110px;color:#64748b">员工行</td><td class="num">{{ deleteDialog.scope.staff_rows }}</td></tr>
+              <tr><td style="color:#64748b">管理人员行</td><td class="num">{{ deleteDialog.scope.manager_rows }}</td></tr>
+              <tr><td style="color:#64748b">案场人员行</td><td class="num">{{ deleteDialog.scope.case_rows }}</td></tr>
+              <tr><td style="color:#64748b">总部人员行</td><td class="num">{{ deleteDialog.scope.hq_rows }}</td></tr>
+              <tr><td style="color:#64748b">微调日志</td><td class="num">{{ deleteDialog.scope.adjust_logs }} 条</td></tr>
+              <tr><td style="color:#64748b">涉及项目</td><td>{{ (deleteDialog.scope.projects || []).join('、') }}</td></tr>
+              <tr><td style="color:#64748b">应发合计</td><td class="num">{{ money(deleteDialog.scope.total_gross) }}</td></tr>
+              <tr><td style="color:#64748b">实发合计</td><td class="num">{{ money(deleteDialog.scope.total_net) }}</td></tr>
+            </tbody>
+          </table>
+        </template>
+        <div class="row end" style="margin-top:14px">
+          <button class="btn" @click="deleteDialog.show = false">取消</button>
+          <button class="btn danger" :disabled="deleteDialog.loading || !deleteDialog.scope || deleteDialog.deleting" @click="confirmDelete">
+            {{ deleteDialog.deleting ? '删除中…' : '确认删除（不可恢复）' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除日志弹窗 -->
+    <div v-if="deleteLogsDialog.show" class="modal-mask" @mousedown.self="deleteLogsDialog.show = false">
+      <div class="modal" style="width:880px;position:relative">
+        <div @click="deleteLogsDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <h3>薪资删除日志<button class="btn sm" style="margin-left:8px" @click="exportDeleteLogs">导出日志</button></h3>
+        <div v-if="deleteLogsDialog.loading" class="msg info">加载中…</div>
+        <div v-else-if="!deleteLogsDialog.logs.length" class="msg info">暂无删除日志。</div>
+        <div v-else class="table-wrap" style="max-height:420px">
+          <table class="tb">
+            <thead><tr><th>时间</th><th>操作人</th><th>月份</th><th>总行数</th><th>员工/管理/案场/总部</th><th>微调日志</th><th>应发合计</th><th>实发合计</th><th>涉及项目</th></tr></thead>
+            <tbody>
+              <tr v-for="l in deleteLogsDialog.logs" :key="l.id">
+                <td style="white-space:nowrap">{{ formatLogTime(l.created_at) }}</td>
+                <td>{{ l.operator }}</td>
+                <td>{{ l.ym }}</td>
+                <td class="num">{{ l.scope.total_rows }}</td>
+                <td class="num">{{ l.scope.staff_rows }}/{{ l.scope.manager_rows }}/{{ l.scope.case_rows }}/{{ l.scope.hq_rows }}</td>
+                <td class="num">{{ l.scope.adjust_logs }}</td>
+                <td class="num">{{ money(l.scope.total_gross) }}</td>
+                <td class="num">{{ money(l.scope.total_net) }}</td>
+                <td>{{ (l.scope.projects || []).join('、') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -431,6 +493,10 @@ const adjHistoryLoading = ref(false)
 
 // 季度/半年度系数录入弹窗
 const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
+
+// 整月删除：确认弹窗 + 删除日志弹窗
+const deleteDialog = reactive({ show: false, loading: false, deleting: false, scope: null, err: '' })
+const deleteLogsDialog = reactive({ show: false, loading: false, logs: [] })
 
 const projChecks = computed(() => auth.projects.filter((p) => p !== '物业总部'))
 
@@ -540,6 +606,47 @@ async function loadPayroll() {
 // 微调日志 Excel 导出（仅总部管理员）：当月全部微调记录留档对账
 function exportAdjustLogs() {
   download(`/api/payroll/adjust-logs/export?ym=${ui.month}`, `微调日志_${ui.month}.xlsx`)
+}
+
+// 整月删除：首次请求 409 拿范围统计，force 执行删除；已归档月份被后端 400 拦截提示先解锁
+async function openDeleteDialog() {
+  deleteDialog.show = true
+  deleteDialog.loading = true
+  deleteDialog.err = ''
+  deleteDialog.scope = null
+  try {
+    await api('/api/payroll/delete-month', { body: { ym: ui.month } })
+  } catch (e) {
+    if (e.status === 409 && e.payload && e.payload.need_confirm) {
+      deleteDialog.scope = e.payload.scope
+    } else {
+      deleteDialog.err = e.message
+    }
+  } finally { deleteDialog.loading = false }
+}
+
+async function confirmDelete() {
+  deleteDialog.deleting = true
+  deleteDialog.err = ''
+  try {
+    const r = await api('/api/payroll/delete-month', { body: { ym: ui.month, force: true } })
+    toast(`已删除 ${ui.month} 全部薪资数据（${r.deleted.total_rows} 行，微调日志 ${r.deleted.adjust_logs} 条）`)
+    deleteDialog.show = false
+    reloadActive()
+  } catch (e) { deleteDialog.err = e.message } finally { deleteDialog.deleting = false }
+}
+
+async function openDeleteLogs() {
+  deleteLogsDialog.show = true
+  deleteLogsDialog.loading = true
+  try {
+    const r = await api('/api/payroll/delete-logs')
+    deleteLogsDialog.logs = r.logs || []
+  } catch (e) { toast(e.message, false) } finally { deleteLogsDialog.loading = false }
+}
+
+function exportDeleteLogs() {
+  download('/api/payroll/delete-logs/export', '薪资删除日志.xlsx')
 }
 
 async function loadType(tp) {
