@@ -277,8 +277,9 @@ class TemplateController extends ApiController
         // 出勤统计：应出勤(手填)、实际出勤(天)、月度绩效系数(挪至实际出勤后)、是否满勤、各假缺卡旷工迟到早退
         $statCols = ['应出勤(手填)', '实际出勤(天)', '月度绩效系数', '是否满勤', '事假(天)', '病假(天)', '产假(天)',
             '带薪假(天)', '缺卡(次)', '旷工(天)', '迟到(次)', '早退(次)'];
-        // 奖惩/补贴/五险一金/扣款：删除缺卡扣款、迟到早退扣款（薪酬核算自动按次数计），保留其他扣款与工装扣款
-        $moneyCols = ['月度奖励金额', '月度扣罚金额', '餐补', '夜班/话费补贴', '职称/证书补贴',
+        // 奖惩/补贴/五险一金/扣款：新增「已发福利/奖励」（与工资表口径一致，核算中计入应发计税、实发再减回）；
+        // 删除缺卡扣款、迟到早退扣款（薪酬核算自动按次数计），保留其他扣款与工装扣款
+        $moneyCols = ['月度奖励金额', '已发福利/奖励', '月度扣罚金额', '餐补', '夜班/话费补贴', '职称/证书补贴',
             '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
             '其他扣款', '工装扣款'];
         $tailCols = ['备注'];
@@ -569,8 +570,8 @@ class TemplateController extends ApiController
         foreach ($statWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $i))->setWidth($w);
         }
-        // 奖惩/补贴/五险一金/扣款区列宽（12列：奖励8 扣罚8 餐补6 夜班8 职称8 养老8 医疗8 失业8 公积金7 大病6 其他7 工装7）
-        $moneyWidths = [8, 8, 6, 8, 8, 8, 8, 8, 7, 6, 7, 7];
+        // 奖惩/补贴/五险一金/扣款区列宽（13列：奖励8 福利8 扣罚8 餐补6 夜班8 职称8 养老8 医疗8 失业8 公积金7 大病6 其他7 工装7）
+        $moneyWidths = [8, 8, 8, 6, 8, 8, 8, 8, 8, 7, 6, 7, 7];
         foreach ($moneyWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $i))->setWidth($w);
         }

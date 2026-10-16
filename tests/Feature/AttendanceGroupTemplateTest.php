@@ -318,4 +318,90 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->assertSame('休', $jia['经理甲']['days'][0]);
         $this->assertSame('√', $jia['员工甲']['days'][0]);
     }
+
+    // ===== 福利列（已发福利/奖励）=====
+
+    /** 读取模板响应第 3 行表头（0 基数组） */
+    private function headersFromDownload(\Illuminate\Testing\TestResponse $resp): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'hdr') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+        $out = [];
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $out[] = trim((string) $sheet->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . '3')->getValue());
+        }
+        return $out;
+    }
+
+    public function test_template_contains_welfare_column_right_after_reward(): void
+    {
+        $this->seedWorld();
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=甲项目', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $headers = $this->headersFromDownload($resp);
+        $idx = array_search('已发福利/奖励', $headers, true);
+        $this->assertNotFalse($idx, '考勤模板必须包含「已发福利/奖励」列');
+        $this->assertSame('月度奖励金额', $headers[$idx - 1], '福利列应紧随「月度奖励金额」之后');
+    }
+
+    public function test_template_welfare_value_roundtrips_on_upload(): void
+    {
+        $this->seedWorld();
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=甲项目', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'rt') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        $nameCol = null; $welfareCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            if ($h === '姓名') $nameCol = $L;
+            if ($h === '已发福利/奖励') $welfareCol = $L;
+        }
+        $this->assertNotNull($nameCol); $this->assertNotNull($welfareCol);
+        $targetRow = null;
+        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '员工甲') { $targetRow = $r; break; }
+        }
+        $this->assertNotNull($targetRow);
+        $sheet->setCellValue("{$welfareCol}{$targetRow}", 150);
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($sheet->getParent()))->save($tmp);
+        $this->upload($tmp, '甲项目', $this->adminToken)->assertOk();
+        @unlink($tmp);
+        $rows = $this->blockRows('甲项目');
+        $this->assertSame(150.0, (float) ($rows['员工甲']['welfare'] ?? 0), '模板填写的福利应被解析入库');
+    }
+
+    public function test_group_template_prefills_welfare_from_project_block(): void
+    {
+        $this->seedWorld();
+        DB::table('payroll_attendance')->insert([
+            'record_key' => self::YM . '|甲项目', 'year_month' => self::YM, 'project_name' => '甲项目',
+            'rows' => json_encode(['经理甲' => ['days' => array_pad(['√'], 31, ''), 'welfare' => 88]], JSON_UNESCAPED_UNICODE),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=__managers__', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'pf') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+        $nameCol = null; $welfareCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            if ($h === '姓名') $nameCol = $L;
+            if ($h === '已发福利/奖励') $welfareCol = $L;
+        }
+        $this->assertNotNull($welfareCol, '虚拟组模板必须含福利列');
+        $row = null;
+        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $row = $r; break; }
+        }
+        $this->assertNotNull($row);
+        $this->assertSame(88, (int) $sheet->getCell("{$welfareCol}{$row}")->getValue(), '虚拟组模板应带出福利值');
+    }
 }
