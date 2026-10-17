@@ -22,6 +22,12 @@ class PayrollController extends ApiController
         $project = $request->string('project')->toString();
         if ($this->isProjectScope($account)) {
             $project = (string) $account->project_name;
+        } else {
+            // 虚拟汇总选项（管理人员/案场人员）：聚合各项目考勤块中该类别的行
+            $group = \App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS[$project] ?? null;
+            if ($group) {
+                return $this->attendanceVirtualGroup($ym, $project, $group);
+            }
         }
         $record = DB::table('payroll_attendance')
             ->where('year_month', $ym)->where('project_name', $project)->first();
@@ -36,24 +42,82 @@ class PayrollController extends ApiController
         $missFirst3 = $rules->num('deduction_rules.miss_punch.first_3', 30);
         $missAfter3 = $rules->num('deduction_rules.miss_punch.after_3', 50);
         foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
-            $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
-            // 应出勤按 value 加权（让"半"符号算 0.5 天，与人力手填口径对齐；required 仍按 in_required 计 1 天，核算逻辑不变）
-            $st['required_value'] = 0.0;
-            foreach (($attendance['days'] ?? []) as $d) {
-                $d = trim((string)$d); if ($d === '') continue;
-                $item = \App\Services\PayrollCalculator::symbolLookup($d, $symbols);
-                if ($item && !empty($item['in_required'])) $st['required_value'] += (float)($item['value'] ?? 1);
-            }
-            // 上传后即可见的缺卡扣款预览（用户手填 miss_deduct 优先，否则按阶梯规则算）
-            $st['miss_deduct'] = $missEnabled
-                ? round((float)($attendance['miss_deduct'] ?? 0)
-                    + \App\Services\PayrollCalculator::missPunchAmount($st['miss'], $missFirst3, $missAfter3), 2)
-                : (float)($attendance['miss_deduct'] ?? 0);
-            $stats[$name] = $st;
+            $stats[$name] = $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3);
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows), 'stats' => $stats,
             'meta' => ['uploaded_at' => $record->updated_at]]);
+    }
+
+    /**
+     * 虚拟汇总选项查看：聚合全公司某类别（manager/case）人员分散在各项目考勤块中的行。
+     * 口径与 uploadVirtualGroup 一致：按月 categoryMap 分类、过滤离职、管理人员不含物业总部。
+     * 跨项目同名时显示名加项目后缀，避免键冲突互相覆盖。
+     */
+    private function attendanceVirtualGroup(string $ym, string $project, array $group): JsonResponse
+    {
+        $category = $group['category'];
+        $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+        $staff = DB::table('payroll_staff')->where('deleted', false)
+            ->where(function ($q) use ($ym) {
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
+                  ->orWhere('resign_date', '>=', $ym . '-01');
+            })
+            ->get(['legacy_id', 'name', 'project_name'])
+            ->filter(function ($p) use ($catMap, $category) {
+                if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
+                return !($category === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
+            })->values();
+        $byProject = [];
+        foreach ($staff as $p) { $byProject[$p->project_name][$p->name] = true; }
+
+        $symbols = \App\Services\PayrollCalculator::symbols();
+        $rules = new \App\Services\CalcRules();
+        $missEnabled = $rules->flag('deduction_rules.miss_punch.enabled', true);
+        $missFirst3 = $rules->num('deduction_rules.miss_punch.first_3', 30);
+        $missAfter3 = $rules->num('deduction_rules.miss_punch.after_3', 50);
+
+        $entries = [];
+        foreach ($byProject as $proj => $namesInProj) {
+            $record = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $proj)->first();
+            if (!$record) continue;
+            foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
+                if (!isset($namesInProj[$name])) continue;
+                $entries[] = ['name' => $name, 'project' => $proj, 'att' => $attendance,
+                    'st' => $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3)];
+            }
+        }
+        usort($entries, fn ($a, $b) => strcmp($a['project'], $b['project']) ?: strcmp($a['name'], $b['name']));
+        $nameCounts = [];
+        foreach ($entries as $e) { $nameCounts[$e['name']] = ($nameCounts[$e['name']] ?? 0) + 1; }
+        $rows = []; $stats = [];
+        foreach ($entries as $e) {
+            $key = $nameCounts[$e['name']] > 1 ? $e['name'] . '（' . $e['project'] . '）' : $e['name'];
+            $rows[$key] = $e['att'];
+            $stats[$key] = $e['st'];
+        }
+        return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
+            'rows' => $rows, 'stats' => $stats, 'locked' => false,
+            'meta' => ['uploaded_at' => '']]);
+    }
+
+    /** 单行考勤统计（含缺卡阶梯扣款预览）：应出勤按符号 value 加权，手填 miss_deduct 优先 */
+    private function attendanceRowStats(array $attendance, array $symbols, bool $missEnabled, float $missFirst3, float $missAfter3): array
+    {
+        $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+        // 应出勤按 value 加权（让"半"符号算 0.5 天，与人力手填口径对齐；required 仍按 in_required 计 1 天，核算逻辑不变）
+        $st['required_value'] = 0.0;
+        foreach (($attendance['days'] ?? []) as $d) {
+            $d = trim((string)$d); if ($d === '') continue;
+            $item = \App\Services\PayrollCalculator::symbolLookup($d, $symbols);
+            if ($item && !empty($item['in_required'])) $st['required_value'] += (float)($item['value'] ?? 1);
+        }
+        // 上传后即可见的缺卡扣款预览（用户手填 miss_deduct 优先，否则按阶梯规则算）
+        $st['miss_deduct'] = $missEnabled
+            ? round((float)($attendance['miss_deduct'] ?? 0)
+                + \App\Services\PayrollCalculator::missPunchAmount($st['miss'], $missFirst3, $missAfter3), 2)
+            : (float)($attendance['miss_deduct'] ?? 0);
+        return $st;
     }
 
     public function payroll(Request $request): JsonResponse

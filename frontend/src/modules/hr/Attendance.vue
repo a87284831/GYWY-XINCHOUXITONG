@@ -12,23 +12,23 @@
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
         <input ref="fileEl" type="file" accept=".xlsx" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
-        <button class="btn" :disabled="!!blockReason" :title="blockReason || '查看本项目本月已上传的考勤'" @click="attView">查看已上传数据</button>
-        <button class="btn" :disabled="!!blockReason" :title="blockReason || (attLocked ? '解除最终版本锁定' : '锁定为本月最终考勤，锁定后不能重传或删除')" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
-        <button class="btn success" :disabled="!!blockReason" :title="blockReason || '导出本项目本月考勤 Excel'" @click="attExport">导出考勤</button>
+        <button class="btn" :disabled="!!blockReason('view')" :title="blockReason('view') || '查看本项目本月已上传的考勤'" @click="attView">查看已上传数据</button>
+        <button class="btn" :disabled="!!blockReason('lock')" :title="blockReason('lock') || (attLocked ? '解除最终版本锁定' : '锁定为本月最终考勤，锁定后不能重传或删除')" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
+        <button class="btn success" :disabled="!!blockReason('export')" :title="blockReason('export') || '导出本项目本月考勤 Excel'" @click="attExport">导出考勤</button>
         <button v-if="!isProj && !isVirtual" class="btn danger sm" :disabled="!curStatus.has_data" :title="curStatus.has_data ? '清空本项目本月全部考勤行（按人合并无法逐人清除时使用）' : '该项目本月尚未上传考勤数据'" @click="attDelete">删除本项目本月考勤</button>
       </div>
       <div v-if="attMsg" v-html="attMsg"></div>
-      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；上传后按人合并进各自所属项目的考勤块，不影响块内其他人员。查看 / 锁定 / 导出 / 删除请选择具体项目。</div>
+      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；上传后按人合并进各自所属项目的考勤块，不影响块内其他人员。查看 / 导出 已支持汇总选项直接操作；锁定 / 删除 请选择具体项目。</div>
       <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传按人合并——只更新表中出现的人员，块内其他人数据保留；整表清空请用"删除本项目本月考勤"。</div>
     </div>
     <div class="card">
       <h3>考勤统计预览</h3>
       <div v-if="viewErr" class="msg err">{{ viewErr }}</div>
-      <div v-else-if="!viewLoaded" class="msg info">{{ isVirtual ? '请选择具体项目后查看已上传数据。' : (curStatus.has_data ? '选择项目后点击"查看已上传数据"。' : curProj + ' ' + ui.month + ' 尚未上传考勤数据，请先下载模板填写并上传。') }}</div>
-      <div v-else-if="!names.length" class="msg info">{{ curProj }} {{ ui.month }} 暂无考勤数据。</div>
+      <div v-else-if="!viewLoaded" class="msg info">{{ isVirtual ? '点击"查看已上传数据"查看全公司' + projLabel + '的考勤。' : (curStatus.has_data ? '选择项目后点击"查看已上传数据"。' : projLabel + ' ' + ui.month + ' 尚未上传考勤数据，请先下载模板填写并上传。') }}</div>
+      <div v-else-if="!names.length" class="msg info">{{ projLabel }} {{ ui.month }} 暂无考勤数据。</div>
       <template v-else>
         <div class="row" style="margin-bottom:8px">
-          <span class="tag blue">{{ curProj }} {{ ui.month }}</span>
+          <span class="tag blue">{{ projLabel }} {{ ui.month }}</span>
           <span class="tag green">{{ names.length }} 人</span>
           <span class="tag gray">上传：{{ view.meta.uploaded_by || '' }} {{ view.meta.uploaded_at || '' }}</span>
           <span v-if="view.locked" class="tag" style="background:#fef2f2;color:#dc2626;border-color:#fecaca">🔒 已锁定</span>
@@ -111,7 +111,7 @@ const curStatus = computed(() => {
   if (statusList.value === null) return { has_data: true, locked: attLocked.value }
   return pickProjectStatus(statusList.value, curProj.value)
 })
-const blockReason = computed(() => attBlockedAction({ isVirtual: isVirtual.value, hasData: !!curStatus.value.has_data }))
+const blockReason = computed(() => (action) => attBlockedAction({ isVirtual: isVirtual.value, hasData: !!curStatus.value.has_data, action }))
 
 async function refreshStatus() {
   try {
@@ -186,10 +186,15 @@ async function attUploadConfirm() {
 }
 
 async function attView() {
-  if (isVirtual.value) return
   viewErr.value = ''
   try {
+    // 单项目与虚拟汇总选项统一入口：虚拟组由后端聚合（按月 categoryMap 分类，与核算同口径）
     const data = await api(`/api/attendance?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`)
+    if (isVirtual.value && (!data.rows || Object.keys(data.rows).length === 0)) {
+      viewErr.value = `全公司暂无${projLabel.value}的考勤数据`
+      viewLoaded.value = false
+      return
+    }
     view.value = data
     viewLoaded.value = true
     attLocked.value = !!data.locked
@@ -223,13 +228,22 @@ async function attDelete() {
   } catch (e) { alert(e.message) }
 }
 
-// 复刻 attExport：prompt 选人员类型 → 直接 fetch 下载（无进度浮层）
+// 导出：单项目 prompt 选人员类型；虚拟汇总选项类别固定 → 直接 fetch 下载
 async function attExport() {
-  const types = [['', '全部人员'], ['管理人员', '管理人员'], ['基层人员', '基层人员'], ['案场人员', '案场人员'], ['总部人员', '总部人员']]
-  const sel = prompt('导出哪种人员？\n' + types.map((t, i) => `${i}=${t[1]}`).join('  '), '0')
-  if (sel === null) return
-  const t = types[parseInt(sel)] || types[0]
-  const params = new URLSearchParams({ ym: ui.month, project: curProj.value, staff_type: t[0] })
+  // 虚拟汇总选项类别固定（后端强制映射），无需再选人员类型
+  let typeValue = ''
+  let typeText = '全部人员'
+  if (isVirtual.value) {
+    typeText = projLabel.value
+  } else {
+    const types = [['', '全部人员'], ['管理人员', '管理人员'], ['基层人员', '基层人员'], ['案场人员', '案场人员'], ['总部人员', '总部人员']]
+    const sel = prompt('导出哪种人员？\n' + types.map((t, i) => `${i}=${t[1]}`).join('  '), '0')
+    if (sel === null) return
+    const t = types[parseInt(sel)] || types[0]
+    typeValue = t[0]
+    typeText = t[1]
+  }
+  const params = new URLSearchParams({ ym: ui.month, project: curProj.value, staff_type: typeValue })
   try {
     const resp = await fetch('/api/attendance/export?' + params.toString(), { headers: { 'X-Token': auth.token || '' } })
     if (!resp.ok) {
@@ -241,7 +255,7 @@ async function attExport() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `考勤导出_${curProj.value}_${ui.month}_${t[1]}.xlsx`
+    a.download = `考勤导出_${projLabel.value}_${ui.month}_${typeText}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   } catch (e) { alert(e.message) }

@@ -295,22 +295,46 @@ class AttendanceController extends ApiController
         }
         $daysInMonth = (int) date('t', strtotime($ym . '-01'));
 
+        $proj = '';
         if ($this->isProjectScope($account)) {
             $projects = [(string) $account->project_name];
         } else {
             $proj = trim((string) $request->string('project')->toString());
-            $projects = $proj !== '' ? [$proj] :
-                DB::table('payroll_projects')->where('status', '启用')->pluck('name')->all();
+            // 虚拟汇总选项：映射为对应类别的全项目导出
+            if ($proj === '__managers__' || $proj === '__case__') {
+                $staffType = $proj === '__managers__' ? '管理人员' : '案场人员';
+                $projects = DB::table('payroll_projects')->where('status', '启用')->pluck('name')->all();
+            } else {
+                $projects = $proj !== '' ? [$proj] :
+                    DB::table('payroll_projects')->where('status', '启用')->pluck('name')->all();
+            }
         }
 
-        // 必须已锁定
-        $notLocked = [];
-        foreach ($projects as $p) {
-            $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
-            if (!$row || !(bool) $row->locked) $notLocked[] = $p;
-        }
-        if ($notLocked) {
-            return response()->json(['ok' => false, 'error' => '以下项目考勤尚未锁定，不能导出：' . implode('、', $notLocked)], 400);
+        // 虚拟汇总选项放宽锁定校验：只要有一个项目有数据即可导出，未锁定的项目自动跳过
+        $isVirtualGroup = $proj === '__managers__' || $proj === '__case__';
+        if (!$isVirtualGroup) {
+            // 必须已锁定（单项目导出保持原逻辑）
+            $notLocked = [];
+            foreach ($projects as $p) {
+                $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
+                if (!$row || !(bool) $row->locked) $notLocked[] = $p;
+            }
+            if ($notLocked) {
+                return response()->json(['ok' => false, 'error' => '以下项目考勤尚未锁定，不能导出：' . implode('、', $notLocked)], 400);
+            }
+        } else {
+            // 虚拟组：只保留有数据的项目，无数据/未锁定的项目静默跳过
+            $projectsWithData = [];
+            foreach ($projects as $p) {
+                $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
+                if ($row && $row->rows) {
+                    $projectsWithData[] = $p;
+                }
+            }
+            if (empty($projectsWithData)) {
+                return response()->json(['ok' => false, 'error' => '全公司暂无' . ($proj === '__managers__' ? '管理人员' : '案场人员') . '的考勤数据'], 404);
+            }
+            $projects = $projectsWithData;
         }
 
         // 收集考勤数据
@@ -320,17 +344,31 @@ class AttendanceController extends ApiController
             $attByProject[$p] = $this->jsonValue($row->rows) ?: [];
         }
 
-        // 查员工档案，按 person_type 筛选（与工资核算的管理/案场/总部/员工分类同源）
+        // 查员工档案，按人员类型筛选（与工资核算的管理/案场/总部/员工分类同源）
         // 离职过滤：当月离职的保留（要算离职当月工资），永久/上月离职的排除
         $staffQuery = DB::table('payroll_staff')->whereIn('project_name', $projects)->where('deleted', false)
             ->where(function ($q) use ($ym) {
                 $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
                   ->orWhere('resign_date', '>=', $ym . '-01');
             });
+        // 虚拟汇总选项与上传/核算同口径：按月 categoryMap 分类（含 person_type_since 生效日判断），
+        // 管理人员不含物业总部（总部人员走自己的项目入口）；其余情况沿用 person_type 当前值过滤
+        $catMap = null;
         if ($staffType !== '') {
-            $staffQuery->where('person_type', $staffTypeMap[$staffType]);
+            if ($isVirtualGroup) {
+                $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+            } else {
+                $staffQuery->where('person_type', $staffTypeMap[$staffType]);
+            }
         }
         $staff = $staffQuery->get();
+        if ($catMap !== null) {
+            $wantCat = $staffTypeMap[$staffType];
+            $staff = $staff->filter(function ($p) use ($catMap, $wantCat) {
+                if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $wantCat) return false;
+                return !($wantCat === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
+            });
+        }
         // PHP 端排序：项目→部门→岗位→姓名（与 PayrollCalculator::orderRows 一致）
         foreach ($staff as $person) {
             $person->_dept = \App\Services\PayrollCalculator::deptName($person->dept_path ?? null, $person->project_name);
@@ -377,7 +415,9 @@ class AttendanceController extends ApiController
         $moneyStart = $statEnd = $dateEnd + count($statCols) + 1;
         $tailStart = $moneyStart + count($moneyCols);
 
-        $projLabel = count($projects) > 1 ? '全部项目' : $projects[0];
+        $projLabel = $isVirtualGroup
+            ? ($proj === '__managers__' ? '管理人员' : '案场人员')
+            : (count($projects) > 1 ? '全部项目' : $projects[0]);
         $typeLabel = $staffType !== '' ? $staffType : '全部人员';
         $sheet->mergeCells("A1:{$lastLetter}1");
         $sheet->setCellValue('A1', "【{$projLabel}】" . substr($ym,0,4) . '年' . (int)substr($ym,5,2) . "月考勤表（{$typeLabel}）");
