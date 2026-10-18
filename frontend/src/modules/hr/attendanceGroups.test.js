@@ -33,16 +33,17 @@ describe('考勤虚拟选项', () => {
   })
 })
 
-describe('attBlockedAction 查看/锁定/导出按钮启用口径（虚拟项与各项目统一）', () => {
-  it('虚拟项：有数据放行查看/导出，锁定/删除始终禁用', () => {
+describe('attBlockedAction 查看/锁定/导出/删除按钮启用口径（虚拟项与各项目统一）', () => {
+  it('虚拟项：有数据放行查看/导出/删除，锁定始终禁用', () => {
     expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'view' })).toBe('')
     expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'export' })).toBe('')
+    expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'delete' })).toBe('')
     expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'lock' })).toContain('具体项目')
-    expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'delete' })).toContain('具体项目')
   })
-  it('虚拟项：无数据月份查看/导出同步置灰（2026-10-18 口径）', () => {
+  it('虚拟项：无数据月份查看/导出/删除同步置灰（2026-10-18 口径）', () => {
     expect(attBlockedAction({ isVirtual: true, hasData: false, action: 'view' })).toContain('暂无')
     expect(attBlockedAction({ isVirtual: true, hasData: false, action: 'export' })).toContain('暂无')
+    expect(attBlockedAction({ isVirtual: true, hasData: false, action: 'delete' })).toContain('暂无')
   })
 
   it('具体项目未上传考勤：禁用并提示先上传', () => {
