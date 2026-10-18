@@ -11,9 +11,11 @@ export function newRow(key, line) {
   }
 }
 
-// 只读行：已确认（谁都不可改）；已提交且非 admin（员工需先撤销提交）
+// 只读行：已确认（谁都不可改）；已提交——员工需先撤销，admin 默认锁定、点「改单」解锁（_unlocked）后才可改
 export function isRowReadonly(row, isAdmin) {
-  return row.status === 'confirmed' || (row.status === 'submitted' && !isAdmin)
+  if (row.status === 'confirmed') return true
+  if (row.status === 'submitted') return !isAdmin || !row._unlocked
+  return false
 }
 export function canCopyRow(row) {
   return row.status !== 'confirmed'
@@ -26,14 +28,19 @@ export function canDeleteRow(row, isAdmin) {
 }
 // 可保存行：非只读且有内容（忠实旧版：!item_name && !quantity && !reason 跳过）
 export function rowSaveable(row, isAdmin) {
-  if (row.status === 'confirmed') return false
-  if (row.status === 'submitted' && !isAdmin) return false
+  if (isRowReadonly(row, isAdmin)) return false
   return !!(row.item_name || row.quantity || row.reason)
+}
+
+// 清单内模式下名称未匹配到清单商品：有名称、未开清单外、未绑定 product_id、且联想无规格结果
+export function notInLibrary(row) {
+  return !row.is_custom && !!row.item_name && !row.product_id && (!row.specs || !row.specs.length)
 }
 
 export function validateRow(row, idx) {
   if (!row.line) return '第 ' + idx + ' 行：请选择条线'
   if (!row.item_name) return '第 ' + idx + ' 行：请填写商品名称'
+  if (notInLibrary(row)) return '第 ' + idx + ' 行：「' + row.item_name + '」未匹配到清单内商品，请从联想列表选择，或打开行尾「清单外」开关'
   if (!row.is_custom && !row.spec) return '第 ' + idx + ' 行：请选择规格型号'
   if (!row.quantity) return '第 ' + idx + ' 行：请填写数量'
   return null
@@ -52,8 +59,12 @@ export function rowPayload(row, month, projectId, isAdmin, submit) {
     reason: row.reason,
     use_location: row.use_location,
     remark: row.remark,
-    status: row.status === 'submitted' || submit ? 'submitted' : 'draft',
   }
+  // 状态：提交一律 submitted；保存时 submitted 行保持 submitted；
+  // 退回行非提交保存不传 status（保持 returned 不降级——后端 status 白名单仅认 draft/submitted，传 returned 会被兜底成 draft）；
+  // 其余（new/draft）为 draft
+  if (submit || row.status === 'submitted') m.status = 'submitted'
+  else if (row.status !== 'returned') m.status = 'draft'
   if (isAdmin && projectId) m.project_id = projectId
   if (!row.is_custom) m.product_id = row.product_id
   return m
@@ -90,8 +101,9 @@ export function monthCardStatus(r, today) {
     : { tag: '已截止', type: 'warning', window: win }
 }
 
-export function draftKey(month, projectId) {
-  return 'gw_purchase_fill_draft_' + month + '_' + (projectId || 0)
+// 本地草稿 key：scope 为填报主体标识（员工=项目名，admin=代填项目 id），防共用浏览器串项目
+export function draftKey(month, scope) {
+  return 'gw_purchase_fill_draft_' + month + '_' + (scope || 0)
 }
 
 // 卡片按钮：有退回→修改后重新填报；本月开放→进入填报；其余→查看

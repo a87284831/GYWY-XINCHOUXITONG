@@ -95,21 +95,12 @@ function handle_admin_confirm_item($id) {
     if ($item['status'] === 'returned') {
         return ['ok' => false, 'msg' => '该记录已退回，员工尚未重新提交，暂不能确认'];
     }
-    $wasReturned = ($item['status'] === 'returned'); // 保留分支（正常流程下 reached 时返回过 false，不会执行到）
     db()->prepare("UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE id=?")->execute([$id]);
-    // 退回后重新确认：同步存档数量与金额（单价保留）
-    if ($wasReturned && $item['price'] > 0) {
-        $total = round((float)$item['quantity'] * (float)$item['price'], 2);
-        $st = db()->prepare(
-            "UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?"
-        );
-        $st->execute([$item['quantity'], $total, $item['month'], $item['project_id'], $item['item_name'], $item['spec']]);
-    }
     log_action('确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} x{$item['quantity']}");
     // Q14③：确认完成提醒员工
     $pname = project_name((int)$item['project_id']);
     foreach (project_user_ids((int)$item['project_id']) as $uid) {
-        notify_user((int)$uid, 'confirmed', "{$item['month']}月 填报已确认", "【{$pname}】{$item['item_name']} 已确认通过。", "#/my-items?month={$item['month']}");
+        notify_user((int)$uid, 'confirmed', "{$item['month']}月 填报已确认", "【{$pname}】{$item['item_name']} 已确认通过。", "/app/purchase/my-items?month={$item['month']}");
     }
     return ['ok' => true, 'msg' => '已确认'];
 }
@@ -132,7 +123,7 @@ function handle_admin_return_item($id) {
     // Q14②：被退回提醒员工
     $pname = project_name((int)$item['project_id']);
     foreach (project_user_ids((int)$item['project_id']) as $uid) {
-        notify_user((int)$uid, 'returned', "{$item['month']}月 填报被退回", "【{$pname}】{$item['item_name']} 被退回：{$reason}。请修改后重新提交。", "#/my-items?month={$item['month']}");
+        notify_user((int)$uid, 'returned', "{$item['month']}月 填报被退回", "【{$pname}】{$item['item_name']} 被退回：{$reason}。请修改后重新提交。", "/app/purchase/my-items?month={$item['month']}");
     }
     return ['ok' => true, 'msg' => '已退回给填报人修改'];
 }
@@ -157,7 +148,7 @@ function handle_admin_return_project() {
     // Q14②：被退回提醒员工
     $pname = project_name((int)$project_id);
     foreach (project_user_ids((int)$project_id) as $uid) {
-        notify_user((int)$uid, 'returned', "{$month}月 填报被退回", "【{$pname}】{$month}月填报被退回：{$reason}。请修改后重新提交。", "#/my-items?month=$month");
+        notify_user((int)$uid, 'returned', "{$month}月 填报被退回", "【{$pname}】{$month}月填报被退回：{$reason}。请修改后重新提交。", "/app/purchase/my-items?month=$month");
     }
     return ['ok' => true, 'msg' => "已退回 {$st->rowCount()} 条给填报人修改"];
 }
@@ -189,30 +180,19 @@ function handle_admin_confirm_batch() {
     $stR = db()->prepare($sqlR);
     $stR->execute($paramsR);
     $returnedTotal = (int)$stR->fetchColumn();
-    // 有价格的退回记录（需同步存档）
-    $sql = "SELECT id, item_name, spec, quantity, price FROM purchase_items WHERE month=? AND project_id=? AND status='returned' AND price>0";
-    $params = [$month, $project_id];
-    if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
-    $st = db()->prepare($sql);
-    $st->execute($params);
-    $returnedCount = $st->rowCount();
-    foreach ($st->fetchAll() as $r) {
-        $total = round((float)$r['quantity'] * (float)$r['price'], 2);
-        db()->prepare("UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?")
-            ->execute([$r['quantity'], $total, $month, $project_id, $r['item_name'], $r['spec']]);
-    }
+    // 口径统一：仅已提交行可被确认并进入存档；退回行须员工重新提交，不在此处同步存档
     $sql = "UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE month=? AND project_id=? AND status='submitted'";
     $params = [$month, $project_id];
     if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
     $st = db()->prepare($sql);
     $st->execute($params);
     $confirmed = $st->rowCount();
-    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedCount > 0 ? "，跳过已退回{$returnedCount}条" : ''));
+    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedTotal > 0 ? "，跳过已退回{$returnedTotal}条" : ''));
     // Q14③：确认完成提醒员工
     if ($confirmed > 0) {
         $pname = project_name((int)$project_id);
         foreach (project_user_ids((int)$project_id) as $uid) {
-            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedCount > 0 ? "，{$returnedCount} 条已退回待重新提交。" : '。'), "#/my-items?month=$month");
+            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedTotal > 0 ? "，{$returnedTotal} 条已退回待重新提交。" : '。'), "/app/purchase/my-items?month=$month");
         }
     }
     $msg = "已确认 {$confirmed} 条";

@@ -101,7 +101,7 @@ onMounted(async () => {
         </div>
         <div style="font-size:12px;color:#94a3b8;margin-top:4px;">{{ monthCardStatus(r, today).window }}</div>
         <div style="font-size:12.5px;color:#475569;margin-top:8px;">
-          {{ r.item_count }} 填报 {{ r.submitted_count }} 条 · 已确认 {{ r.confirmed_count }} 条
+          填报 {{ r.item_count }} 条 · 已提交 {{ r.submitted_count }} 条 · 已确认 {{ r.confirmed_count }} 条
         </div>
         <div v-if="(r.returned_count || 0) > 0" style="font-size:12.5px;color:#dc2626;margin-top:4px;">
           {{ r.returned_count }} 条被退回，请修改后重新提交

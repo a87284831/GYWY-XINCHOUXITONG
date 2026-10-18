@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   FILL_LINES, newRow, isRowReadonly, canCopyRow, canRevokeRow, canDeleteRow,
-  rowSaveable, validateRow, rowPayload, saveSummary, freqCell, monthCardStatus,
+  rowSaveable, validateRow, notInLibrary, rowPayload, saveSummary, freqCell, monthCardStatus,
   draftKey, fillCardAction,
 } from './fillLogic'
 
@@ -26,15 +26,18 @@ describe('行状态机（isRowReadonly/copy/revoke/delete/saveable）', () => {
     expect(canDeleteRow(r, true)).toBe(false)
     expect(rowSaveable(r, true)).toBe(false)
   })
-  it('submitted：员工只读需先撤销，admin 可编辑', () => {
+  it('submitted：员工只读需先撤销；admin 默认锁定，改单解锁（_unlocked）后可编辑', () => {
     const r = row('submitted')
     expect(isRowReadonly(r, false)).toBe(true)
-    expect(isRowReadonly(r, true)).toBe(false)
+    expect(isRowReadonly(r, true)).toBe(true) // admin 默认锁定
+    expect(rowSaveable(r, true)).toBe(false) // 锁定不可保存
+    const u = { ...r, _unlocked: true }
+    expect(isRowReadonly(u, true)).toBe(false) // 解锁后可编辑
+    expect(rowSaveable(u, true)).toBe(true)
     expect(canRevokeRow(r)).toBe(true)
     expect(canDeleteRow(r, false)).toBe(false)
     expect(canDeleteRow(r, true)).toBe(true)
     expect(rowSaveable(r, false)).toBe(false)
-    expect(rowSaveable(r, true)).toBe(true)
   })
   it('draft/returned/new 可编辑可保存', () => {
     for (const s of ['draft', 'returned', 'new']) {
@@ -53,12 +56,26 @@ describe('validateRow（逐行校验文案）', () => {
   it('按顺序报告首个缺失项', () => {
     expect(validateRow({ line: '', item_name: '', is_custom: false, quantity: 0 }, 3)).toBe('第 3 行：请选择条线')
     expect(validateRow({ line: '环境', item_name: '', is_custom: false, quantity: 0 }, 2)).toBe('第 2 行：请填写商品名称')
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5 }, 1)).toBe('第 1 行：请选择规格型号')
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 0 }, 1)).toBe('第 1 行：请填写数量')
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请选择规格型号')
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 0, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写数量')
   })
   it('清单外不要求规格；齐备返回 null', () => {
     expect(validateRow({ line: '环境', item_name: '临时物资', spec: '', is_custom: true, quantity: 2 }, 1)).toBe(null)
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5 }, 1)).toBe(null)
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe(null)
+  })
+  it('清单内模式名称未匹配清单：拦截并引导开清单外开关', () => {
+    // 联想无结果（无 product_id 且无 specs）→ notInLibrary 命中
+    const r = { line: '环境', item_name: '清单外商品X', spec: '', is_custom: false, quantity: 5, product_id: null, specs: [] }
+    expect(notInLibrary(r)).toBe(true)
+    expect(validateRow(r, 2)).toBe('第 2 行：「清单外商品X」未匹配到清单内商品，请从联想列表选择，或打开行尾「清单外」开关')
+    // 已选名称（有 specs 未选规格）→ 不算未匹配，走规格校验
+    const r2 = { line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: null, specs: [{ id: 9, spec: '70g' }] }
+    expect(notInLibrary(r2)).toBe(false)
+    expect(validateRow(r2, 1)).toBe('第 1 行：请选择规格型号')
+    // 开清单外 → 不命中
+    expect(notInLibrary({ line: '环境', item_name: '临时', is_custom: true, product_id: null, specs: [] })).toBe(false)
+    // 空名称 → 不命中（走名称必填）
+    expect(notInLibrary({ line: '环境', item_name: '', is_custom: false, product_id: null, specs: [] })).toBe(false)
   })
 })
 
@@ -73,14 +90,21 @@ describe('rowPayload', () => {
       quantity: 3, stock: 1, reason: 'r', use_location: 'u', remark: '', status: 'submitted', product_id: 9,
     })
   })
-  it('清单外不带 product_id；staff 不带 project_id；保存为 draft', () => {
+  it('清单外不带 product_id；staff 不带 project_id；退回行非提交保存不传 status（保持 returned 不降级）', () => {
     const p = rowPayload(
       { line: '行政', item_name: '临时', brand: '', spec: '', unit: '个', quantity: 1, stock: 0, reason: '', use_location: '', remark: '', status: 'returned', is_custom: true, product_id: null },
       '2026-09', 0, false, false,
     )
     expect(p.product_id).toBeUndefined()
     expect(p.project_id).toBeUndefined()
-    expect(p.status).toBe('draft')
+    expect(p.status).toBeUndefined()
+  })
+  it('退回行提交时置 submitted；draft 行保存置 draft', () => {
+    const base = { line: '行政', item_name: '临时', brand: '', spec: '', unit: '个', quantity: 1, stock: 0, reason: '', use_location: '', remark: '', is_custom: true, product_id: null }
+    expect(rowPayload({ ...base, status: 'returned' }, '2026-09', 0, false, true).status).toBe('submitted')
+    expect(rowPayload({ ...base, status: 'draft' }, '2026-09', 0, false, false).status).toBe('draft')
+    expect(rowPayload({ ...base, status: 'new' }, '2026-09', 0, false, false).status).toBe('draft')
+    expect(rowPayload({ ...base, status: 'submitted' }, '2026-09', 0, true, false).status).toBe('submitted')
   })
 })
 

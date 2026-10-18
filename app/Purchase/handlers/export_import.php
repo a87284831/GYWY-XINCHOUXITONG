@@ -460,7 +460,7 @@ function handle_import_archive() {
         $pids = $st->fetchAll(PDO::FETCH_COLUMN);
         foreach ($pids as $pid) {
             foreach (project_user_ids((int)$pid) as $uid) {
-                notify_user((int)$uid, 'price_imported', "{$month}月 报价已导入", "本月采购报价已导入存档，可在「我的填报记录」查看最终单价与金额。", "#/my-items?month=$month");
+                notify_user((int)$uid, 'price_imported', "{$month}月 报价已导入", "本月采购报价已导入存档，可在「我的填报记录」查看最终单价与金额。", "/app/purchase/my-items?month=$month");
             }
         }
     } catch (Throwable $e) {}
@@ -480,7 +480,7 @@ function handle_import_archive() {
         }
         if ($over) {
             foreach (admin_user_ids() as $uid) {
-                notify_user((int)$uid, 'budget_over', "{$month}月 预算超支提醒", implode('；', $over), '#/overview');
+                notify_user((int)$uid, 'budget_over', "{$month}月 预算超支提醒", implode('；', $over), '/app/purchase/overview');
             }
             log_action('预算超支', "{$month} " . implode('；', $over));
         }

@@ -34,9 +34,11 @@ describe('考勤虚拟选项', () => {
 })
 
 describe('attBlockedAction 查看/锁定/导出按钮启用口径（虚拟项与各项目统一）', () => {
-  it('虚拟汇总选项：始终禁用并提示选择具体项目', () => {
-    expect(attBlockedAction({ isVirtual: true, hasData: true })).toContain('具体项目')
-    expect(attBlockedAction({ isVirtual: true, hasData: false })).toContain('具体项目')
+  it('虚拟汇总选项：查看/导出放行（后端已支持虚拟组聚合），锁定/删除禁用并提示选择具体项目', () => {
+    expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'view' })).toBe('')
+    expect(attBlockedAction({ isVirtual: true, hasData: false, action: 'export' })).toBe('')
+    expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'lock' })).toContain('具体项目')
+    expect(attBlockedAction({ isVirtual: true, hasData: true, action: 'delete' })).toContain('具体项目')
   })
 
   it('具体项目未上传考勤：禁用并提示先上传', () => {

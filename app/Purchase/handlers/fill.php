@@ -139,6 +139,30 @@ function handle_fill_update($id) {
             log_action('撤销提交', "{$item['month']} {$item['item_name']}({$item['spec']}) 状态 submitted→draft");
         }
     }
+    // 管理员改单留痕：修改已提交记录的内容字段时逐字段记录 旧值→新值
+    if ($user['role'] === 'admin' && $oldStatus === 'submitted') {
+        $labels = ['line' => '条线', 'product_id' => '商品ID', 'item_name' => '商品名称', 'brand' => '品牌',
+            'spec' => '规格', 'unit' => '单位', 'quantity' => '数量', 'stock' => '库存',
+            'reason' => '申购原因', 'use_location' => '使用位置', 'remark' => '备注'];
+        $diffs = [];
+        foreach ($labels as $f => $label) {
+            if (!array_key_exists($f, $in)) continue;
+            if ($f === 'product_id') {
+                $newV = $in[$f] ? (int)$in[$f] : null;
+                $oldV = $item[$f] !== null ? (int)$item[$f] : null;
+            } elseif (in_array($f, ['quantity', 'stock'])) {
+                $newV = (float)$in[$f];
+                $oldV = (float)$item[$f];
+            } else {
+                $newV = $f === 'spec' ? norm_spec((string)$in[$f]) : trim((string)$in[$f]);
+                $oldV = (string)$item[$f];
+            }
+            if ($newV !== $oldV) $diffs[] = "{$label}「{$oldV}」→「{$newV}」";
+        }
+        if ($diffs) {
+            log_action('改单', "{$item['month']} 项目{$item['project_id']} #{$id} {$item['item_name']}：" . implode('；', $diffs));
+        }
+    }
     return ['ok' => true, 'msg' => '已更新'];
 }
 
@@ -263,7 +287,7 @@ function notify_submitted(string $month, int $project_id, array $user, string $i
     $title = '有新填报待确认';
     $content = "【{$pname}】{$month}月 {$user['name']} 提交了填报（{$item_name}），请及时确认。";
     foreach (admin_user_ids() as $uid) {
-        notify_user((int)$uid, 'fill_submitted', $title, $content, '#/overview');
+        notify_user((int)$uid, 'fill_submitted', $title, $content, '/app/purchase/overview');
     }
 }
 
