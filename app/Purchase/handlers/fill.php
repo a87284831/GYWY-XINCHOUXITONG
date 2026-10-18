@@ -105,13 +105,14 @@ function handle_fill_update($id) {
     }
     $in = json_decode(file_get_contents('php://input'), true) ?? [];
     $oldStatus = $item['status'];
-    $fields = ['line', 'product_id', 'item_name', 'brand', 'spec', 'unit', 'quantity', 'stock', 'reason', 'use_location', 'remark', 'status'];
+    $fields = ['line', 'product_id', 'item_name', 'brand', 'spec', 'unit', 'quantity', 'stock', 'reason', 'use_location', 'remark', 'status', 'is_custom'];
     $sets = []; $params = [];
     foreach ($fields as $f) {
         if (array_key_exists($f, $in)) {
             $sets[] = "{$f}=?";
             $v = $in[$f];
             if ($f === 'product_id') { $v = $v ? (int)$v : null; }
+            elseif ($f === 'is_custom') { $v = (int)$v ? 1 : 0; }
             elseif ($f === 'status') { $v = in_array($v, ['draft', 'submitted']) ? $v : 'draft'; }
             elseif (in_array($f, ['quantity', 'stock'])) { $v = (float)$v; }
             elseif ($f === 'spec') { $v = norm_spec((string)$v); }
@@ -120,10 +121,13 @@ function handle_fill_update($id) {
         }
     }
     if (!$sets) return ['ok' => false, 'msg' => '无更新内容'];
-    // 若选择了标准商品则不再是清单外
-    if (array_key_exists('product_id', $in)) {
-        $sets[] = "is_custom=?";
-        $params[] = $in['product_id'] ? 0 : 1;
+    // 清单外模式：清空商品绑定（is_custom=1 时 product_id 必须为 null）
+    // 兼容旧前端：未传 is_custom 但传了 product_id 时，由 product_id 派生 is_custom
+    $customFlag = array_key_exists('is_custom', $in) ? (int)$in['is_custom'] : null;
+    if ($customFlag === 1) {
+        if (!in_array('product_id=?', $sets)) { $sets[] = "product_id=?"; $params[] = null; }
+    } elseif ($customFlag === null && array_key_exists('product_id', $in)) {
+        if (!in_array('is_custom=?', $sets)) { $sets[] = "is_custom=?"; $params[] = $in['product_id'] ? 0 : 1; }
     }
     $params[] = $id;
     $sets[] = "resubmitted_at=" . ($oldStatus === 'returned' && array_key_exists('status', $in) && ($in['status'] ?? '') === 'submitted' ? 'NOW()' : 'resubmitted_at');

@@ -130,7 +130,8 @@ const SETTING_PAGES = ['settings', 'users', 'logs', 'backup', 'salarySettings', 
 
 export function appOfPage(key) {
   if (key === 'home' || !key) return 'home'
-  if (PURCHASE_PAGES.includes(key)) return 'purchase'
+  // 采购子路由（如 /purchase/fill-form）不在 PURCHASE_PAGES 枚举中，按前缀兜底，避免侧栏误落到 oa
+  if (PURCHASE_PAGES.includes(key) || key.startsWith('purchase/')) return 'purchase'
   if (FINANCE_PAGES.includes(key)) return 'finance'
   if (REPORT_PAGES.includes(key)) return 'report'
   if (MAINT_PAGES.includes(key)) return 'maintain'

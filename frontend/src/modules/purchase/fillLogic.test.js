@@ -87,7 +87,7 @@ describe('rowPayload', () => {
     )
     expect(p).toEqual({
       month: '2026-09', project_id: 12, line: '环境', item_name: 'A4纸', brand: '得力', spec: '70g', unit: '箱',
-      quantity: 3, stock: 1, reason: 'r', use_location: 'u', remark: '', status: 'submitted', product_id: 9,
+      quantity: 3, stock: 1, reason: 'r', use_location: 'u', remark: '', status: 'submitted', product_id: 9, is_custom: 0,
     })
   })
   it('清单外不带 product_id；staff 不带 project_id；退回行非提交保存不传 status（保持 returned 不降级）', () => {
@@ -98,6 +98,7 @@ describe('rowPayload', () => {
     expect(p.product_id).toBeUndefined()
     expect(p.project_id).toBeUndefined()
     expect(p.status).toBeUndefined()
+    expect(p.is_custom).toBe(1)
   })
   it('退回行提交时置 submitted；draft 行保存置 draft', () => {
     const base = { line: '行政', item_name: '临时', brand: '', spec: '', unit: '个', quantity: 1, stock: 0, reason: '', use_location: '', remark: '', is_custom: true, product_id: null }

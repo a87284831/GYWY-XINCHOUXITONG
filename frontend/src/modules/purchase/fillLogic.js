@@ -66,6 +66,9 @@ export function rowPayload(row, month, projectId, isAdmin, submit) {
   if (submit || row.status === 'submitted') m.status = 'submitted'
   else if (row.status !== 'returned') m.status = 'draft'
   if (isAdmin && projectId) m.project_id = projectId
+  // 清单外标记必须显式上传：后端 update 仅在 product_id 出现时才派生 is_custom，
+  // 而清单外行不发 product_id，导致切换清单外后 is_custom 不更新、不进审核队列
+  m.is_custom = row.is_custom ? 1 : 0
   if (!row.is_custom) m.product_id = row.product_id
   return m
 }
