@@ -432,7 +432,8 @@ class AttendanceController extends ApiController
             return response()->json(['ok' => false, 'error' => '月份格式错误'], 400);
         }
         $staffType = $request->string('staff_type')->toString();
-        $staffTypeMap = ['管理人员' => 'manager', '基层人员' => 'staff', '案场人员' => 'case', '总部人员' => 'hq'];
+        // 总部人员不在导出选项内：物业总部考勤走"项目=物业总部"整体导出（2026-10-18 用户口径）
+        $staffTypeMap = ['管理人员' => 'manager', '基层人员' => 'staff', '案场人员' => 'case'];
         if ($staffType !== '' && !isset($staffTypeMap[$staffType])) {
             return response()->json(['ok' => false, 'error' => '人员类型参数错误'], 400);
         }

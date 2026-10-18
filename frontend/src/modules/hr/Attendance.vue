@@ -257,7 +257,8 @@ async function attExport() {
   if (isVirtual.value) {
     typeText = projLabel.value
   } else {
-    const types = [['', '全部人员'], ['管理人员', '管理人员'], ['基层人员', '基层人员'], ['案场人员', '案场人员'], ['总部人员', '总部人员']]
+    // 总部人员不在考勤导出选项内（物业总部考勤走"项目=物业总部"整体导出，不按人员类型细分）
+    const types = [['', '全部人员'], ['管理人员', '管理人员'], ['基层人员', '基层人员'], ['案场人员', '案场人员']]
     const sel = prompt('导出哪种人员？\n' + types.map((t, i) => `${i}=${t[1]}`).join('  '), '0')
     if (sel === null) return
     const t = types[parseInt(sel)] || types[0]
