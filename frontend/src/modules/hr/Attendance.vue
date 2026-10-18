@@ -18,8 +18,8 @@
         <button class="btn danger sm" :disabled="!!blockReason('delete') || (!isVirtual && !curStatus.has_data)" :title="deleteBtnTitle" @click="attDelete">{{ deleteBtnText }}</button>
       </div>
       <div v-if="attMsg" v-html="attMsg"></div>
-      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；查看 / 导出 / 删除 在当月已有该类人员考勤数据时可直接操作（无数据月份置灰），删除将把各项目考勤块中该类人员的行剔除（其他人员数据保留，某项目块删空则整块删除）；锁定 请选择具体项目。</div>
-      <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传按人合并——只更新表中出现的人员，块内其他人数据保留；整表清空请用"删除本项目本月考勤"。</div>
+      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传（回传按人合并，只更新该类人员，块内其他人员数据保留）；查看 / 导出 / 删除 在当月已有该类人员考勤数据时可直接操作（无数据月份置灰），删除将把各项目考勤块中该类人员的行剔除（其他人员数据保留，某项目块删空则整块删除）；锁定 请选择具体项目。</div>
+      <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传为<b>整表覆盖</b>——新表完全替换旧数据，旧表有而新表没有的人员会被移除；也可先用"删除本项目本月考勤"整块清空后再传。</div>
     </div>
     <div class="card">
       <h3>考勤统计预览</h3>
@@ -125,7 +125,7 @@ const deleteBtnTitle = computed(() => {
   }
   return isVirtual.value
     ? `把各项目考勤块中本月${projLabel.value}的行剔除（其他人员数据保留，删空的项目块整块删除）；有项目锁定时需先解锁`
-    : '清空本项目本月全部考勤行（按人合并无法逐人清除时使用）'
+    : '清空本项目本月全部考勤行（只想修正数据可直接重新上传，整表覆盖）'
 })
 
 async function refreshStatus() {
@@ -163,7 +163,9 @@ async function attUpload(e) {
     let warnHtml = ''
     if (r.resigned && r.resigned.length) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 以下人员本月之前已离职，不参与核算：${r.resigned.slice(0, 10).join('、')}${r.resigned.length > 10 ? '等' : ''}</div>`
     if (r.has_calc) warnHtml += `<div style="color:#dc2626;margin-top:6px">⚠ ${ui.month} 已有${isVirtual.value ? '相关项目' : '该项目'}核算结果，确认上传后需重新核算！</div>`
-    if (r.overwrite) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
+    if (r.overwrite) warnHtml += isVirtual.value
+      ? `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
+      : `<div style="color:#dc2626;margin-top:6px">⚠ 将<b>整表覆盖</b>已有的考勤数据：新表完全替换旧数据，旧表有而新表没有的人员将被移除！</div>`
     attMsg.value = `<div class="msg ok" style="border-color:#16a34a">
       <div style="font-weight:600;margin-bottom:6px">校验通过：${r.count} 人${r.overwrite ? '（将覆盖旧数据）' : ''}</div>
       <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${(r.names || []).join('、')}</div>
@@ -188,7 +190,7 @@ async function attUploadConfirm() {
   attMsg.value = `<div class="msg info">正在正式上传...</div>`
   try {
     const r = await api('/api/attendance/upload', { form })
-    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? '（已按人合并旧数据）' : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
+    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? (isVirtual.value ? '（已按人合并旧数据）' : '（已整表覆盖旧数据）') : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
     pendingFile.value = null
     if (fileEl.value) fileEl.value.value = ''
     await refreshStatus()

@@ -162,8 +162,8 @@ class AttendanceController extends ApiController
             'names' => array_slice(array_keys($rows), 0, 50),
             'has_calc' => DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)->exists()];
         if (!$dryRun) {
-            // 按人合并：只更新表中出现的人员，旧块里不在表中的行保留（防止重传冲掉汇总表/其他人数据；整表清空走删除按钮）
-            $this->mergeBlock($ym, $project, $rows);
+            // 整表覆盖：新表完全替换旧块，旧表有而新表没有的人员行随之移除（2026-10-18 用户口径）
+            $this->overwriteBlock($ym, $project, $rows);
         }
         return response()->json(['ok' => true] + $response);
     }
@@ -240,8 +240,9 @@ class AttendanceController extends ApiController
     }
 
     /**
-     * 按人合并写入一个项目的考勤块：incoming 中的人覆盖/新增，
-     * 旧块中不在 incoming 的人原样保留。locked 等字段不动（调用方需先做归档/锁定拦截）。
+     * 按人合并写入一个项目的考勤块：仅虚拟组（管理人员/案场人员）汇总表上传使用——
+     * 表中只含该类人员，incoming 中的人覆盖/新增，块内其他人员的行必须原样保留。
+     * locked 等字段不动（调用方需先做归档/锁定拦截）。
      */
     private function mergeBlock(string $ym, string $project, array $incoming): void
     {
@@ -252,11 +253,18 @@ class AttendanceController extends ApiController
         foreach ($oldRows as $nm => $rec) {
             if (!array_key_exists($nm, $merged)) $merged[$nm] = $rec;
         }
+        $this->overwriteBlock($ym, $project, $merged);
+    }
+
+    /** 整表覆盖写入一个项目的考勤块：新表完全替换旧数据（调用方需先做归档/锁定拦截） */
+    private function overwriteBlock(string $ym, string $project, array $rows): void
+    {
+        $key = $ym . '|' . $project;
         DB::table('payroll_attendance')->updateOrInsert(
             ['record_key' => $key],
             ['year_month' => $ym, 'project_name' => $project,
-             'rows' => json_encode($merged, JSON_UNESCAPED_UNICODE),
-             'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $merged], JSON_UNESCAPED_UNICODE),
+             'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE),
+             'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $rows], JSON_UNESCAPED_UNICODE),
              'updated_at' => now(), 'created_at' => now()]
         );
     }

@@ -297,9 +297,9 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->assertSame([], $this->blockRows('甲项目'));
     }
 
-    // ===== 项目表上传：同样改为按人合并 =====
+    // ===== 项目表上传：整表覆盖（2026-10-18 口径）=====
 
-    public function test_project_upload_merges_by_person_without_deleting_absent_rows(): void
+    public function test_project_upload_overwrites_whole_block_removing_absent_rows(): void
     {
         $this->seedWorld();
         // 旧块含经理甲+员工甲；本次项目表只传员工甲（经理甲的行不在表里）
@@ -312,12 +312,12 @@ class AttendanceGroupTemplateTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $path = $this->makeWorkbook([['name' => '员工甲', 'days' => array_pad(['√'], 30, '')]]);
-        $this->upload($path, '甲项目', $this->adminToken)->assertOk();
+        $this->upload($path, '甲项目', $this->adminToken)->assertOk()->assertJson(['overwrite' => true]);
 
         $jia = $this->blockRows('甲项目');
-        $this->assertArrayHasKey('经理甲', $jia, '不在新表中的旧人员行应保留（防误删，重走删除按钮清空）');
-        $this->assertSame('休', $jia['经理甲']['days'][0]);
+        $this->assertArrayNotHasKey('经理甲', $jia, '整表覆盖：不在新表中的旧人员行被移除');
         $this->assertSame('√', $jia['员工甲']['days'][0]);
+        $this->assertCount(1, $jia);
     }
 
     // ===== 福利列（已发福利/奖励）=====
