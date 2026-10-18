@@ -14,7 +14,7 @@ class AttendanceController extends ApiController
 {
     /** 表头名 => 入库 record key（模板预填与上传解析共用，禁止两边各写一份导致漂移） */
     public const FIELD_MAP = [
-        '姓名' => 'name', '员工工号' => 'emp_no', '人员状态' => 'status', '岗位' => 'position',
+        '姓名' => 'name', '员工工号' => 'emp_no', '人员状态' => 'status', '员工状态' => 'status', '岗位' => 'position',
         '应出勤(天)' => 'req_attend', '应出勤(手填)' => 'req_attend', '实际出勤' => 'act_attend', '实际出勤(天)' => 'act_attend',
         '月度奖励金额' => 'reward', '月度扣罚金额' => 'punish', '餐补' => 'meal_sub',
         '夜班/话餐补贴' => 'night_sub', '夜班/话费补贴' => 'night_sub', '职称/证书补贴' => 'title_sub', '养老保险' => 'pen',
@@ -47,7 +47,40 @@ class AttendanceController extends ApiController
             'locked_at' => isset($records[$project->name]) && $records[$project->name]->locked_at ? (string) $records[$project->name]->locked_at : '',
             'locked_by' => isset($records[$project->name]) ? (string) ($records[$project->name]->locked_by ?? '') : '',
         ])->values();
-        return response()->json(['ok' => true, 'ym' => $ym, 'projects' => $result]);
+        // 虚拟汇总选项（管理人员/案场人员）当月是否有数据：控制前端查看/导出按钮按月置灰
+        $virtual = [];
+        foreach (\App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS as $vKey => $g) {
+            $virtual[$vKey] = $this->virtualGroupHasData($ym, $g);
+        }
+        return response()->json(['ok' => true, 'ym' => $ym, 'projects' => $result, 'virtual' => $virtual]);
+    }
+
+    /** 虚拟组当月是否有考勤数据：与 attendanceVirtualGroup 同口径（按月 categoryMap 分类、管理人员不含物业总部、按姓名匹配块内行） */
+    private function virtualGroupHasData(string $ym, array $group): bool
+    {
+        $category = $group['category'];
+        $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+        $staff = DB::table('payroll_staff')->where('deleted', false)
+            ->where(function ($q) use ($ym) {
+                $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
+                  ->orWhere('resign_date', '>=', $ym . '-01');
+            })
+            ->get(['legacy_id', 'name', 'project_name'])
+            ->filter(function ($p) use ($catMap, $category) {
+                if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
+                return !($category === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
+            });
+        $byProject = [];
+        foreach ($staff as $p) { $byProject[$p->project_name][$p->name] = true; }
+        if (!$byProject) return false;
+        foreach ($byProject as $proj => $names) {
+            $record = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $proj)->first();
+            if (!$record) continue;
+            foreach (($this->jsonValue($record->rows) ?: []) as $name => $att) {
+                if (isset($names[$name])) return true;
+            }
+        }
+        return false;
     }
 
     public function upload(Request $request): JsonResponse

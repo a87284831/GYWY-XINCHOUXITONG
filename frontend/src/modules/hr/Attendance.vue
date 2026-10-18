@@ -18,7 +18,7 @@
         <button v-if="!isProj && !isVirtual" class="btn danger sm" :disabled="!curStatus.has_data" :title="curStatus.has_data ? '清空本项目本月全部考勤行（按人合并无法逐人清除时使用）' : '该项目本月尚未上传考勤数据'" @click="attDelete">删除本项目本月考勤</button>
       </div>
       <div v-if="attMsg" v-html="attMsg"></div>
-      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；上传后按人合并进各自所属项目的考勤块，不影响块内其他人员。查看 / 导出 已支持汇总选项直接操作；锁定 / 删除 请选择具体项目。</div>
+      <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传；查看 / 导出 在当月已有该类人员考勤数据时可直接操作（无数据月份置灰）；锁定 / 删除 请选择具体项目。</div>
       <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传按人合并——只更新表中出现的人员，块内其他人数据保留；整表清空请用"删除本项目本月考勤"。</div>
     </div>
     <div class="card">
@@ -107,7 +107,12 @@ const statusList = ref(null)
 
 const names = computed(() => Object.keys(view.value.rows || {}))
 const curStatus = computed(() => {
-  if (isVirtual.value) return { has_data: false, locked: false }
+  if (isVirtual.value) {
+    // 虚拟组 has_data 来自后端 status 接口的 virtual 字段（null=查询失败/未加载，保守放行）
+    if (statusList.value === null) return { has_data: true, locked: false }
+    const v = statusList.value.virtual || {}
+    return { has_data: !!v[curProj.value], locked: false }
+  }
   if (statusList.value === null) return { has_data: true, locked: attLocked.value }
   return pickProjectStatus(statusList.value, curProj.value)
 })

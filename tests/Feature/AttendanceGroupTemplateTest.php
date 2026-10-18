@@ -81,13 +81,13 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->staff(6, '总部王', 'hq', '物业总部');
     }
 
-    /** 构造可被 parseWorkbook 解析的最小考勤 xlsx，返回临时路径 */
-    private function makeWorkbook(array $people): string
+    /** 构造可被 parseWorkbook 解析的最小考勤 xlsx，返回临时路径（$statusHeader 兼容新旧表头） */
+    private function makeWorkbook(array $people, string $statusHeader = '人员状态'): string
     {
         $days = (int) date('t', strtotime(self::YM . '-01'));
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
-        $sheet->setCellValue('B3', '姓名')->setCellValue('C3', '人员状态')->setCellValue('D3', '岗位');
+        $sheet->setCellValue('B3', '姓名')->setCellValue('C3', $statusHeader)->setCellValue('D3', '岗位');
         for ($d = 1; $d <= $days; $d++) {
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4 + $d) . '3', (string) $d);
         }
@@ -97,6 +97,7 @@ class AttendanceGroupTemplateTest extends TestCase
         foreach ($people as $i => $p) {
             $sheet->setCellValue("A{$r}", $i + 1);
             $sheet->setCellValue("B{$r}", $p['name']);
+            if (isset($p['status'])) $sheet->setCellValue("C{$r}", $p['status']);
             $syms = $p['days'] ?? [];
             for ($d = 1; $d <= $days; $d++) {
                 $sym = $syms[$d - 1] ?? '';
@@ -403,5 +404,20 @@ class AttendanceGroupTemplateTest extends TestCase
         }
         $this->assertNotNull($row);
         $this->assertSame(88, (int) $sheet->getCell("{$welfareCol}{$row}")->getValue(), '虚拟组模板应带出福利值');
+    }
+
+    public function test_upload_accepts_new_status_header(): void
+    {
+        // 回归：2026-10-09 模板表头「人员状态」改为「员工状态」但解析端未同步，
+        // 导致新表头时代上传的考勤 status 被丢弃（查看页状态列显示"-"）。
+        // FIELD_MAP 现双表头兼容，新表头需正常入库。
+        $this->staff(1, '经理甲', 'manager', '甲项目');
+        $path = $this->makeWorkbook([
+            ['name' => '经理甲', 'status' => '正式', 'days' => array_pad(['√'], 5, '')],
+        ], '员工状态');
+        $resp = $this->upload($path, '__managers__', $this->adminToken);
+        $resp->assertOk();
+        $rows = $this->blockRows('甲项目');
+        $this->assertSame('正式', $rows['经理甲']['status'] ?? null, '「员工状态」表头的状态值应入库');
     }
 }

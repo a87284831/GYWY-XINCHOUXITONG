@@ -157,4 +157,37 @@ class AttendanceVirtualGroupViewTest extends TestCase
         $this->assertSame('甲项目', $data['project']);
         $this->assertEqualsCanonicalizing(['员工甲', '同名', '案场甲', '经理甲', '新提拔'], array_keys($data['rows']));
     }
+
+    public function test_status_reports_virtual_group_has_data(): void
+    {
+        $this->seedWorld();
+        $resp = $this->get('/api/attendance/status?ym=' . self::YM, ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $data = $resp->json();
+        // 管理人员（经理甲/经理乙/同名行在各项目块中）与案场（案场甲）均有数据
+        $this->assertTrue($data['virtual']['__managers__']);
+        $this->assertTrue($data['virtual']['__case__']);
+    }
+
+    public function test_status_virtual_false_when_month_has_no_blocks(): void
+    {
+        $this->staff(1, '经理甲', 'manager', '甲项目');
+        $this->staff(2, '案场甲', 'case', '甲项目');
+        // 该月无任何考勤块 → 两个虚拟组均无数据（前端按钮置灰依据）
+        $resp = $this->get('/api/attendance/status?ym=' . self::YM, ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $data = $resp->json();
+        $this->assertFalse($data['virtual']['__managers__']);
+        $this->assertFalse($data['virtual']['__case__']);
+    }
+
+    public function test_status_virtual_managers_excludes_hq_rows(): void
+    {
+        // 仅物业总部块有经理行：按口径不进管理人员汇总 → __managers__ 为 false
+        $this->staff(5, '总部经理', 'manager', '物业总部');
+        $this->block('物业总部', ['总部经理' => $this->row(5, '总部经理')]);
+        $resp = $this->get('/api/attendance/status?ym=' . self::YM, ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $this->assertFalse($resp->json('virtual.__managers__'));
+    }
 }
