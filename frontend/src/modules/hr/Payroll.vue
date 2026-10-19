@@ -34,6 +34,7 @@
             </label>
           </div>
           <div v-if="calcMsg" v-html="calcMsg"></div>
+          <CalcNotice v-if="calcNotice" :notice="calcNotice" />
         </template>
         <div v-else class="msg info">项目账号仅可查看/导出本项目已由总部核定完成的薪资数据，薪资核定与归档权限仅总部管理员拥有。</div>
       </div>
@@ -154,7 +155,7 @@
         </div>
         <div class="hint">{{ TP_META[tp].hint }}</div>
         <div v-if="typeErr[tp]" class="msg err">{{ typeErr[tp] }}</div>
-        <div v-if="typeMsg[tp]" v-html="typeMsg[tp]"></div>
+        <CalcNotice v-if="typeNotice[tp]" :notice="typeNotice[tp]" />
         <div style="margin-top:10px">
           <template v-if="typeRows[tp].length">
             <div v-html="attStatusHtml"></div>
@@ -420,7 +421,8 @@ import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
+import CalcNotice from './CalcNotice.vue'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -464,6 +466,7 @@ const TP_META = {
 const payTab = ref('emp')
 const calcProjects = ref(auth.projects.slice())
 const calcMsg = ref('')
+const calcNotice = ref(null)
 const histFile = ref(null)
 const empRows = ref([])
 const empMeta = ref({})
@@ -477,7 +480,7 @@ const typeLogs = reactive({ mgr: [], case: [], hq: [] })
 const typeArchived = reactive({ mgr: false, case: false, hq: false })
 const typeAdjusted = reactive({ mgr: [], case: [], hq: [] })
 const typeErr = reactive({ mgr: '', case: '', hq: '' })
-const typeMsg = reactive({ mgr: '', case: '', hq: '' })
+const typeNotice = reactive({ mgr: null, case: null, hq: null })
 const typeProjFilter = reactive({ mgr: '', case: '', hq: '' })
 const typeSel = reactive({ mgr: '', case: '', hq: '' })
 const typeTableEls = {}
@@ -702,20 +705,16 @@ async function doCalc() {
       body: { ym: ui.month, projects: calcProjects.value, force },
     }))
     if (r.__cancelled) return
-    const notices = groupNotices(r.missing || [], r.warnings || [])
-    const dangerTxt = notices.danger.length
-      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    const infoTxt = notices.info.length
-      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    let msg = `核算完成，共 ${r.count} 人。`
-    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
-    msg += dangerTxt ? `\n${dangerTxt}` : ''
-    msg += infoTxt ? `\n${infoTxt}` : ''
-    calcMsg.value = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
+    calcNotice.value = buildCalcNotice({
+      title: `${ui.month} 员工核算完成`,
+      count: r.count, skipped: r.skipped, missing: r.missing, warnings: r.warnings,
+    })
+    calcMsg.value = ''
     loadPayroll()
-  } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
+  } catch (e) {
+    calcNotice.value = null
+    calcMsg.value = `<div class="msg err">${escHtml(e.message)}</div>`
+  }
 }
 
 function downloadHistoryTemplate() {
@@ -759,21 +758,17 @@ async function doCalcType(tp) {
   try {
     const r = await calcWithLockGuard((force) => api(TP_META[tp].calcApi, { body: { ym: ui.month, force } }))
     if (r.__cancelled) return
-    const notices = groupNotices(r.missing || [], r.warnings || [])
-    const dangerTxt = notices.danger.length
-      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    const infoTxt = notices.info.length
-      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    let msg = `${label}完成，共 ${r.count} 人。`
-    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
-    msg += dangerTxt ? `\n${dangerTxt}` : ''
-    msg += infoTxt ? `\n${infoTxt}` : ''
-    typeMsg[tp] = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
+    typeNotice[tp] = buildCalcNotice({
+      title: `${ui.month} ${TP_META[tp].noun}核算完成`,
+      count: r.count, skipped: r.skipped, missing: r.missing, warnings: r.warnings,
+    })
+    typeErr[tp] = ''
     loadType(tp)
     loadPayroll()
-  } catch (e) { typeMsg[tp] = `<div class="msg err">${e.message}</div>` }
+  } catch (e) {
+    typeNotice[tp] = null
+    typeErr[tp] = e.message
+  }
 }
 
 async function postArchive(body) {

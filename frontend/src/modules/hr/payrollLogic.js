@@ -184,6 +184,23 @@ export function groupNotices(missing, warnings) {
 }
 
 /**
+ * 组装核算结果提示卡片（CalcNotice.vue）数据：
+ * 头部标题 + 核算人数 + 分级明细（danger/info）+ 跳过名单。
+ * kind：danger 非空为 'warn'（需处理后重新核算），否则 'ok'。
+ */
+export function buildCalcNotice({ title, count = 0, skipped = [], missing = [], warnings = [] }) {
+  const { danger, info } = groupNotices(missing, warnings)
+  return {
+    title,
+    count: count || 0,
+    kind: danger.length ? 'warn' : 'ok',
+    danger,
+    info,
+    skipped: Array.isArray(skipped) ? skipped : [],
+  }
+}
+
+/**
  * 生成归档前异常确认文案。
  * 首行：「以下 N 条薪资异常未处理：」；每条一行：「姓名（项目）：reason」（project 为空则只写「姓名：reason」）；
  * 末行固定：「确认仍要归档吗？忽略异常可能导致错误工资发放。」
