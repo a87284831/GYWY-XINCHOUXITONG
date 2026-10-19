@@ -15,7 +15,7 @@ use RuntimeException;
  *      全部从 calc_rules 读取；缺省值保持与旧代码一致，避免未配置时结果漂移。
  *   2. 应发(gross) 与 实发(net) 使用 rules.formula.gross / rules.formula.net
  *      通过 Expr 求值（表达式引擎，无 eval）。
- *   3. 累计预扣的起点受 tax.cum_start 影响（jan=当年一月, hire=入职月）。
+ *   3. 累计预扣的起点受 tax.cum_start 影响（jan=当年一月, prev_dec=上年十二月）。
  *   4. 无考勤数据时不再 delete+空 insert，避免误清空历史结果。
  *   5. 重算保留 archived 标记；未被重新核算的归档行原样回插，不再静默丢失。
  *   6. 公式求值失败（含未定义变量）直接抛异常，整月结果不落库，避免静默按 0 计薪。
@@ -242,11 +242,16 @@ class PayrollCalculator
         if ($category === 'staff') $staffQ->whereIn('project_name', $projects);
         $staff = $staffQ->get()->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $category);
 
-        // 预取当年历史核算结果（累计预扣个税用），避免逐员工 N+1 查询
+        // 预取累计预扣个税所需的历史核算结果（避免逐员工 N+1 查询）。
+        // 下界随起算口径变化：prev_dec 需把「上年12月」纳入（次月发薪 → 该行属本纳税年度），
+        // 逐人再按各自 startMonth 过滤，故这里取一个覆盖全部人员的统一下界即可。
+        $historyFloor = $this->rules->str('tax.cum_start', 'jan') === 'prev_dec'
+            ? ((int)substr($ym, 0, 4) - 1) . '-12'
+            : substr($ym, 0, 4) . '-01';
         $historyByStaff = collect();
         if (!$staff->isEmpty()) {
             $historyByStaff = DB::table('payroll_results')
-                ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
+                ->where('year_month', '>=', $historyFloor)
                 ->where('year_month', '<', $ym)
                 ->whereIn('staff_legacy_id', $staff->pluck('legacy_id')->all())
                 ->get()->groupBy('staff_legacy_id');
@@ -793,16 +798,8 @@ class PayrollCalculator
         // 个税扣除模式：0=普通（每月 basic_deduction 累计）；1=6万扣除（年初一次性按全年6万）
         $taxMode = (int)($data['tax_mode'] ?? 0);
         $cumStartMode = $this->rules->str('tax.cum_start', 'jan');
-        $yearStart = substr($ym, 0, 4) . '-01';
         $hireMonth = $person->hire_date ? substr((string)$person->hire_date, 0, 7) : null;
-        if ($hireMonth !== null) {
-            // 有入职日：起算月 = max(入职月, 当年1月)，与旧版一致（跨年不多算月数）
-            $startMonth = max($hireMonth, $yearStart);
-        } else {
-            // 无入职日：cum_start=month 按当月，否则当年1月
-            $startMonth = $cumStartMode === 'month' ? $ym : $yearStart;
-        }
-        if ($startMonth > $ym) $startMonth = $ym;
+        $startMonth = $this->taxStartMonth($ym, $hireMonth, $cumStartMode);
         $monthNumber = 0; $cursor = $startMonth;
         while ($cursor <= $ym) { $monthNumber++; $cursor = date('Y-m', strtotime($cursor . '-01 +1 month')); }
         $incomeBefore = 0.0; $socialBefore = 0.0; $specBefore = 0.0; $taxBefore = 0.0;
@@ -938,15 +935,9 @@ class PayrollCalculator
             // 个税扣除模式：0=普通（每月 basic_deduction 累计）；1=6万扣除（年初一次性按全年6万）
             $taxMode = (int)($personData['tax_mode'] ?? 0);
             $cumStartMode = $this->rules->str('tax.cum_start', 'jan');
-            $yearStart = substr($ym, 0, 4) . '-01';
             $hireMonth = $person && $person->hire_date
                 ? substr((string)$person->hire_date, 0, 7) : null;
-            if ($hireMonth !== null) {
-                $startMonth = max($hireMonth, $yearStart);
-            } else {
-                $startMonth = $cumStartMode === 'month' ? $ym : $yearStart;
-            }
-            if ($startMonth > $ym) $startMonth = $ym;
+            $startMonth = $this->taxStartMonth($ym, $hireMonth, $cumStartMode);
             $monthNumber = 0; $cursor = $startMonth;
             while ($cursor <= $ym) { $monthNumber++; $cursor = date('Y-m', strtotime($cursor . '-01 +1 month')); }
             $incomeBefore = 0.0; $socialBefore = 0.0; $specBefore = 0.0; $taxBefore = 0.0;
@@ -955,7 +946,6 @@ class PayrollCalculator
                 // （如年中入职、离职后重新入职——历史查询口径必须与 monthNumber 的起算月一致）
                 $previous = DB::table('payroll_results')
                     ->where('staff_legacy_id', $staffId)
-                    ->where('year_month', 'like', substr($ym, 0, 4) . '-%')
                     ->where('year_month', '>=', $startMonth)
                     ->where('year_month', '<', $ym)->get();
                 foreach ($previous as $oldResult) {
@@ -1090,6 +1080,30 @@ class PayrollCalculator
             $tax['brackets'] = self::DEFAULT_TAX_BRACKETS;
         }
         return $tax;
+    }
+
+    /**
+     * 个税累计起算月（核算路径与微调重算路径共用，保证同口径）。
+     *   jan（默认，=现状）：起算月 = max(入职月, 当年1月)；无入职日期 = 当年1月。
+     *   prev_dec（次月发薪口径）：纳税年度起算工资月 = 上年12月；但 12 月的工资在次年 1 月申报，
+     *     属下一纳税年度首月 → 12 月核算窗口仅含自身。起算月 = max(入职月, 起算工资月)；
+     *     无入职日期者取起算工资月（独立计税：不早于入职月）。
+     */
+    private function taxStartMonth(string $ym, ?string $hireMonth, string $mode): string
+    {
+        $year = (int)substr($ym, 0, 4);
+        $month = (int)substr($ym, 5, 2);
+        if ($mode === 'prev_dec') {
+            $windowStart = $month === 12
+                ? sprintf('%04d-12', $year)          // 当年12月：本核算月即新纳税年度首月
+                : sprintf('%04d-12', $year - 1);     // 上年12月
+            $start = $hireMonth !== null ? max($hireMonth, $windowStart) : $windowStart;
+        } else {
+            $yearStart = sprintf('%04d-01', $year);
+            $start = $hireMonth !== null ? max($hireMonth, $yearStart) : $yearStart;
+        }
+        if ($start > $ym) $start = $ym;
+        return $start;
     }
 
     private function taxAmount(float $taxable, array $config): float

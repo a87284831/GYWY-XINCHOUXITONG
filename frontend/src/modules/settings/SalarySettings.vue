@@ -123,8 +123,8 @@
           <template v-else-if="sec === '⑦ 个人所得税'">
             <div class="row">
               <label class="fld">基本减除 <input type="number" v-model.number="fm.tax_basic" style="width:70px"> 元/月</label>
-              <label class="fld" style="margin-left:16px">累计起算 <select v-model="fm.cum_start" style="width:100px">
-                <option value="jan">当年1月</option><option value="month">核算当月</option></select></label>
+              <label class="fld" style="margin-left:16px">累计起算 <select v-model="fm.cum_start" style="width:150px">
+                <option value="jan">当年1月起算（默认）</option><option value="prev_dec">上年12月起算</option></select></label>
             </div>
             <div class="hint" style="margin:8px 0 4px">个人所得税税率级距表（累计预扣法）— 累计应纳税所得额落入哪一档即按该档税率计税并减去速算扣除数；最后一级为最高档，不设上限。修改后点下方「保存全部设置」即与薪资核算联动。</div>
             <div>
@@ -282,7 +282,7 @@ function initFm() {
   fm.late_on = !!le.enabled
   fm.late_per = le.per_time
   fm.tax_basic = R.tax.basic_deduction
-  fm.cum_start = R.tax.cum_start === 'month' ? 'month' : 'jan'
+  fm.cum_start = R.tax.cum_start === 'prev_dec' ? 'prev_dec' : 'jan'
   fm.gross = cnFormula((R.formula || {}).gross) || GROSS_DEFAULT
   fm.net = cnFormula((R.formula || {}).net) || NET_DEFAULT
   const src = (R.tax && Array.isArray(R.tax.brackets) && R.tax.brackets.length) ? R.tax.brackets : STD_TAX_BRACKETS
