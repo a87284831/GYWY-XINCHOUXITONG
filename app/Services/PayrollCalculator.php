@@ -275,6 +275,14 @@ class PayrollCalculator
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
             $att = $this->findAttRow($attRows, $person);
             if (!$att) {
+                // 口径A（2026-10-19）：核算月初之前已离职的人员不进「考勤缺人」info 清单。
+                // 离职人员行保留（deleted=false），不过滤会让所有历史离职人员每月重复出现在核算提示里；
+                // 当月内离职（含月初当天，resign_date >= 月初）或无离职日期者仍提示，
+                // 防止吞掉「当月离职却无考勤」的真实异常。
+                if (!empty($person->resign_date)
+                    && substr((string)$person->resign_date, 0, 10) < $ym . '-01') {
+                    continue;
+                }
                 // 考勤缺人不再静默跳过：汇总进 missing（info），由调用方透传前端提示
                 $missing[] = [
                     'name' => $person->name, 'project' => $person->project_name,
