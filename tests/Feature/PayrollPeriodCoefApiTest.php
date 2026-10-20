@@ -102,6 +102,22 @@ class PayrollPeriodCoefApiTest extends TestCase
         $resp2->assertJson(['ok' => false]);
     }
 
+    public function test_pending_accepts_category_filter(): void
+    {
+        // 2026-10-20 用户报告：总部 tab 录系数时弹窗混入管理人员——
+        // 接口新增可选 category 参数：hq 只返回总部、manager 只返回管理、非法值 422
+        $this->seedStaff(1, '张三', 'manager');
+        $this->seedStaff(2, '李四', 'hq', '主管级');
+        $resp = $this->getJson('/api/payroll/period-coef/pending?ym=2026-04&category=hq', ['X-Token' => $this->token]);
+        $resp->assertOk();
+        $this->assertSame(['李四'], collect($resp->json('items'))->pluck('name')->all());
+        $resp2 = $this->getJson('/api/payroll/period-coef/pending?ym=2026-04&category=manager', ['X-Token' => $this->token]);
+        $resp2->assertOk();
+        $this->assertSame(['张三'], collect($resp2->json('items'))->pluck('name')->all());
+        $resp3 = $this->getJson('/api/payroll/period-coef/pending?ym=2026-04&category=staff', ['X-Token' => $this->token]);
+        $resp3->assertStatus(422);
+    }
+
     public function test_pending_coef_quarter_grade_lists_only_quarter_modes_and_no_half_period(): void
     {
         // manager 走季度绩效法：经理级=季度型（进名单），主管级=月度型（不进名单）

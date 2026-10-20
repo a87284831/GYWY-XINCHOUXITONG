@@ -147,7 +147,7 @@
           <button
             v-if="(tp === 'mgr' || tp === 'hq') && isQuarterEndMonth(ui.month)"
             class="btn warn"
-            @click="openCoefDialog()"
+            @click="openCoefDialog(tp)"
           >{{ coefEntryLabel(ui.month) }}</button>
           <span v-html="typeArchiveHtml[tp]"></span>
           <span style="flex:1"></span>
@@ -865,14 +865,16 @@ async function saveAdjust() {
   } catch (e) { alert(e.message) }
 }
 
-async function openCoefDialog() {
+async function openCoefDialog(tab) {
   coefDialog.show = true
   coefDialog.loading = true
   coefDialog.err = ''
   coefDialog.ym = ui.month
   coefDialog.items = []
   try {
-    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}`)
+    // 按 tab 过滤人员类型：管理 tab 只列管理人员、总部 tab 只列总部人员（2026-10-20）
+    const cat = tab === 'hq' ? 'hq' : 'manager'
+    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}&category=${cat}`)
     if (!r.ok) { coefDialog.err = r.error || r.message || '当前月份不是季度末月，无需录入季度系数'; coefDialog.loading = false; return }
     coefDialog.period = r.period
     coefDialog.half_period = r.half_period || null

@@ -564,6 +564,11 @@ class PayrollController extends ApiController
         if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
             return response()->json(['ok' => false, 'error' => '无效月份'], 422);
         }
+        // 可选分类过滤：管理/总部 tab 各自录系数时只列本类人员（2026-10-20 用户报告弹窗混类）
+        $category = $request->string('category')->toString();
+        if ($category !== '' && !in_array($category, ['manager', 'hq'], true)) {
+            return response()->json(['ok' => false, 'error' => '无效人员类型'], 422);
+        }
         $year = (int)substr($ym, 0, 4);
         $month = (int)substr($ym, 5, 2);
         // 季度末月 → 刚结束季度的标识；7月/1月同时返回半年度标识
@@ -584,9 +589,11 @@ class PayrollController extends ApiController
             'hq' => $calcRules->raw('pay_rules.hq.cycle', 'monthly') ?: 'monthly',
         ];
         $effectiveHKey = in_array('quarterly', $cycles, true) ? $hKey : null;
-        $staff = DB::table('payroll_staff')->where('deleted', false)
-            ->whereIn('person_type', ['manager', 'hq'])
-            ->get()
+        $staffQ = DB::table('payroll_staff')->where('deleted', false);
+        $staffQ = $category !== ''
+            ? $staffQ->where('person_type', $category)
+            : $staffQ->whereIn('person_type', ['manager', 'hq']);
+        $staff = $staffQ->get()
             // 周期开始前已离职的人员无需录入
             ->filter(fn ($s) => empty($s->resign_date) || substr((string)$s->resign_date, 0, 7) >= $qFirstYm)
             // 季度绩效法下仅「季度型」档位人员需要季度系数；月度型档位直接当月发放，不进名单
