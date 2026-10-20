@@ -240,14 +240,15 @@ onMounted(load)
 
       <div v-if="dupList.length" style="margin-top:12px;padding:10px;border-radius:6px;background:#fdf6ec">
         <el-alert type="warning" :closable="false" show-icon title="标准库存在同名商品，请选择处理方式" />
-        <el-select v-model="dupPick" placeholder="选择要归入的已有商品" filterable clearable
+        <el-select v-model="dupPick" placeholder="选择已有商品（归入或新增规格）" filterable clearable
           style="width:100%;margin-top:8px">
           <el-option v-for="d in dupList" :key="d.id" :label="d.name + '（' + (d.spec || '-') + '）'" :value="d.id" />
         </el-select>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
-          <el-button @click="dupList = []; dupPick = null">取消选择</el-button>
-          <el-button type="warning" @click="doSave(dupRow, 'create', 0)">仍要新建</el-button>
-          <el-button type="primary" :disabled="!dupPick" @click="doSave(dupRow, 'merge', dupPick)">归入已有</el-button>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <el-button @click="dupList = []; dupPick = null">取消</el-button>
+          <el-button type="warning" @click="doSave(dupRow, 'create', 0)">仍要新建商品</el-button>
+          <el-button type="success" :disabled="!dupPick" @click="doSave(dupRow, 'add_spec', dupPick)">给该商品新增规格</el-button>
+          <el-button type="primary" :disabled="!dupPick" @click="doSave(dupRow, 'merge', dupPick)">归入已有规格</el-button>
         </div>
       </div>
 

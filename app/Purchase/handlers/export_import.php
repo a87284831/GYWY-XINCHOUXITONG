@@ -64,7 +64,8 @@ function handle_export_excel() {
         $st = db()->prepare(
             "SELECT pi.*, p.name AS project_name FROM purchase_items pi
              JOIN payroll.payroll_projects p ON pi.project_id=p.id
-             WHERE pi.month=? ORDER BY FIELD(pi.line,'环境','绿化','工程','秩序','行政'), pi.project_id, pi.id"
+             WHERE pi.month=? AND pi.status IN ('submitted','confirmed')
+             ORDER BY FIELD(pi.line,'环境','绿化','工程','秩序','行政'), pi.project_id, pi.id"
         );
         $st->execute([$month]);
         $items = $st->fetchAll();

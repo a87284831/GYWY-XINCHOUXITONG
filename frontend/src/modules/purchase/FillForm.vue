@@ -404,7 +404,8 @@ onUnmounted(() => clearTimeout(draftTimer))
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="商品名称" min-width="180">
+      <el-table-column min-width="180">
+        <template #header><span style="color:#f56c6c">*</span> 商品名称</template>
         <template #default="{ row }">
           <el-autocomplete v-if="!row.is_custom" v-model="row.item_name" size="small" style="width:100%"
             :fetch-suggestions="(q, cb) => searchNames(row, q, cb)" :trigger-on-focus="false"
@@ -416,7 +417,8 @@ onUnmounted(() => clearTimeout(draftTimer))
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="规格型号" width="150">
+      <el-table-column width="150">
+        <template #header><span style="color:#f56c6c">*</span> 规格型号</template>
         <template #default="{ row }">
           <el-select v-if="!row.is_custom" v-model="row.spec" size="small" style="width:100%" placeholder="选择规格"
             :disabled="isRowReadonly(row, isAdmin)" @change="selectSpec(row)">
@@ -435,12 +437,14 @@ onUnmounted(() => clearTimeout(draftTimer))
           <el-input v-model="row.unit" size="small" placeholder="如箱/个" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
-      <el-table-column label="数量" width="100">
+      <el-table-column width="100">
+        <template #header><span style="color:#f56c6c">*</span> 数量</template>
         <template #default="{ row }">
           <el-input-number v-model="row.quantity" size="small" style="width:100%" :min="0" :controls="false" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
-      <el-table-column label="库存" width="100">
+      <el-table-column width="100">
+        <template #header><span style="color:#f56c6c">*</span> 库存</template>
         <template #default="{ row }">
           <el-input-number v-model="row.stock" size="small" style="width:100%" :min="0" :controls="false" :disabled="isRowReadonly(row, isAdmin)" />
         </template>

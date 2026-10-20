@@ -319,7 +319,7 @@ function handle_admin_customs_check_duplicate() {
     return ['ok' => true, 'data' => $st->fetchAll()];
 }
 
-// 清单外「编辑入库」：mode=create 新建标准商品并归入；mode=merge 归入已有商品。
+// 清单外「编辑入库」：mode=create 新建标准商品；mode=merge 归入已有商品；mode=add_spec 给已有商品新增规格。
 // 管理员可修改员工填的所有字段：条线/分类/名称/品牌/规格/单位/数量/现有库存/使用地点/备注；别名可改（默认员工原填名称）。
 function handle_admin_customs_save() {
     require_admin();
@@ -330,7 +330,7 @@ function handle_admin_customs_save() {
     $item = fetch_item($item_id);
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
-    if ($mode !== 'create' && $mode !== 'merge') return ['ok' => false, 'msg' => 'mode 参数错误（create/merge）'];
+    if (!in_array($mode, ['create', 'merge', 'add_spec'], true)) return ['ok' => false, 'msg' => 'mode 参数错误（create/merge/add_spec）'];
 
     // 可编辑字段（员工填报的全部业务字段，申购原因 reason 按口径不编辑、保留原值）
     $line = trim((string)($in['line'] ?? $item['line']));
@@ -344,7 +344,7 @@ function handle_admin_customs_save() {
     $use_location = trim((string)($in['use_location'] ?? $item['use_location'] ?? ''));
     $remark = trim((string)($in['remark'] ?? $item['remark'] ?? ''));
 
-    // 预校验（不写库）：merge 目标商品存在性 / create 必填与唯一键防重
+    // 预校验
     $product_id = 0; $prod = null;
     if ($mode === 'merge') {
         $product_id = (int)($in['product_id'] ?? 0);
@@ -356,7 +356,23 @@ function handle_admin_customs_save() {
         // 归入已有时以标准商品为准：条线/分类/名称/品牌/规格/单位用商品自带值
         $line = $prod['line']; $category = $prod['category'];
         $name = $prod['name']; $brand = $prod['brand']; $spec = $prod['spec']; $unit = $prod['unit'];
+    } elseif ($mode === 'add_spec') {
+        // 给已有商品新增规格：以 base_product 的名称/条线/分类/品牌/单位为准，规格用新填值
+        $base_id = (int)($in['base_product_id'] ?? 0);
+        if ($base_id <= 0) return ['ok' => false, 'msg' => '请选择要新增规格的标准商品'];
+        $pst = db()->prepare('SELECT * FROM products WHERE id=? AND status=1');
+        $pst->execute([$base_id]);
+        $base = $pst->fetch();
+        if (!$base) return ['ok' => false, 'msg' => '目标商品不存在'];
+        if ($spec === '') return ['ok' => false, 'msg' => '新增规格必填'];
+        // 校验同商品下规格不重复
+        $dup = db()->prepare('SELECT id FROM products WHERE status=1 AND name=? AND brand=? AND spec=? AND unit=? LIMIT 1');
+        $dup->execute([$base['name'], $base['brand'], $spec, $base['unit']]);
+        if ($dup->fetch()) return ['ok' => false, 'msg' => '该商品已存在相同规格，请选择归入已有'];
+        $line = $base['line']; $category = $base['category'];
+        $name = $base['name']; $brand = $base['brand']; $unit = $base['unit'];
     } else {
+        // create
         if ($name === '') return ['ok' => false, 'msg' => '商品名称必填'];
         if ($line === '') return ['ok' => false, 'msg' => '条线必填'];
         if ($category === '') return ['ok' => false, 'msg' => '分类必填'];
@@ -371,7 +387,7 @@ function handle_admin_customs_save() {
     $alias = mb_substr($alias, 0, 100);
     $by = (int)($in['by'] ?? $in['created_by'] ?? 0);
 
-    // 写库原子性：单请求内开事务；外层已有事务（测试）则不嵌套
+    // 写库原子性
     $tx = !db()->inTransaction();
     if ($tx) db()->beginTransaction();
     try {
@@ -389,6 +405,7 @@ function handle_admin_customs_save() {
                 ->execute([$item_id, $product_id, 'map', $aliasSaved, '清单外编辑入库-归入已有商品', $by]);
             log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 归入已有标准商品「{$name}」");
         } else {
+            // create 或 add_spec 都需要插入 products 新行
             db()->prepare('INSERT INTO products (line, category, name, brand, spec, unit, status) VALUES (?,?,?,?,?,?,1)')
                 ->execute([$line, $category, $name, $brand, $spec, $unit]);
             $product_id = (int) db()->lastInsertId();
@@ -400,12 +417,16 @@ function handle_admin_customs_save() {
                     db()->prepare('INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)')->execute([$product_id, $alias]);
                 } catch (PDOException $e) {}
             }
+            $note = $mode === 'add_spec' ? '清单外编辑入库-已有商品新增规格' : '清单外编辑入库-新建标准商品';
             db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
-                ->execute([$item_id, $product_id, 'new', $aliasSaved, '清单外编辑入库-新建标准商品', $by]);
-            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 新建标准商品「{$name}」入库");
+                ->execute([$item_id, $product_id, $mode === 'add_spec' ? 'add_spec' : 'new', $aliasSaved, $note, $by]);
+            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ " . ($mode === 'add_spec' ? "给已有商品「{$name}」新增规格「{$spec}」" : "新建标准商品「{$name}」入库"));
         }
         if ($tx) db()->commit();
-        return ['ok' => true, 'msg' => $mode === 'merge' ? '已归入标准商品「' . $name . '」' : '已新建标准商品「' . $name . '」并归入'];
+        if ($mode === 'merge') $msg = '已归入标准商品「' . $name . '」';
+        elseif ($mode === 'add_spec') $msg = '已给「' . $name . '」新增规格「' . $spec . '」并归入';
+        else $msg = '已新建标准商品「' . $name . '」并归入';
+        return ['ok' => true, 'msg' => $msg];
     } catch (\Throwable $e) {
         if ($tx) db()->rollBack();
         throw $e;
