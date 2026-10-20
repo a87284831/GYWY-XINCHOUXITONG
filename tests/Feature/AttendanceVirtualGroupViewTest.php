@@ -47,7 +47,7 @@ class AttendanceVirtualGroupViewTest extends TestCase
         DB::table('payroll_projects')->insert([
             ['name' => '甲项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
             ['name' => '乙项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
-            ['name' => '物业总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
+            ['name' => '物业公司总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
         ]);
         DB::table('legacy_json_snapshots')->insert([
             'file_name' => 'symbols.json',
@@ -90,7 +90,7 @@ class AttendanceVirtualGroupViewTest extends TestCase
         $this->staff(3, '案场甲', 'case', '甲项目');
         $this->staff(4, '员工甲', 'staff', '甲项目');
         // 物业总部的管理人员标记：走总部自己的入口，不进管理人员汇总
-        $this->staff(5, '总部经理', 'manager', '物业总部');
+        $this->staff(5, '总部经理', 'manager', '物业公司总部');
         // 跨项目同名管理人员：显示名需加项目后缀防键冲突
         $this->staff(6, '同名', 'manager', '甲项目');
         $this->staff(7, '同名', 'manager', '乙项目');
@@ -108,7 +108,7 @@ class AttendanceVirtualGroupViewTest extends TestCase
             '经理乙' => $this->row(2, '经理乙'),
             '同名' => $this->row(7, '同名'),
         ]);
-        $this->block('物业总部', [
+        $this->block('物业公司总部', [
             '总部经理' => $this->row(5, '总部经理'),
         ]);
     }
@@ -184,8 +184,8 @@ class AttendanceVirtualGroupViewTest extends TestCase
     public function test_status_virtual_managers_excludes_hq_rows(): void
     {
         // 仅物业总部块有经理行：按口径不进管理人员汇总 → __managers__ 为 false
-        $this->staff(5, '总部经理', 'manager', '物业总部');
-        $this->block('物业总部', ['总部经理' => $this->row(5, '总部经理')]);
+        $this->staff(5, '总部经理', 'manager', '物业公司总部');
+        $this->block('物业公司总部', ['总部经理' => $this->row(5, '总部经理')]);
         $resp = $this->get('/api/attendance/status?ym=' . self::YM, ['X-Token' => $this->adminToken]);
         $resp->assertOk();
         $this->assertFalse($resp->json('virtual.__managers__'));

@@ -56,8 +56,8 @@ class PayrollCalculator
 
     public function __construct(private readonly CalcRules $rules = new CalcRules()) {}
 
-    /** 总部载体项目名：该项目人员走"物业总部"自己的考勤/工资入口，不计入跨项目管理表 */
-    public const HQ_PROJECT = '物业总部';
+    /** 总部载体项目名（与 payroll_projects 表一致）：该项目人员走自己的考勤/工资入口，不计入跨项目管理表 */
+    public const HQ_PROJECT = '物业公司总部';
 
     /**
      * 考勤下拉框的跨项目虚拟"项目"：哨兵值 => [显示名, 人员分类]。
@@ -181,7 +181,7 @@ class PayrollCalculator
 
         // 1) missing_base：薪资基数为 0 且当月有实际出勤的人员（核算时已被跳过，无 results 行）
         foreach ($staff as $p) {
-            $block = $attBlocks[$isHq ? '物业总部' : $p->project_name] ?? null;
+            $block = $attBlocks[$isHq ? self::HQ_PROJECT : $p->project_name] ?? null;
             if (!$block) continue; // 无考勤块无从判出勤，与核算 no_attendance 护栏一致
             $attRows = $this->jsonValue($block->rows) ?: [];
             $att = $this->findAttRow($attRows, $p);
@@ -267,15 +267,15 @@ class PayrollCalculator
             foreach ($projects as $p) { if (isset($attBlocks[$p])) { $anyAttendance = true; break; } }
             if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         } elseif ($isHq) {
-            // 总部人员考勤统一取"物业总部"考勤块（总部考勤表单独上传）
-            if (!isset($attBlocks['物业总部'])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
+            // 总部人员考勤统一取总部载体项目考勤块（总部考勤表单独上传）
+            if (!isset($attBlocks[self::HQ_PROJECT])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         } elseif ($attBlocks->isEmpty()) {
             return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
         }
 
         $rows = []; $missing = []; $warnings = [];
         foreach ($staff as $person) {
-            $block   = $attBlocks[$isHq ? '物业总部' : $person->project_name] ?? null;
+            $block   = $attBlocks[$isHq ? self::HQ_PROJECT : $person->project_name] ?? null;
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
             $att = $this->findAttRow($attRows, $person);
             if (!$att) {

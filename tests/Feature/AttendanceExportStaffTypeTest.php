@@ -85,18 +85,18 @@ class AttendanceExportStaffTypeTest extends TestCase
     public function test_hq_project_export_includes_hq_staff(): void
     {
         DB::table('payroll_staff')->insert([
-            ['legacy_id' => 3, 'name' => '王五', 'project_name' => '物业总部', 'position' => '总部专员',
+            ['legacy_id' => 3, 'name' => '王五', 'project_name' => '物业公司总部', 'position' => '总部专员',
              'status' => '正式', 'person_type' => 'hq', 'deleted' => false,
              'hire_date' => '2025-01-01', 'created_at' => now(), 'updated_at' => now()],
         ]);
         DB::table('payroll_attendance')->insert([
-            'record_key' => '2026-04|物业总部',
-            'year_month' => '2026-04', 'project_name' => '物业总部',
+            'record_key' => '2026-04|物业公司总部',
+            'year_month' => '2026-04', 'project_name' => '物业公司总部',
             'rows' => json_encode(['王五' => ['days' => ['√', '√'], 'req_attend' => 22, 'act_attend' => 22]], JSON_UNESCAPED_UNICODE),
             'locked' => true, 'locked_at' => now(), 'locked_by' => 'hq_admin',
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        $resp = $this->get('/api/attendance/export?ym=2026-04&project=' . urlencode('物业总部'), ['X-Token' => $this->token]);
+        $resp = $this->get('/api/attendance/export?ym=2026-04&project=' . urlencode('物业公司总部'), ['X-Token' => $this->token]);
         $resp->assertOk();
         $resp->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }

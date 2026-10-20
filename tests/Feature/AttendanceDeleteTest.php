@@ -48,7 +48,7 @@ class AttendanceDeleteTest extends TestCase
         DB::table('payroll_projects')->insert([
             ['name' => '甲项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
             ['name' => '乙项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
-            ['name' => '物业总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
+            ['name' => '物业公司总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
         ]);
     }
 

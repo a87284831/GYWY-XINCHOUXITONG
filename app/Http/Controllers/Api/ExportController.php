@@ -167,7 +167,7 @@ class ExportController extends ApiController
 
         // 明细行：项目（基层+管理），物业总部不在此列
         $projs = collect(array_unique(array_merge(array_keys($curBase), array_keys($curMgr))))
-            ->filter(fn ($p) => $p !== '物业总部')->values()->all();
+            ->filter(fn ($p) => $p !== \App\Services\PayrollCalculator::HQ_PROJECT)->values()->all();
         $r = 3;
         $sumB = ['cnt' => 0, 'gross' => 0.0]; $sumM = ['cnt' => 0, 'gross' => 0.0]; $sumCase = ['cnt' => 0, 'gross' => 0.0];
         $sumBudget = 0.0; $sumAnnual = 0.0; $sumPrev = 0.0; $sumYtd = 0.0;
@@ -200,9 +200,9 @@ class ExportController extends ApiController
 
         // 合计行（基层员工合计，不含物业总部）
         $bGross = round($sumB['gross'], 2);
-        $prevBaseScope = $isProjScope ? array_intersect_key($prevBase, $curBase) : array_diff_key($prevBase, ['物业总部' => true]);
+        $prevBaseScope = $isProjScope ? array_intersect_key($prevBase, $curBase) : array_diff_key($prevBase, [\App\Services\PayrollCalculator::HQ_PROJECT => true]);
         $bPrev = round(array_sum(array_column($prevBaseScope, 'gross')), 2);
-        $bYtd = round(array_sum(array_column($isProjScope ? array_intersect_key($ytdBase, $curBase) : array_diff_key($ytdBase, ['物业总部' => true]), 'gross')), 2);
+        $bYtd = round(array_sum(array_column($isProjScope ? array_intersect_key($ytdBase, $curBase) : array_diff_key($ytdBase, [\App\Services\PayrollCalculator::HQ_PROJECT => true]), 'gross')), 2);
         $bDiff = $bPrev > 0 ? round($bGross - $bPrev, 2) : null;
         $totalVals = ['合计', null, null, null, null, $sumB['cnt'], $bGross,
             $sumBudget > 0 ? round($sumBudget, 2) : null,
@@ -217,13 +217,13 @@ class ExportController extends ApiController
         $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
         $r++;
 
-        $mYtd = round(array_sum(array_column(array_diff_key($ytdMgr, ['物业总部' => true]), 'gross')), 2);
+        $mYtd = round(array_sum(array_column(array_diff_key($ytdMgr, [\App\Services\PayrollCalculator::HQ_PROJECT => true]), 'gross')), 2);
         $cYtd = round(array_sum(array_column($ytdCase, 'gross')), 2);
 
         // 管理人员合计行（仅总部；管理数据项目账号完全不可见；无数据也显示固定结构，便于核对遗漏）
         if (!$isProjScope) {
             $mGross = round($sumM['gross'], 2);
-            $prevMgrNoHq = array_diff_key($prevMgr, ['物业总部' => true]);
+            $prevMgrNoHq = array_diff_key($prevMgr, [\App\Services\PayrollCalculator::HQ_PROJECT => true]);
             $mPrev = round(array_sum(array_column($prevMgrNoHq, 'gross')), 2);
             $mDiff = $mPrev > 0 ? round($mGross - $mPrev, 2) : null;
             $mgrVals = ['管理人员合计', null, null, null, null, $sumM['cnt'], $mGross,
@@ -257,13 +257,13 @@ class ExportController extends ApiController
         // 物业总部合计行（固定置底、总计之前；仅总部；后续架构如何调整物业总部都在此）
         if (!$isProjScope) {
             // 总部人员一套标签（不分基层/管理），在汇总表单列一行：仅人数合计与应发合计
-            $hqAgg = $curHq['物业总部'] ?? ['cnt' => 0, 'gross' => 0.0];
+            $hqAgg = $curHq[\App\Services\PayrollCalculator::HQ_PROJECT] ?? ['cnt' => 0, 'gross' => 0.0];
             $hCnt = (int) $hqAgg['cnt'];
             $hGross = round((float) $hqAgg['gross'], 2);
-            $hBudget = (float) ($budgetMap['物业总部']['months'][$monthKey] ?? 0);
-            $hAnnual = (float) ($budgetMap['物业总部']['annual'] ?? 0);
-            $hYtd = round((float) ($ytdHq['物业总部']['gross'] ?? 0), 2);
-            $hPrev = round((float) ($prevHq['物业总部']['gross'] ?? 0), 2);
+            $hBudget = (float) ($budgetMap[\App\Services\PayrollCalculator::HQ_PROJECT]['months'][$monthKey] ?? 0);
+            $hAnnual = (float) ($budgetMap[\App\Services\PayrollCalculator::HQ_PROJECT]['annual'] ?? 0);
+            $hYtd = round((float) ($ytdHq[\App\Services\PayrollCalculator::HQ_PROJECT]['gross'] ?? 0), 2);
+            $hPrev = round((float) ($prevHq[\App\Services\PayrollCalculator::HQ_PROJECT]['gross'] ?? 0), 2);
             $hDiff = $hPrev > 0 ? round($hGross - $hPrev, 2) : null;
             $hVals = ['物业总部合计', null, null, null, null, $hCnt, $hGross,
                 $hBudget > 0 ? $hBudget : null,

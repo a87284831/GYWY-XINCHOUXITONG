@@ -87,7 +87,7 @@ class PayrollRecalcArchiveGuardTest extends TestCase
             [2, '正常人', self::PROJ, 'staff'],
             [3, '张管理', self::PROJ, 'manager'],
             [4, '李案场', self::PROJ, 'case'],
-            [5, '王总部', '物业总部', 'hq'],
+            [5, '王总部', '物业公司总部', 'hq'],
             [6, '项目B人', self::PROJ_B, 'staff'],
         ];
         foreach ($people as [$id, $name, $proj, $type]) {
@@ -114,7 +114,7 @@ class PayrollRecalcArchiveGuardTest extends TestCase
         };
         $mkBlock(self::PROJ, ['正常人', '张管理', '李案场']);
         $mkBlock(self::PROJ_B, ['项目B人']);
-        $mkBlock('物业总部', ['王总部']);
+        $mkBlock('物业公司总部', ['王总部']);
 
         $calc = new PayrollCalculator();
         $calc->calculate(self::YM, [self::PROJ, self::PROJ_B]);

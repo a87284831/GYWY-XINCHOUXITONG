@@ -49,7 +49,7 @@ class AttendanceGroupTemplateTest extends TestCase
         DB::table('payroll_projects')->insert([
             ['name' => '甲项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
             ['name' => '乙项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
-            ['name' => '物业总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
+            ['name' => '物业公司总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
         ]);
         DB::table('legacy_json_snapshots')->insert([
             'file_name' => 'symbols.json',
@@ -78,7 +78,7 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->staff(3, '案场甲', 'case', '甲项目');
         $this->staff(4, '员工甲', 'staff', '甲项目');
         $this->staff(5, '员工乙', 'staff', '乙项目');
-        $this->staff(6, '总部王', 'hq', '物业总部');
+        $this->staff(6, '总部王', 'hq', '物业公司总部');
     }
 
     /** 构造可被 parseWorkbook 解析的最小考勤 xlsx，返回临时路径（$statusHeader 兼容新旧表头） */
