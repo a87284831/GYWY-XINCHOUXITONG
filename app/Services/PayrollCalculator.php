@@ -240,7 +240,11 @@ class PayrollCalculator
         $catMap    = self::categoryMap($ym);
         $staffQ    = DB::table('payroll_staff')->where('deleted', false);
         if ($category === 'staff') $staffQ->whereIn('project_name', $projects);
-        $staff = $staffQ->get()->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $category);
+        // 取人：排除钉钉占位档案（name='待同步'）——其无姓名/无项目/无考勤基数，永不出工资行，
+        // 出现在任何核算提示里都是噪音。单独统计数量，循环结束后聚合为一条 info 提示（不静默降级，规则#8）。
+        $catStaff = $staffQ->get()->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $category);
+        $placeholderCount = $catStaff->filter(fn ($p) => trim((string)$p->name) === '待同步')->count();
+        $staff = $catStaff->reject(fn ($p) => trim((string)$p->name) === '待同步');
 
         // 预取累计预扣个税所需的历史核算结果（避免逐员工 N+1 查询）。
         // 下界随起算口径变化：prev_dec 需把「上年12月」纳入（次月发薪 → 该行属本纳税年度），
@@ -284,11 +288,15 @@ class PayrollCalculator
                     continue;
                 }
                 // 考勤缺人不再静默跳过：汇总进 missing（info），由调用方透传前端提示
+                $isResigned = trim((string)$person->status) === '离职';
+                $reason = $isResigned
+                    ? (empty($person->resign_date)
+                        ? '离职人员，档案缺离职日期，本月无考勤记录（已跳过）；请补录离职日期'
+                        : '离职人员，本月无考勤记录（已跳过）')
+                    : '考勤表中无此人的记录（已跳过）';
                 $missing[] = [
                     'name' => $person->name, 'project' => $person->project_name,
-                    'reason' => trim((string)$person->status) === '离职'
-                        ? '离职人员，本月无考勤记录（已跳过）'
-                        : '考勤表中无此人的记录（已跳过）',
+                    'reason' => $reason,
                     'level' => 'info',
                 ];
                 continue;
@@ -327,6 +335,16 @@ class PayrollCalculator
                 ];
             }
             $rows[] = $row;
+        }
+
+        // 占位档案聚合提示（不静默，规则#8）：多为钉钉已注销/被删账号，建议清理
+        if ($placeholderCount > 0) {
+            $missing[] = [
+                'name' => '占位档案汇总',
+                'project' => '',
+                'reason' => "钉钉占位档案 {$placeholderCount} 条（姓名为「待同步」、未同步到真实姓名），未参与核算；多为已注销/被删账号，建议核对后清理",
+                'level' => 'info',
+            ];
         }
 
         if (!$rows) return ['count' => 0, 'skipped' => ['no_matching_staff'], 'preserved_archived' => 0, 'missing' => $missing, 'warnings' => $warnings];

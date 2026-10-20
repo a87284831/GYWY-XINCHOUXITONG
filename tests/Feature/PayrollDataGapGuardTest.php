@@ -196,7 +196,8 @@ class PayrollDataGapGuardTest extends TestCase
 
     public function test_resigned_empty_resign_date_still_prompted(): void
     {
-        // status=离职 但 resign_date 为空（钉钉历史遗留）：口径A 下不排除，仍提示
+        // status=离职 但 resign_date 为空（钉钉历史遗留）：口径A 下不排除，仍提示；
+        // 方案B（2026-10-20）文案精确化：暴露「档案缺离职日期」数据缺口，引导补录
         $this->seedRules();
         $this->seedStaff(1, '无日期', 6000, 5000, '离职');
 
@@ -206,6 +207,47 @@ class PayrollDataGapGuardTest extends TestCase
         $m = $r['result']['missing'][0];
         $this->assertSame('无日期', $m['name']);
         $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('离职', $m['reason']);
+        $this->assertStringContainsString('档案缺离职日期', $m['reason']);
+        $this->assertStringContainsString('请补录离职日期', $m['reason']);
+    }
+
+    // ---------- 方案B（2026-10-20）：钉钉占位档案去噪 + 聚合提示 ----------
+
+    public function test_placeholder_staff_excluded_and_aggregated_as_single_info(): void
+    {
+        // name='待同步' 的占位档案不逐条进 missing，聚合为 1 条含数量的 info 提示
+        $this->seedRules();
+        $this->seedStaff(1, '待同步', 0, 0, '离职', 'staff');
+        $this->seedStaff(2, '待同步', 0, 0, '离职', 'staff');
+        $this->seedStaff(3, '正常有考勤', 6000, 5000);
+
+        $r = $this->calc(['正常有考勤' => $this->makeAtt($this->workedDays())]);
+
+        // 正常人员正常出行；占位行逐条不出现
+        $this->assertSame(1, $r['result']['count']);
+        $this->assertFalse(in_array('待同步', array_column($r['result']['missing'], 'name'), true));
+        // 聚合为 1 条 info，数量为 2
+        $agg = array_filter($r['result']['missing'], fn ($m) => $m['name'] === '占位档案汇总');
+        $this->assertCount(1, $agg);
+        $m = array_values($agg)[0];
+        $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('2 条', $m['reason']);
+        $this->assertStringContainsString('待同步', $m['reason']);
+    }
+
+    public function test_only_placeholders_yields_aggregate_info_not_empty_missing(): void
+    {
+        // 全部人员都是占位档案（无真实出行）时，聚合提示仍出现（不静默）
+        $this->seedRules();
+        $this->seedStaff(1, '待同步', 0, 0, '离职', 'staff');
+
+        $r = $this->calc([]);
+
+        $this->assertSame(0, $r['result']['count']);
+        $this->assertCount(1, $r['result']['missing']);
+        $this->assertSame('占位档案汇总', $r['result']['missing'][0]['name']);
+        $this->assertSame('info', $r['result']['missing'][0]['level']);
     }
 
     public function test_active_staff_without_attendance_still_prompted(): void
