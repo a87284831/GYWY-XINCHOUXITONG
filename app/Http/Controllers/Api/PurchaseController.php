@@ -210,6 +210,7 @@ class PurchaseController extends ApiController
         if ($uri === 'admin/customs/map' && $method === 'POST') return handle_admin_map_custom();
         if ($uri === 'admin/customs/check-duplicate' && $method === 'POST') return handle_admin_customs_check_duplicate();
         if ($uri === 'admin/customs/save' && $method === 'POST') return handle_admin_customs_save();
+        if ($uri === 'admin/customs/ignore' && $method === 'POST') return handle_admin_ignore_custom();
 
         // 预算
         if ($uri === 'budgets' && $method === 'GET') return handle_budgets_list();

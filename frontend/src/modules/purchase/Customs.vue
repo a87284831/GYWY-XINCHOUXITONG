@@ -49,11 +49,11 @@ async function doMap(row) {
   }
 }
 
-// 忽略 = 直接确认通过（不绑定标准商品）
+// 忽略 = 不加入标准库，标记已审核，从清单外列表移除
 async function doIgnore(row) {
   try {
-    await api('/api/purchase/admin/items/' + row.id + '/confirm', { method: 'POST' })
-    toast('已忽略（确认通过）')
+    await api('/api/purchase/admin/customs/ignore', { body: { item_id: row.id } })
+    toast('已忽略（不加入标准库）')
     load()
   } catch (e) {
     toast(e.message, false)

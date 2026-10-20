@@ -95,10 +95,6 @@ function handle_admin_confirm_item($id) {
     if ($item['status'] === 'returned') {
         return ['ok' => false, 'msg' => '该记录已退回，员工尚未重新提交，暂不能确认'];
     }
-    // 清单外商品须先到「清单外审核」模块归入标准商品或新建入库，is_custom 变为 0 后才能确认
-    if ((int)$item['is_custom'] === 1) {
-        return ['ok' => false, 'msg' => '清单外商品请先到「清单外审核」模块处理（归入标准商品或新建入库）后再确认'];
-    }
     db()->prepare("UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE id=?")->execute([$id]);
     log_action('确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} x{$item['quantity']}");
     // Q14③：确认完成提醒员工
@@ -184,31 +180,23 @@ function handle_admin_confirm_batch() {
     $stR = db()->prepare($sqlR);
     $stR->execute($paramsR);
     $returnedTotal = (int)$stR->fetchColumn();
-    // 统计清单外商品数量（is_custom=1），这些须先到清单外审核模块处理，不在此处确认
-    $sqlC = "SELECT COUNT(*) FROM purchase_items WHERE month=? AND project_id=? AND status='submitted' AND is_custom=1";
-    $paramsC = [$month, $project_id];
-    if ($line !== '') { $sqlC .= " AND line=?"; $paramsC[] = $line; }
-    $stC = db()->prepare($sqlC);
-    $stC->execute($paramsC);
-    $customTotal = (int)$stC->fetchColumn();
-    // 口径统一：仅已提交且非清单外的行可被确认；清单外须先到「清单外审核」模块归入标准商品或新建入库
-    $sql = "UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE month=? AND project_id=? AND status='submitted' AND is_custom=0";
+    // 口径统一：仅已提交行可被确认并进入存档；退回行须员工重新提交，不在此处同步存档
+    $sql = "UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE month=? AND project_id=? AND status='submitted'";
     $params = [$month, $project_id];
     if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
     $st = db()->prepare($sql);
     $st->execute($params);
     $confirmed = $st->rowCount();
-    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedTotal > 0 ? "，跳过已退回{$returnedTotal}条" : '') . ($customTotal > 0 ? "，跳过清单外{$customTotal}条" : ''));
+    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedTotal > 0 ? "，跳过已退回{$returnedTotal}条" : ''));
     // Q14③：确认完成提醒员工
     if ($confirmed > 0) {
         $pname = project_name((int)$project_id);
         foreach (project_user_ids((int)$project_id) as $uid) {
-            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedTotal > 0 ? "，{$returnedTotal} 条已退回待重新提交。" : '。') . ($customTotal > 0 ? "另有 {$customTotal} 条清单外商品待招采在清单外审核模块处理。" : ''), "/app/purchase/my-items?month=$month");
+            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedTotal > 0 ? "，{$returnedTotal} 条已退回待重新提交。" : '。'), "/app/purchase/my-items?month=$month");
         }
     }
     $msg = "已确认 {$confirmed} 条";
     if ($returnedTotal > 0) $msg .= "，跳过已退回 {$returnedTotal} 条（需员工重新提交后确认）";
-    if ($customTotal > 0) $msg .= "，跳过清单外 {$customTotal} 条（请到「清单外审核」模块归入标准商品或新建入库后再确认）";
     return ['ok' => true, 'msg' => $msg];
 }
 
@@ -226,16 +214,11 @@ function handle_admin_archive() {
     if ($total === 0) return ['ok' => false, 'msg' => '本月无填报记录，无需归档'];
     if ($confirmed < $total) {
         $pending = $total - $confirmed;
-        // 区分清单外商品（需先到清单外审核模块处理）和普通未确认行
-        $stC = db()->prepare("SELECT COUNT(*) FROM purchase_items WHERE month=? AND status<>'confirmed' AND is_custom=1");
-        $stC->execute([$month]);
-        $customPending = (int)$stC->fetchColumn();
-        $st2 = db()->prepare("SELECT line, item_name, spec, status, is_custom FROM purchase_items WHERE month=? AND status<>'confirmed' ORDER BY line, id LIMIT 8");
+        $st2 = db()->prepare("SELECT line, item_name, spec, status FROM purchase_items WHERE month=? AND status<>'confirmed' ORDER BY line, id LIMIT 8");
         $st2->execute([$month]);
-        $names = array_map(fn($x) => $x['item_name'] . ($x['spec'] ? "({$x['spec']})" : '') . ((int)$x['is_custom'] === 1 ? '[清单外待审核]' : "[{$x['status']}]"), $st2->fetchAll());
+        $names = array_map(fn($x) => $x['item_name'] . ($x['spec'] ? "({$x['spec']})" : '') . "[{$x['status']}]", $st2->fetchAll());
         $suffix = count($names) > 0 ? '，如：' . implode('、', $names) : '';
-        $customTip = $customPending > 0 ? "（其中 {$customPending} 条为清单外商品，请先到「清单外审核」模块归入标准商品或新建入库）" : '';
-        return ['ok' => false, 'msg' => "本月尚有 {$pending} 条未确认，全部确认后才能归档" . $customTip . $suffix];
+        return ['ok' => false, 'msg' => "本月尚有 {$pending} 条未确认，全部确认后才能归档" . $suffix];
     }
     $uid = (int)(\App\Purchase\Support::context()['id'] ?? $in['by'] ?? 0);
     db()->prepare("INSERT INTO monthly_archive (month, archived_at, archived_by, note) VALUES (?,NOW(),?,'')")
@@ -256,13 +239,14 @@ function handle_admin_unarchive() {
     return ['ok' => true, 'msg' => '已撤销归档，恢复可编辑'];
 }
 
-// 清单外列表（is_custom=1 或 秩序条线）
+// 清单外列表：已确认且未审核的清单外商品（管理员全部确认后进入此列表）
 function handle_admin_customs() {
     require_admin();
     $st = db()->prepare(
         "SELECT pi.*, p.name AS project_name FROM purchase_items pi
          JOIN payroll.payroll_projects p ON pi.project_id=p.id
-         WHERE pi.is_custom=1 AND pi.status='submitted' ORDER BY pi.month DESC, pi.project_id, pi.line, pi.id"
+         WHERE pi.is_custom=1 AND pi.status='confirmed' AND (pi.custom_reviewed IS NULL OR pi.custom_reviewed=0)
+         ORDER BY pi.month DESC, pi.project_id, pi.line, pi.id"
     );
     $st->execute();
     $items = $st->fetchAll();
@@ -426,4 +410,18 @@ function handle_admin_customs_save() {
         if ($tx) db()->rollBack();
         throw $e;
     }
+}
+
+// 清单外「忽略」：不加入标准库，标记已审核，从清单外待审核列表移除（保留 is_custom=1 用于统计）
+function handle_admin_ignore_custom() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $item_id = (int)($in['item_id'] ?? 0);
+    if ($item_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    $item = fetch_item($item_id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
+    db()->prepare("UPDATE purchase_items SET custom_reviewed=1 WHERE id=?")->execute([$item_id]);
+    log_action('清单外忽略', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」不加入标准库，标记已审核");
+    return ['ok' => true, 'msg' => '已忽略（不加入标准库）'];
 }
