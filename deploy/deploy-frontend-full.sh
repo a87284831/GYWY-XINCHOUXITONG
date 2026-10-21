@@ -23,6 +23,16 @@ echo "备份: /root/index.html.bak.$TS"
 echo "=== 2. 整包解压覆盖（旧产物在 3b 自检通过后清理）==="
 tar -xzf /tmp/app-bundle.tar.gz -C $REMOTE/public/
 
+echo "=== 2b. 包完整性检查（public/app 已移出版本控制，防未 build 打出空包）==="
+REFS=$(grep -oE '/app/assets/[^"]+' $REMOTE/public/app/index.html 2>/dev/null | sort -u || true)
+if [ ! -f "$REMOTE/public/app/index.html" ] || [ -z "$REFS" ]; then
+  echo "!!! index.html 缺失或未引用任何资源，包无效，回滚并退出 !!!"
+  cp /root/index.html.bak.$TS $REMOTE/public/app/index.html 2>/dev/null || true
+  echo "提示：public/app 自 2026-10-21 起不入库，请先在本地 cd frontend && npm run build 再打包上传"
+  exit 1
+fi
+echo "index.html 引用资源数: $(echo "$REFS" | wc -l)"
+
 echo "=== 3. 校验 index.html 引用的所有资源（不过 200 自动回滚）=="
 FAIL=0
 for ref in $(grep -oE '/app/assets/[^"]+' $REMOTE/public/app/index.html); do
