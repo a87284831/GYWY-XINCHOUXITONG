@@ -146,16 +146,12 @@ export function perfDetailCols(rows) {
     .map(([key, label]) => ({ key, label }))
 }
 
-/** 横向明细单元格金额：key = "Q1|2026-01" 或 "Q1|2026-Q1-coef"（系数列）；无该列数据 → null */
+/** 横向明细单元格金额：key = "Q1|2026-01"；无该列数据 → null（系数已统一到主表 coef 列，不再走横向列） */
 export function perfDetailCell(row, key) {
   const d = row && row.perf_detail
   if (!d || d.error) return null
   const [tag, rest] = String(key).split('|')
   const src0 = tag.startsWith('H') ? d.half_year : d
-  if (String(rest).endsWith('-coef')) {
-    const dd = src0 && !src0.error ? src0 : null
-    return dd && dd.coef != null ? dd.coef : null
-  }
   const src = src0 && !src0.error && Array.isArray(src0.months) ? src0.months : []
   const m = src.find((x) => x.ym === rest)
   return m ? m.amount : null

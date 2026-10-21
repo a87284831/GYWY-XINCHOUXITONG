@@ -60,13 +60,12 @@ describe('perfDetailCols（工资表横向逐月绩效列）', () => {
       ],
     },
   }
-  it('有 perf_detail 的行生成 Q1 三列 + 系数列（组末），列头与 Excel 导出一致', () => {
+  it('有 perf_detail 的行生成 Q1 三列（系数统一到主表 coef，不再生成横向系数列）', () => {
     const cols = perfDetailCols([row])
-    expect(cols).toHaveLength(4)
-    expect(cols.map((c) => c.key)).toEqual(['Q1|2026-01', 'Q1|2026-02', 'Q1|2026-03', 'Q1|2026-Q1-coef'])
+    expect(cols).toHaveLength(3)
+    expect(cols.map((c) => c.key)).toEqual(['Q1|2026-01', 'Q1|2026-02', 'Q1|2026-03'])
     expect(cols[0].label).toBe('Q1·1月绩效')
     expect(cols[2].label).toBe('Q1·3月绩效')
-    expect(cols[3].label).toBe('Q1·系数')
   })
   it('无明细/缺系数错误的行不生成列', () => {
     expect(perfDetailCols([{ name: '李四', perf_pay: 500 }])).toEqual([])
@@ -88,14 +87,13 @@ describe('perfDetailCols（工资表横向逐月绩效列）', () => {
       },
     }
     const cols = perfDetailCols([r])
-    // Q1: 1/2/3月 + H1: 2/3/4/5/6月（同月 Q 去重在前、H 独立键）；系数列在全部月份列之后（H1 在 Q1 前，'H'<'Q'）
+    // Q1: 1/2/3月 + H1: 2/3/4/5/6月（同月 Q 去重在前、H 独立键）
     expect(cols.map((c) => c.key)).toEqual([
       'Q1|2026-01', 'Q1|2026-02', 'H1|2026-02', 'Q1|2026-03', 'H1|2026-03',
-      'H1|2026-04', 'H1|2026-05', 'H1|2026-06', 'H1|2026-H1-coef', 'Q1|2026-Q1-coef',
+      'H1|2026-04', 'H1|2026-05', 'H1|2026-06',
     ])
     expect(cols[3].label).toBe('Q1·3月绩效')
     expect(cols[5].label).toBe('H1·4月绩效')
-    expect(cols[9].label).toBe('Q1·系数')
   })
   it('多行月份并集去重（有人缺某月明细也生成完整列）', () => {
     const r2 = {
@@ -105,8 +103,8 @@ describe('perfDetailCols（工资表横向逐月绩效列）', () => {
       ] },
     }
     const cols = perfDetailCols([row, r2])
-    expect(cols).toHaveLength(4) // 同键合并；系数列仅来自有 coef 的行，李四单元格为 null
-    expect(perfDetailCell(r2, 'Q1|2026-Q1-coef')).toBeNull()
+    expect(cols).toHaveLength(3) // 同键合并去重
+    expect(perfDetailCell(r2, 'Q1|2026-01')).toBe(800)
   })
 })
 
@@ -137,11 +135,5 @@ describe('perfDetailCell（横向明细单元格金额）', () => {
     const r = { ...row, perf_detail: { ...row.perf_detail, half_year: { period: '2026-H1', months: [{ ym: '2026-02', amount: 50 }] } } }
     expect(perfDetailCell(r, 'H1|2026-02')).toBe(50)
     expect(perfDetailCell(row, 'H1|2026-02')).toBeNull()
-  })
-  it('系数列键取 perf_detail.coef / half_year.coef', () => {
-    expect(perfDetailCell(row, 'Q1|2026-Q1-coef')).toBe(1.0)
-    const r = { ...row, perf_detail: { ...row.perf_detail, half_year: { period: '2026-H1', coef: 1.1, months: [] } } }
-    expect(perfDetailCell(r, 'H1|2026-H1-coef')).toBe(1.1)
-    expect(perfDetailCell({ perf_detail: { period: '2026-Q1', months: [] } }, 'Q1|2026-Q1-coef')).toBeNull()
   })
 })
