@@ -11,13 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: sqlite3, pdo_sqlite, mbstring, dom, curl, gd, zip, fileinfo
           coverage: none
+
       - name: Composer install
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Prepare Laravel env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p storage/logs storage/framework/cache storage/framework/sessions bootstrap/cache
+          chmod -R 775 storage bootstrap/cache
+
       - name: PHPUnit
         run: php vendor/bin/phpunit
 
@@ -28,14 +38,18 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+
       - name: Install
         run: npm ci
+
       - name: Vitest
         run: npm run test
+
       - name: Build
         run: npm run build
