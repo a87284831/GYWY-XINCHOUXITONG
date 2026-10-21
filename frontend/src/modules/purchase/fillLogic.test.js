@@ -56,12 +56,14 @@ describe('validateRow（逐行校验文案）', () => {
   it('按顺序报告首个缺失项', () => {
     expect(validateRow({ line: '', item_name: '', is_custom: false, quantity: 0 }, 3)).toBe('第 3 行：请选择条线')
     expect(validateRow({ line: '环境', item_name: '', is_custom: false, quantity: 0 }, 2)).toBe('第 2 行：请填写商品名称')
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请选择规格型号')
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写规格型号')
     expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 0, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写数量')
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, stock: '', product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写库存')
   })
-  it('清单外不要求规格；齐备返回 null', () => {
-    expect(validateRow({ line: '环境', item_name: '临时物资', spec: '', is_custom: true, quantity: 2 }, 1)).toBe(null)
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe(null)
+  it('清单外也要求规格（2026-10-20 必填项收紧）；齐备返回 null', () => {
+    expect(validateRow({ line: '环境', item_name: '临时物资', spec: '', is_custom: true, quantity: 2 }, 1)).toBe('第 1 行：请填写规格型号')
+    expect(validateRow({ line: '环境', item_name: '临时物资', spec: '500ml', is_custom: true, quantity: 2, stock: 0 }, 1)).toBe(null)
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, stock: 1, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe(null)
   })
   it('清单内模式名称未匹配清单：拦截并引导开清单外开关', () => {
     // 联想无结果（无 product_id 且无 specs）→ notInLibrary 命中
@@ -71,7 +73,7 @@ describe('validateRow（逐行校验文案）', () => {
     // 已选名称（有 specs 未选规格）→ 不算未匹配，走规格校验
     const r2 = { line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: null, specs: [{ id: 9, spec: '70g' }] }
     expect(notInLibrary(r2)).toBe(false)
-    expect(validateRow(r2, 1)).toBe('第 1 行：请选择规格型号')
+    expect(validateRow(r2, 1)).toBe('第 1 行：请填写规格型号')
     // 开清单外 → 不命中
     expect(notInLibrary({ line: '环境', item_name: '临时', is_custom: true, product_id: null, specs: [] })).toBe(false)
     // 空名称 → 不命中（走名称必填）

@@ -147,6 +147,7 @@ function rowNameValues() {
   })
 }
 function nameInputOf(tr) { return tr.querySelectorAll('td')[1].querySelector('input') }
+function specInputOf(tr) { return tr.querySelectorAll('td')[2].querySelector('input') }
 function qtyInputOf(tr) { return tr.querySelectorAll('td')[5].querySelector('input') }
 
 beforeEach(() => {
@@ -169,6 +170,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     tableRows()[0].querySelector('.el-switch').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
     await setInput(nameInputOf(tableRows()[0]), '清单外测试商品A')
+    await setInput(specInputOf(tableRows()[0]), '500ml') // 2026-10-20 起规格必填（含清单外）
     await setInput(qtyInputOf(tableRows()[0]), '3')
     await new Promise((r) => setTimeout(r, 2400)) // 草稿落盘
     expect(localStorage.getItem(DKEY)).toBeTruthy()
@@ -190,6 +192,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     tableRows()[0].querySelector('.el-switch').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
     await setInput(nameInputOf(tableRows()[0]), '合法商品B')
+    await setInput(specInputOf(tableRows()[0]), '500ml')
     await setInput(qtyInputOf(tableRows()[0]), '2')
     // 行2：清单外但数量=0（不合法）
     btnByText('新增一行').click()
@@ -197,6 +200,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     tableRows()[1].querySelector('.el-switch').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
     await setInput(nameInputOf(tableRows()[1]), '没填数量的商品C')
+    await setInput(specInputOf(tableRows()[1]), '600ml') // 规格填上，让失败原因落在数量上
     btnByText('保存全部').click()
     await flush(10)
     const names = rowNameValues()
@@ -224,6 +228,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     tableRows()[0].querySelector('.el-switch').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
     await setInput(nameInputOf(tableRows()[0]), '只填名字的商品D')
+    await setInput(specInputOf(tableRows()[0]), '500ml') // 规格填上，让拦截原因落在数量上
     await new Promise((r) => setTimeout(r, 2400))
     expect(localStorage.getItem(DKEY)).toBeTruthy()
     btnByText('提交全部').click()

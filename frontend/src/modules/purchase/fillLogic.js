@@ -42,7 +42,7 @@ export function validateRow(row, idx) {
   if (!row.item_name) return '第 ' + idx + ' 行：请填写商品名称'
   if (notInLibrary(row)) return '第 ' + idx + ' 行：「' + row.item_name + '」未匹配到清单内商品，请从联想列表选择，或打开行尾「清单外」开关'
   if (!row.spec) return '第 ' + idx + ' 行：请填写规格型号'
-  if (!row.quantity && row.quantity !== 0) return '第 ' + idx + ' 行：请填写数量'
+  if (!row.quantity) return '第 ' + idx + ' 行：请填写数量'
   if (row.stock === '' || row.stock === null || row.stock === undefined) return '第 ' + idx + ' 行：请填写库存'
   return null
 }

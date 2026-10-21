@@ -134,10 +134,13 @@ export function perfDetailCols(rows) {
     if (!d || d.error || !Array.isArray(d.months)) continue
     const qTag = String(d.period || '').slice(5) || 'Q'
     for (const m of d.months) cols[`${qTag}|${m.ym}`] = `${qTag}·${Number(m.ym.slice(5, 7))}月绩效`
+    // 系数列（key 以 "周期-coef" 结尾，字节序排在该季度全部月份列之后 = 季度组末列）
+    if (d.coef != null) cols[`${qTag}|${d.period}-coef`] = `${qTag}·系数`
     const h = d.half_year
     if (h && !h.error && Array.isArray(h.months)) {
       const hTag = String(h.period || '').slice(5) || 'H'
       for (const m of h.months) cols[`${hTag}|${m.ym}`] = `${hTag}·${Number(m.ym.slice(5, 7))}月绩效`
+      if (h.coef != null) cols[`${hTag}|${h.period}-coef`] = `${hTag}·系数`
     }
   }
   const byte = (x, y) => (x < y ? -1 : x > y ? 1 : 0) // 字节序（localeCompare 会弱化 ~ | 符号，导致 Q/H 顺序错乱）
@@ -146,15 +149,18 @@ export function perfDetailCols(rows) {
     .map(([key, label]) => ({ key, label }))
 }
 
-/** 横向明细单元格金额：key = "Q1|2026-01"；无该月明细 → null（页面显示空，与导出一致） */
+/** 横向明细单元格金额：key = "Q1|2026-01" 或 "Q1|2026-Q1-coef"（系数列）；无该列数据 → null */
 export function perfDetailCell(row, key) {
   const d = row && row.perf_detail
   if (!d || d.error) return null
-  const [tag, ym] = String(key).split('|')
-  const src = tag.startsWith('H')
-    ? (d.half_year && !d.half_year.error && Array.isArray(d.half_year.months) ? d.half_year.months : [])
-    : (Array.isArray(d.months) ? d.months : [])
-  const m = src.find((x) => x.ym === ym)
+  const [tag, rest] = String(key).split('|')
+  const src0 = tag.startsWith('H') ? d.half_year : d
+  if (String(rest).endsWith('-coef')) {
+    const dd = src0 && !src0.error ? src0 : null
+    return dd && dd.coef != null ? dd.coef : null
+  }
+  const src = src0 && !src0.error && Array.isArray(src0.months) ? src0.months : []
+  const m = src.find((x) => x.ym === rest)
   return m ? m.amount : null
 }
 

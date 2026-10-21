@@ -424,7 +424,7 @@ onUnmounted(() => clearTimeout(draftTimer))
             :disabled="isRowReadonly(row, isAdmin)" @change="selectSpec(row)">
             <el-option v-for="s in row.specs" :key="s.id" :value="s.spec" :label="s.spec" />
           </el-select>
-          <el-input v-else v-model="row.spec" size="small" placeholder="规格（选填）" :disabled="isRowReadonly(row, isAdmin)" />
+          <el-input v-else v-model="row.spec" size="small" style="width:100%" placeholder="规格" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
       <el-table-column label="品牌" width="120">
