@@ -58,6 +58,15 @@ if [ -s /tmp/del-assets-deploy.txt ]; then
   xargs -d '\n' rm -f < /tmp/del-assets-deploy.txt
 fi
 
-echo "=== 4. 首页状态 ==="
+echo "=== 4. 产物清单比对（三端一致：本地构建包 vs 服务器） ==="
+KEEP_CNT=$(wc -l < /tmp/keep-assets-deploy.txt)
+CUR_CNT=$(wc -l < /tmp/cur-assets-deploy.txt)
+echo "包内产物: $KEEP_CNT 个；部署后服务器: $CUR_CNT 个；差集: $(wc -l < /tmp/del-assets-deploy.txt) 个旧产物已清理"
+if [ "$KEEP_CNT" != "$CUR_CNT" ]; then
+  echo "提示：数量不一致通常因旧产物清理时机，核对下列缺失项"
+  comm -13 /tmp/keep-assets-deploy.txt /tmp/cur-assets-deploy.txt || true
+fi
+
+echo "=== 5. 首页状态 ==="
 curl -sk -o /dev/null -w "GET /app/ -> %{http_code}\n" https://oa.haoxuanyunshu.cn/app/
 echo "=== 部署完成 ==="

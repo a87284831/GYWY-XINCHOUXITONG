@@ -6,7 +6,6 @@
 
 | 文档 | 位置 | 用途 |
 |---|---|---|
-| **联合开发指南** | [docs/联合开发指南.md](docs/联合开发指南.md) | 协作工作流、分支/PR/部署规范，**新成员必读** |
 | 项目开发文档 | [docs/项目开发文档.md](docs/项目开发文档.md) | 活文档，每次开发后追加记录 |
 | 项目交接文档 | workspace 根目录（不入库） | 生产环境事实、备份机制、运维 runbook |
 
@@ -63,19 +62,24 @@ cd frontend && npm run test   # 前端 vitest
 npm run build                 # 验证构建不破坏
 ```
 
-## 协作工作流（简版）
+## 开发与发布流程（单人）
 
 ```
-git pull origin main          # 每次开发前
-git checkout -b feat/xxx      # 一个功能一个分支
-# 开发 + 本地测试
-git push origin feat/xxx      # 提 PR → CI 绿 → review → 合并 main
-# 合并后由指定人员从 main 构建并部署（见联合开发指南）
+开发 → 本地跑全量测试（phpunit + vitest + build）
+     → git push origin main            # 推 GitHub
+     → 等 CI 变绿（Actions 页，2-3 分钟） # 红了先修，别部署
+     → 构建前端整包 + 上传后端 → 部署生产
+     → 浏览器验收
 ```
 
-详细规范（分支命名、数据库变更纪律、部署纪律、数据安全红线）见 [docs/联合开发指南.md](docs/联合开发指南.md)。
+要点：
 
-## 生产部署（指定人员执行）
+- **主干只有 `main`**，一个功能一个分支（`feat/xxx`、`fix/xxx`），做完合并回 main 后删除分支
+- **顺序固定**：先推 GitHub、CI 绿了再部署。CI 红了不拦你推送，但部署前必须看到绿
+- **源码三端一致**：本地源码 = GitHub = 服务器；前端构建产物（`public/app`）不入库，由本地构建后整包上传
+- 数据库变更**只允许新增迁移文件**，禁止直接改生产表结构
+
+## 生产部署
 
 - 前端：`deploy/deploy-frontend-full.sh`（整包同步 + 资源自检 + 失败自动回滚）
 - 后端：快照 → 同步 PHP 文件 → `php artisan migrate --force`（如有迁移）→ 缓存重建 → 冒烟
