@@ -679,6 +679,7 @@ class PayrollCalculator
                 }
             } elseif (($payRule['cycle'] ?? '') === 'quarter_grade') {
                 // 季度绩效法：经理级=季度型，主管/专员级=月度型
+                $existingRow = null;
                 if ($payGrade === '经理级') {
                     // 经理级：coef 优先读已存工资行（弹窗录入的），覆盖考勤 coef
                     $existingRow = DB::table('payroll_results')->where('staff_legacy_id', (int)$person->legacy_id)->where('year_month', $ym)->where('archived', false)->first();

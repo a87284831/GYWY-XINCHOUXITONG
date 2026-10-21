@@ -20,7 +20,7 @@ class AttendanceController extends ApiController
         '夜班/话餐补贴' => 'night_sub', '夜班/话费补贴' => 'night_sub', '职称/证书补贴' => 'title_sub', '养老保险' => 'pen',
         '医疗保险' => 'med', '失业保险' => 'une', '住房公积金' => 'house', '大病' => 'big',
         '缺卡扣款' => 'miss_deduct', '迟到早退扣款' => 'late_deduct', '其他扣款' => 'other_deduct',
-        '工装扣款' => 'uniform_deduct', '月度绩效' => 'coef', '月度绩效系数' => 'coef', '备注' => 'remark',
+        '工装扣款' => 'uniform_deduct', '绩效系数' => 'coef', '月度绩效' => 'coef', '月度绩效系数' => 'coef', '备注' => 'remark',
         '已发福利/奖励' => 'welfare',
     ];
 
@@ -158,6 +158,10 @@ class AttendanceController extends ApiController
         }
         $key = $ym . '|' . $project;
         $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();
+        // 季度绩效法人员不得在考勤表带系数（系数走季度末月弹窗），整单拒绝、不部分写入
+        if ($err = $this->guardQuarterCoef($ym, $rows)) {
+            return response()->json(['ok' => false, 'error' => $err], 400);
+        }
         $response = ['preview' => $dryRun, 'count' => count($rows), 'overwrite' => (bool) $existing,
             'names' => array_slice(array_keys($rows), 0, 50),
             'has_calc' => DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)->exists()];
@@ -224,6 +228,12 @@ class AttendanceController extends ApiController
                 return response()->json(['ok' => false, 'error' => "项目「{$proj}」考勤已锁定为最终版本，请先解锁该项目后再上传{$label}表"], 400);
             }
         }
+        // 季度绩效法人员不得在考勤表带系数（系数走季度末月弹窗），整单拒绝、不部分写入
+        foreach ($byProject as $incoming) {
+            if ($err = $this->guardQuarterCoef($ym, $incoming)) {
+                return response()->json(['ok' => false, 'error' => $err], 400);
+            }
+        }
 
         $projects = array_keys($byProject);
         $existingKeys = DB::table('payroll_attendance')->where('year_month', $ym)
@@ -254,6 +264,29 @@ class AttendanceController extends ApiController
             if (!array_key_exists($nm, $merged)) $merged[$nm] = $rec;
         }
         $this->overwriteBlock($ym, $project, $merged);
+    }
+
+    /**
+     * 季度绩效法人员禁止通过考勤表上传绩效系数（2026-10-21 用户口径：只能走季度末月弹窗录入）。
+     * 模板该列默认预填 1.0（中性值，等价于未录入），故仅拿「非 1.0 的值」判定为违规；
+     * 返回错误文案，全部合规返回 null。
+     */
+    private function guardQuarterCoef(string $ym, array $rows): ?string
+    {
+        $rules = new \App\Services\CalcRules();
+        $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+        $bad = [];
+        foreach ($rows as $name => $rec) {
+            $coef = $rec['coef'] ?? null;
+            if ($coef === null || (float) $coef === 1.0) continue;
+            $sid = (int) ($rec['staff_id'] ?? 0);
+            if ($sid <= 0) continue;
+            $cycle = $rules->getPayRule($catMap[$sid] ?? 'staff')['cycle'] ?? 'monthly';
+            if ($cycle !== 'monthly') $bad[] = "{$name}（{$coef}）";
+        }
+        if (!$bad) return null;
+        return '以下人员为季度绩效法，绩效系数不能在考勤表上传（请把「绩效系数」列留空或填 1，'
+            . '改由季度末月弹窗录入）：' . implode('、', array_slice($bad, 0, 10));
     }
 
     /** 整表覆盖写入一个项目的考勤块：新表完全替换旧数据（调用方需先做归档/锁定拦截） */
