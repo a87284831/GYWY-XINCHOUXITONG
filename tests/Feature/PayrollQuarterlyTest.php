@@ -75,24 +75,38 @@ class PayrollQuarterlyTest extends TestCase
         ]);
     }
 
-    /** 造一行历史核算结果（管理人员行）：fixed=6000 base=5000 → 月绩效基数 1000 */
+    /** 造一行历史核算结果：fixed/base 可覆盖，coef 默认 1.0 */
     private function seedHistory(int $staffId, string $ym, float $perfAtt = 22, float $reqAtt = 22, float $fixed = 6000, float $base = 5000): void
     {
         DB::table('payroll_results')->insert([
             'year_month' => $ym, 'staff_legacy_id' => $staffId, 'project_name' => '测试项目',
-            'row_data' => json_encode(['fixed' => $fixed, 'base' => $base,
+            'row_data' => json_encode(['fixed' => $fixed, 'base' => $base, 'coef' => 1.0,
                 'perf_att' => $perfAtt, 'req_att' => $reqAtt], JSON_UNESCAPED_UNICODE),
             'archived' => true, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
+    /** quarterly 法：coe 独立录入 period_coefs 表（quarter_grade 法才读主表 coef） */
     private function seedCoef(int $staffId, string $type, string $key, float $coef): void
     {
-        DB::table('payroll_period_coefs')->insert([
-            'staff_legacy_id' => $staffId, 'period_type' => $type, 'period_key' => $key,
-            'coef' => $coef, 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        DB::table('payroll_period_coefs')->updateOrInsert(
+            ['staff_legacy_id' => $staffId, 'period_type' => $type, 'period_key' => $key],
+            ['coef' => $coef, 'created_at' => now(), 'updated_at' => now()]
+        );
+    }
+
+    /** 周期 key → 季度末月（quarterly 法用不上，保留以防需要） */
+    private function periodKeyToMonth(string $key): string
+    {
+        if (preg_match('/(\d{4})-(Q\d|H\d)/', $key, $m)) {
+            $y = (int)$m[1]; $p = $m[2];
+            $map = ['Q1' => '04', 'Q2' => '07', 'Q3' => '10', 'Q4' => '01', 'H1' => '07', 'H2' => '01'];
+            $mm = $map[$p] ?? '04';
+            $y2 = in_array($p, ['Q4', 'H2']) ? $y + 1 : $y;
+            return "{$y2}-{$mm}";
+        }
+        return '2026-04';
     }
 
     private function fullDays(): array

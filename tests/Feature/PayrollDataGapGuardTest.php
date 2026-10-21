@@ -373,19 +373,38 @@ class PayrollDataGapGuardTest extends TestCase
     {
         DB::table('payroll_results')->insert([
             'year_month' => $ym, 'staff_legacy_id' => $staffId, 'project_name' => '测试项目',
-            'row_data' => json_encode(['fixed' => 6000, 'base' => 5000,
+            'row_data' => json_encode(['fixed' => 6000, 'base' => 5000, 'coef' => 1.0,
                 'perf_att' => 22.0, 'req_att' => 22.0], JSON_UNESCAPED_UNICODE),
             'archived' => true, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
+    /** quarter_grade 法：系数写入 payroll_results 季度末月行的 row_data.coef */
     private function seedManagerCoef(int $staffId, string $key, float $coef): void
     {
-        DB::table('payroll_period_coefs')->insert([
-            'staff_legacy_id' => $staffId, 'period_type' => 'quarterly', 'period_key' => $key,
-            'coef' => $coef, 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $month = match (true) {
+            str_ends_with($key, '-Q1') => substr($key, 0, 4) . '-04',
+            str_ends_with($key, '-Q2') => substr($key, 0, 4) . '-07',
+            str_ends_with($key, '-Q3') => substr($key, 0, 4) . '-10',
+            str_ends_with($key, '-Q4') => substr($key, 0, 4) . '7-01',
+            default => substr($key, 0, 4) . '-04',
+        };
+        // Q4/H2 归次年 1 月
+        if (str_ends_with($key, '-Q4') || str_ends_with($key, '-H2')) {
+            $year = (int)substr($key, 0, 4);
+            $month = ($year + 1) . '-01';
+        }
+        DB::table('payroll_results')->updateOrInsert(
+            ['year_month' => $month, 'staff_legacy_id' => $staffId, 'is_manager_row' => true],
+            [
+                'project_name' => '测试项目',
+                'row_data' => json_encode(['coef' => $coef, 'fixed' => 6000, 'base' => 5000,
+                    'perf_att' => 22, 'req_att' => 22], JSON_UNESCAPED_UNICODE),
+                'archived' => false, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
+                'created_at' => now(), 'updated_at' => now(),
+            ]
+        );
     }
 
     private function managerFullDays(): array

@@ -513,15 +513,39 @@ class PayrollController extends ApiController
             if ($sid <= 0 || !is_numeric($coef)) {
                 continue;
             }
+            // 双写：period_coefs 表（quarterly 法读）+ payroll_results 季度末月行（quarter_grade 法读主表 coef）
             DB::table('payroll_period_coefs')->upsert(
                 ['staff_legacy_id' => $sid, 'period_type' => $type, 'period_key' => $key,
                     'coef' => round((float)$coef, 2), 'created_at' => now(), 'updated_at' => now()],
                 ['staff_legacy_id', 'period_type', 'period_key'],
                 ['coef', 'updated_at']
             );
+            // quarter_grade 法：coef 同时写到季度末月行的 row_data.coef（PHP 处理 JSON，兼容 SQLite/MySQL）
+            $month = $this->periodKeyToMonth($key);
+            $existingResultRow = DB::table('payroll_results')
+                ->where('year_month', $month)->where('staff_legacy_id', $sid)->where('archived', false)->first();
+            if ($existingResultRow) {
+                $rd = json_decode((string)$existingResultRow->row_data, true) ?: [];
+                $rd['coef'] = round((float)$coef, 2);
+                DB::table('payroll_results')->where('id', $existingResultRow->id)
+                    ->update(['row_data' => json_encode($rd, JSON_UNESCAPED_UNICODE), 'updated_at' => now()]);
+            }
             $saved++;
         }
         return response()->json(['ok' => true, 'saved' => $saved]);
+    }
+
+    /** 周期 key → 季度末月（2026-Q1→2026-04, 2026-Q4→2027-01） */
+    private function periodKeyToMonth(string $key): string
+    {
+        if (preg_match('/(\d{4})-(Q\d|H\d)/', $key, $m)) {
+            $y = (int)$m[1]; $p = $m[2];
+            $map = ['Q1' => '04', 'Q2' => '07', 'Q3' => '10', 'Q4' => '01', 'H1' => '07', 'H2' => '01'];
+            $mm = $map[$p] ?? '04';
+            $y2 = in_array($p, ['Q4', 'H2']) ? $y + 1 : $y;
+            return "{$y2}-{$mm}";
+        }
+        return '2026-04';
     }
 
     /** 按周期查询已录系数（联人员姓名/项目/职级） */

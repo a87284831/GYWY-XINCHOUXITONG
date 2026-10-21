@@ -521,6 +521,7 @@ class PayrollCalculator
         $actual = (float)($att['act_attend'] ?? 0); if ($actual <= 0) $actual = $stats['attend'];
         if ($h <= 0) $h = $actual > 0 ? (int)date('t', strtotime($ym . '-01')) : 1;
 
+        // coef 默认从考勤表读（月度法始终用考勤 coef）；季度法后面会查 existingRow 覆盖
         $coef = array_key_exists('coef', $att) && $att['coef'] !== null && $att['coef'] !== ''
             ? (float)$att['coef'] : 1.0;
 
@@ -615,6 +616,7 @@ class PayrollCalculator
             $payGrade = trim((string)($personData['pay_grade'] ?? ''));
             $payRule = $this->rules->getPayRule($category, $payGrade);
             if (($payRule['cycle'] ?? 'monthly') === 'quarterly') {
+                // quarterly 法：quarter 和 half_year 系数独立录入，继续读 period_coefs 表（与 quarter_grade 法不同）
                 $year = (int)substr($ym, 0, 4);
                 $month = (int)substr($ym, 5, 2);
                 // 档位校验（显式失败，禁止静默按 default 发放）：空 → missing_pay_grade；不在三档 → invalid_pay_grade；未配比例 → missing_pay_rule
@@ -634,6 +636,7 @@ class PayrollCalculator
                         $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                     } else {
                         [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
+                        // quarterly 法：quarter coef 独立录入，继续读 period_coefs
                         $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
                         if ($qCoef === null) {
                             // 缺季度系数：季度部分为 0 并标记（半年度部分有系数仍发）
@@ -656,6 +659,7 @@ class PayrollCalculator
                             $perfDetail['half_year'] = ['error' => $gradeError, 'period' => $hKey, 'pay_grade' => $payGrade];
                         } else {
                             [$hBase, $hMonths] = $this->accumulatePeriodPerf($person, $category, $hYms, $historyByStaff);
+                            // quarterly 法：half_year coef 独立录入
                             $hCoef = $this->periodCoef((int)$person->legacy_id, 'half_year', $hKey);
                             if ($hCoef === null) {
                                 $perfDetail['half_year'] = ['error' => 'missing_coef', 'period' => $hKey];
@@ -674,8 +678,15 @@ class PayrollCalculator
                     $perfPay = 0.0;
                 }
             } elseif (($payRule['cycle'] ?? '') === 'quarter_grade') {
-                // 季度绩效法：经理级=季度型（季度末按 季度系数×Σ(基数×出勤比例) 全额发放，无比例、无半年度）；
-                // 主管/专员级=月度型（不覆盖常规段当月绩效，不查季度系数）。
+                // 季度绩效法：经理级=季度型，主管/专员级=月度型
+                if ($payGrade === '经理级') {
+                    // 经理级：coef 优先读已存工资行（弹窗录入的），覆盖考勤 coef
+                    $existingRow = DB::table('payroll_results')->where('staff_legacy_id', (int)$person->legacy_id)->where('year_month', $ym)->where('archived', false)->first();
+                    if ($existingRow && $existingRow->row_data) {
+                        $rd = json_decode((string)$existingRow->row_data, true);
+                        if (isset($rd['coef'])) $coef = (float)$rd['coef'];
+                    }
+                }
                 $year = (int)substr($ym, 0, 4);
                 $month = (int)substr($ym, 5, 2);
                 $isQuarterMode = ($payRule['mode'] ?? 'monthly') === 'quarter';
@@ -693,7 +704,8 @@ class PayrollCalculator
                             $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                         } else {
                             [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
-                            $qCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
+                            // 统一读主表 coef
+                            $qCoef = ($coef == 1.0 && !$existingRow) ? null : $coef;
                             if ($qCoef === null) {
                                 $perfPay = 0.0;
                                 $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
@@ -1403,7 +1415,7 @@ class PayrollCalculator
         return [round($total, 2), $months];
     }
 
-    /** 查周期系数；未录入返回 null（区别于合法录入的 0.0） */
+    /** 查周期系数；未录入返回 null（quarterly 法专用，quarter_grade 法走主表 coef） */
     private function periodCoef(int $legacyId, string $type, string $key): ?float
     {
         $row = DB::table('payroll_period_coefs')

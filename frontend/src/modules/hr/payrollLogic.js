@@ -134,13 +134,10 @@ export function perfDetailCols(rows) {
     if (!d || d.error || !Array.isArray(d.months)) continue
     const qTag = String(d.period || '').slice(5) || 'Q'
     for (const m of d.months) cols[`${qTag}|${m.ym}`] = `${qTag}·${Number(m.ym.slice(5, 7))}月绩效`
-    // 系数列（key 以 "周期-coef" 结尾，字节序排在该季度全部月份列之后 = 季度组末列）
-    if (d.coef != null) cols[`${qTag}|${d.period}-coef`] = `${qTag}·系数`
     const h = d.half_year
     if (h && !h.error && Array.isArray(h.months)) {
       const hTag = String(h.period || '').slice(5) || 'H'
       for (const m of h.months) cols[`${hTag}|${m.ym}`] = `${hTag}·${Number(m.ym.slice(5, 7))}月绩效`
-      if (h.coef != null) cols[`${hTag}|${h.period}-coef`] = `${hTag}·系数`
     }
   }
   const byte = (x, y) => (x < y ? -1 : x > y ? 1 : 0) // 字节序（localeCompare 会弱化 ~ | 符号，导致 Q/H 顺序错乱）

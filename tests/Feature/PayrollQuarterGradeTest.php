@@ -74,24 +74,54 @@ class PayrollQuarterGradeTest extends TestCase
         ]);
     }
 
-    /** 历史核算行：fixed=6000 base=5000 → 月绩效基数 1000 */
-    private function seedHistory(int $staffId, string $ym, float $perfAtt = 22, float $reqAtt = 22): void
+    /** 历史核算行：fixed=6000 base=5000 coef=1.0 默认 */
+    private function seedHistory(int $staffId, string $ym, float $perfAtt = 22, float $reqAtt = 22, float $coef = 1.0): void
     {
         DB::table('payroll_results')->insert([
             'year_month' => $ym, 'staff_legacy_id' => $staffId, 'project_name' => '测试项目',
-            'row_data' => json_encode(['fixed' => 6000, 'base' => 5000,
+            'row_data' => json_encode(['fixed' => 6000, 'base' => 5000, 'coef' => $coef,
                 'perf_att' => $perfAtt, 'req_att' => $reqAtt], JSON_UNESCAPED_UNICODE),
             'archived' => true, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
+    /** 把周期系数写到对应季度末月行的 row_data.coef + 考勤表的 coef（统一 coef 列方案） */
     private function seedCoef(int $staffId, string $type, string $key, float $coef): void
     {
-        DB::table('payroll_period_coefs')->insert([
-            'staff_legacy_id' => $staffId, 'period_type' => $type, 'period_key' => $key,
-            'coef' => $coef, 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $month = $this->periodKeyToMonth($key);
+        DB::table('payroll_results')->updateOrInsert(
+            ['year_month' => $month, 'staff_legacy_id' => $staffId, 'is_manager_row' => true],
+            [
+                'project_name' => '测试项目',
+                'row_data' => json_encode(['coef' => $coef, 'fixed' => 6000, 'base' => 5000,
+                    'perf_att' => 22, 'req_att' => 22, 'name' => '张三'], JSON_UNESCAPED_UNICODE),
+                'archived' => false, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
+                'created_at' => now(), 'updated_at' => now(),
+            ]
+        );
+        // 同时更新考勤表，确保 calcManagers 从考勤里也能读到 coef
+        $att = DB::table('payroll_attendance')->where('year_month', $month)->where('locked', true)->first();
+        if ($att) {
+            $rows = json_decode((string)$att->rows, true) ?: [];
+            foreach ($rows as &$r) {
+                if ((int)($r['staff_id'] ?? 0) === $staffId) $r['coef'] = $coef;
+            }
+            DB::table('payroll_attendance')->where('id', $att->id)->update(['rows' => json_encode($rows, JSON_UNESCAPED_UNICODE), 'updated_at' => now()]);
+        }
+    }
+
+    /** 周期 key → 季度末月（Q1→04, Q2→07, Q3→10, Q4/H2→次年01, H1→07） */
+    private function periodKeyToMonth(string $key): string
+    {
+        if (preg_match('/(\d{4})-(Q\d|H\d)/', $key, $m)) {
+            $y = (int)$m[1]; $p = $m[2];
+            $map = ['Q1' => '04', 'Q2' => '07', 'Q3' => '10', 'Q4' => '01', 'H1' => '07', 'H2' => '01'];
+            $m = $map[$p] ?? '04';
+            $y2 = in_array($p, ['Q4', 'H2']) ? $y + 1 : $y;
+            return "{$y2}-{$m}";
+        }
+        return '2026-04';
     }
 
     private function fullDays(): array
