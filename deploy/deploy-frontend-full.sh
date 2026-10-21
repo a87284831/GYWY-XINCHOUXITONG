@@ -51,19 +51,39 @@ echo "=== 3b. 清理不在本次构建中的旧哈希产物（保持三端一致
 # 必须在自检通过后执行：自检失败会回滚 index.html，旧产物此时不能删
 # 注意：清理后旧标签页需硬刷新；若需保留回滚窗口，可改为保留上一代产物
 tar tzf /tmp/app-bundle.tar.gz | grep '^app/assets/' | grep -v '/$' | sed 's|^app/|public/app/|' | sort > /tmp/keep-assets-deploy.txt
+KEEP_CNT=$(wc -l < /tmp/keep-assets-deploy.txt)
 find $REMOTE/public/app/assets -type f | sort > /tmp/cur-assets-deploy.txt
-comm -23 /tmp/cur-assets-deploy.txt /tmp/keep-assets-deploy.txt > /tmp/del-assets-deploy.txt
-echo "删除旧产物: $(wc -l < /tmp/del-assets-deploy.txt) 个；保留: $(wc -l < /tmp/keep-assets-deploy.txt) 个"
-if [ -s /tmp/del-assets-deploy.txt ]; then
-  xargs -d '\n' rm -f < /tmp/del-assets-deploy.txt
+CUR_CNT=$(wc -l < /tmp/cur-assets-deploy.txt)
+
+# 防呆（2026-10-21 二次白屏事故）：若包内清单异常偏少，comm 会把服务器上全部产物判为“旧产物”而清空，
+# 直接导致 index.html 引用资源 404 白屏。任何可疑情况一律跳过清理，宁留垃圾不删文件。
+if [ "$KEEP_CNT" -lt 10 ] || [ "$KEEP_CNT" -gt "$CUR_CNT" ]; then
+  echo "!!! 包内产物清单异常（包内 $KEEP_CNT / 服务器 $CUR_CNT），跳过旧产物清理，请人工核对 !!!"
+else
+  comm -23 /tmp/cur-assets-deploy.txt /tmp/keep-assets-deploy.txt > /tmp/del-assets-deploy.txt
+  echo "删除旧产物: $(wc -l < /tmp/del-assets-deploy.txt) 个；保留: $KEEP_CNT 个"
+  if [ -s /tmp/del-assets-deploy.txt ]; then
+    xargs -d '\n' rm -f < /tmp/del-assets-deploy.txt
+  fi
 fi
 
+echo "=== 3c. 清理后复检（引用资源必须仍全部 200）==="
+MISS=0
+for ref in $(grep -oE '/app/assets/[^"]+' $REMOTE/public/app/index.html); do
+  code=$(curl -sk -o /dev/null -w "%{http_code}" "https://oa.haoxuanyunshu.cn$ref")
+  [ "$code" != "200" ] && MISS=1 && echo "404: $ref"
+done
+if [ $MISS -ne 0 ]; then
+  echo "!!! 清理后出现 404，说明误删，立即重新整包解压恢复 !!!"
+  tar -xzf /tmp/app-bundle.tar.gz -C $REMOTE/public/
+  exit 1
+fi
+echo "清理后引用资源仍全部 200"
+
 echo "=== 4. 产物清单比对（三端一致：本地构建包 vs 服务器） ==="
-KEEP_CNT=$(wc -l < /tmp/keep-assets-deploy.txt)
-CUR_CNT=$(wc -l < /tmp/cur-assets-deploy.txt)
-echo "包内产物: $KEEP_CNT 个；部署后服务器: $CUR_CNT 个；差集: $(wc -l < /tmp/del-assets-deploy.txt) 个旧产物已清理"
+echo "包内产物: $KEEP_CNT 个；部署时服务器已有: $CUR_CNT 个"
 if [ "$KEEP_CNT" != "$CUR_CNT" ]; then
-  echo "提示：数量不一致通常因旧产物清理时机，核对下列缺失项"
+  echo "提示：数量不一致通常因旧产物清理时机，核对下列新增项"
   comm -13 /tmp/keep-assets-deploy.txt /tmp/cur-assets-deploy.txt || true
 fi
 
