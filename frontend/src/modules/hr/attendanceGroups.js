@@ -19,14 +19,23 @@ export function attProjectLabel(value) {
 }
 
 /**
- * 查看/锁定/导出三个按钮的统一启用口径（2026-10-04 权限一致性修复）：
- * - 虚拟汇总选项：没有单一考勤块，始终禁用
+ * 查看/锁定/导出/删除四个按钮的统一启用口径：
+ * - 虚拟汇总选项：可查看/导出聚合数据（后端 status 接口按月返回 virtual has_data），
+ *   删除可全公司剔除该类人员行（2026-10-18 口径，锁定/归档由后端整体拒绝）；
+ *   锁定无单一考勤块始终禁用；当月无该类人员考勤数据时查看/导出/删除同步置灰
  * - 具体项目当月无考勤块（未上传）：禁用，上传成功后才放行
  * - 已上传：返回空串表示放行
  * 返回非空串为禁用原因（同时用作按钮 title）。
  */
-export function attBlockedAction({ isVirtual, hasData }) {
-  if (isVirtual) return '汇总选项无单一考勤块，请选择具体项目后操作'
+export function attBlockedAction({ isVirtual, hasData, action }) {
+  if (isVirtual) {
+    // 锁定在虚拟选项下无意义（无单一考勤块）
+    if (action === 'lock') {
+      return '汇总选项无单一考勤块，请选择具体项目后操作'
+    }
+    if (!hasData) return '本月暂无该类人员考勤数据，请先上传考勤表'
+    return ''
+  }
   if (!hasData) return '该项目本月尚未上传考勤数据，请先上传考勤表'
   return ''
 }

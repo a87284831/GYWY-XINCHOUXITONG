@@ -89,6 +89,7 @@ export function saveCustomPayload(form, row, mode, pid, uid) {
     created_by: uid,
   }
   if (mode === 'merge') payload.product_id = pid
+  if (mode === 'add_spec') payload.base_product_id = pid
   return payload
 }
 

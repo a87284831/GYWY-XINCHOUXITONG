@@ -136,7 +136,7 @@ async function removeAlias(a) {
 }
 
 function downloadTemplate() {
-  download('/api/purchase/products/template', '标准商品库批量导入模板.xlsx')
+  download('/api/purchase/products/template', '广盈物业_标准商品库批量导入模板.xlsx')
 }
 
 function onImportFile(e) {

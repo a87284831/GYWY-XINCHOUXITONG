@@ -51,10 +51,10 @@ class RosterSalaryGuardTest extends TestCase
     private function mockSyncBase(array $rosterReturn): void
     {
         $this->dt->method('getAllDepartments')->willReturn([
-            1 => ['name' => '公司总部', 'parent_id' => 0, 'level' => 1],
+            1 => ['name' => '万城服务', 'parent_id' => 0, 'level' => 1],
             2 => ['name' => '测试项目A', 'parent_id' => 1, 'level' => 2],
         ]);
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([
             'u1' => ['name' => '员工甲', 'title' => '保洁', '_dept_ids' => [2], 'hired_date' => 0, 'mobile' => ''],
             'u2' => ['name' => '员工乙', 'title' => '保安', '_dept_ids' => [2], 'hired_date' => 0, 'mobile' => ''],

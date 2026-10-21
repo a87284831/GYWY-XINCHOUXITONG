@@ -19,7 +19,7 @@ class AttendanceStatsFixTest extends TestCase
 
     private string $adminToken;
     private const YM = '2026-09';
-    private const PROJ = '测试项目A';
+    private const PROJ = '罗庄春暖花开';
 
     protected function setUp(): void
     {

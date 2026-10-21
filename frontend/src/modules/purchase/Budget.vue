@@ -73,7 +73,7 @@ async function saveMonth() {
 
 function downloadTemplate() {
   const y = importYear.value || now.getFullYear()
-  download('/api/purchase/budgets/template?year=' + y, '' + y + '年度采购预算导入模板.xlsx')
+  download('/api/purchase/budgets/template?year=' + y, '广盈物业_' + y + '年度采购预算导入模板.xlsx')
 }
 
 function onFileChange(e) {

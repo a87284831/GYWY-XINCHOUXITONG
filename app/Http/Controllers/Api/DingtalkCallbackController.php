@@ -456,7 +456,7 @@ class DingtalkCallbackController extends ApiController
             $id = DB::table('org_nodes')->insertGetId([
                 'parent_id' => null,
                 'type' => 'company',
-                'name' => '公司总部',
+                'name' => '万城服务',
                 'dingtalk_dept_id' => '399655832',
                 'sort_order' => 0,
                 'enabled' => true,
@@ -464,7 +464,7 @@ class DingtalkCallbackController extends ApiController
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-            $dtNodeMap[399655832] = ['id' => $id, 'name' => '公司总部', 'parent_id' => null];
+            $dtNodeMap[399655832] = ['id' => $id, 'name' => '万城服务', 'parent_id' => null];
         }
 
         uasort($depts, fn($a, $b) => $a['level'] <=> $b['level']);

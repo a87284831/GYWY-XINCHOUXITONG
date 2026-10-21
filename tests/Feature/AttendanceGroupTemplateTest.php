@@ -49,7 +49,7 @@ class AttendanceGroupTemplateTest extends TestCase
         DB::table('payroll_projects')->insert([
             ['name' => '甲项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
             ['name' => '乙项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
-            ['name' => '物业总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
+            ['name' => '物业公司总部', 'status' => '启用', 'created_at' => now(), 'updated_at' => now()],
         ]);
         DB::table('legacy_json_snapshots')->insert([
             'file_name' => 'symbols.json',
@@ -78,16 +78,16 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->staff(3, '案场甲', 'case', '甲项目');
         $this->staff(4, '员工甲', 'staff', '甲项目');
         $this->staff(5, '员工乙', 'staff', '乙项目');
-        $this->staff(6, '总部王', 'hq', '物业总部');
+        $this->staff(6, '总部王', 'hq', '物业公司总部');
     }
 
-    /** 构造可被 parseWorkbook 解析的最小考勤 xlsx，返回临时路径 */
-    private function makeWorkbook(array $people): string
+    /** 构造可被 parseWorkbook 解析的最小考勤 xlsx，返回临时路径（$statusHeader 兼容新旧表头） */
+    private function makeWorkbook(array $people, string $statusHeader = '人员状态'): string
     {
         $days = (int) date('t', strtotime(self::YM . '-01'));
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
-        $sheet->setCellValue('B3', '姓名')->setCellValue('C3', '人员状态')->setCellValue('D3', '岗位');
+        $sheet->setCellValue('B3', '姓名')->setCellValue('C3', $statusHeader)->setCellValue('D3', '岗位');
         for ($d = 1; $d <= $days; $d++) {
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4 + $d) . '3', (string) $d);
         }
@@ -97,6 +97,7 @@ class AttendanceGroupTemplateTest extends TestCase
         foreach ($people as $i => $p) {
             $sheet->setCellValue("A{$r}", $i + 1);
             $sheet->setCellValue("B{$r}", $p['name']);
+            if (isset($p['status'])) $sheet->setCellValue("C{$r}", $p['status']);
             $syms = $p['days'] ?? [];
             for ($d = 1; $d <= $days; $d++) {
                 $sym = $syms[$d - 1] ?? '';
@@ -120,25 +121,21 @@ class AttendanceGroupTemplateTest extends TestCase
         ] + $extra, ['X-Token' => $token]);
     }
 
-    /** 读取下载响应中的姓名列（扫描表头行定位"姓名"列，数据从第5行开始） */
+    /** 读取下载响应中的姓名列（表头第3行按“姓名”动态定位，兼容单项目/多项目两种列序；数据从第5行开始） */
     private function namesFromDownload(\Illuminate\Testing\TestResponse $resp): array
     {
         $tmp = tempnam(sys_get_temp_dir(), 'dl') . '.xlsx';
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
-        // 列序改造后姓名列不固定（单项目D列/虚拟组E列），按表头动态定位
         $nameCol = null;
-        for ($r = 1; $r <= 5 && $nameCol === null; $r++) {
-            for ($c = 1; $c <= 15; $c++) {
-                $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-                if (trim((string) $sheet->getCell("{$letter}{$r}")->getValue()) === '姓名') {
-                    $nameCol = $letter;
-                    break 2;
-                }
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') {
+                $nameCol = $letter;
+                break;
             }
         }
-        $nameCol = $nameCol ?? 'B';
         $names = [];
         for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
             $v = trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue());
@@ -189,13 +186,22 @@ class AttendanceGroupTemplateTest extends TestCase
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
-        // 找到经理甲所在行；基本信息区扩为7列（加入职日期）后，日期区从 H 列起，1 日 = H 列
+        // 找到经理甲所在行与姓名列（表头第3行按“姓名”定位）；日期区从姓名列后第3列起（员工状态、入职日期），1 日 = 该列
+        $nameCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') { $nameCol = $letter; break; }
+        }
+        $this->assertNotNull($nameCol);
         $jiaRow = null;
         for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
-            if (trim((string) $sheet->getCell("E{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
         }
         $this->assertNotNull($jiaRow);
-        $this->assertSame('√', trim((string) $sheet->getCell("H{$jiaRow}")->getValue()));
+        $day1Col = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
+            \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($nameCol) + 3
+        );
+        $this->assertSame('√', trim((string) $sheet->getCell("{$day1Col}{$jiaRow}")->getValue()));
     }
 
     public function test_project_role_with_sentinel_only_gets_own_project_template(): void
@@ -291,9 +297,9 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->assertSame([], $this->blockRows('甲项目'));
     }
 
-    // ===== 项目表上传：同样改为按人合并 =====
+    // ===== 项目表上传：整表覆盖（2026-10-18 口径）=====
 
-    public function test_project_upload_merges_by_person_without_deleting_absent_rows(): void
+    public function test_project_upload_overwrites_whole_block_removing_absent_rows(): void
     {
         $this->seedWorld();
         // 旧块含经理甲+员工甲；本次项目表只传员工甲（经理甲的行不在表里）
@@ -306,11 +312,112 @@ class AttendanceGroupTemplateTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $path = $this->makeWorkbook([['name' => '员工甲', 'days' => array_pad(['√'], 30, '')]]);
-        $this->upload($path, '甲项目', $this->adminToken)->assertOk();
+        $this->upload($path, '甲项目', $this->adminToken)->assertOk()->assertJson(['overwrite' => true]);
 
         $jia = $this->blockRows('甲项目');
-        $this->assertArrayHasKey('经理甲', $jia, '不在新表中的旧人员行应保留（防误删，重走删除按钮清空）');
-        $this->assertSame('休', $jia['经理甲']['days'][0]);
+        $this->assertArrayNotHasKey('经理甲', $jia, '整表覆盖：不在新表中的旧人员行被移除');
         $this->assertSame('√', $jia['员工甲']['days'][0]);
+        $this->assertCount(1, $jia);
+    }
+
+    // ===== 福利列（已发福利/奖励）=====
+
+    /** 读取模板响应第 3 行表头（0 基数组） */
+    private function headersFromDownload(\Illuminate\Testing\TestResponse $resp): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'hdr') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+        $out = [];
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $out[] = trim((string) $sheet->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . '3')->getValue());
+        }
+        return $out;
+    }
+
+    public function test_template_contains_welfare_column_right_after_reward(): void
+    {
+        $this->seedWorld();
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=甲项目', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $headers = $this->headersFromDownload($resp);
+        $idx = array_search('已发福利/奖励', $headers, true);
+        $this->assertNotFalse($idx, '考勤模板必须包含「已发福利/奖励」列');
+        $this->assertSame('月度奖励金额', $headers[$idx - 1], '福利列应紧随「月度奖励金额」之后');
+    }
+
+    public function test_template_welfare_value_roundtrips_on_upload(): void
+    {
+        $this->seedWorld();
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=甲项目', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'rt') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        $nameCol = null; $welfareCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            if ($h === '姓名') $nameCol = $L;
+            if ($h === '已发福利/奖励') $welfareCol = $L;
+        }
+        $this->assertNotNull($nameCol); $this->assertNotNull($welfareCol);
+        $targetRow = null;
+        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '员工甲') { $targetRow = $r; break; }
+        }
+        $this->assertNotNull($targetRow);
+        $sheet->setCellValue("{$welfareCol}{$targetRow}", 150);
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($sheet->getParent()))->save($tmp);
+        $this->upload($tmp, '甲项目', $this->adminToken)->assertOk();
+        @unlink($tmp);
+        $rows = $this->blockRows('甲项目');
+        $this->assertSame(150.0, (float) ($rows['员工甲']['welfare'] ?? 0), '模板填写的福利应被解析入库');
+    }
+
+    public function test_group_template_prefills_welfare_from_project_block(): void
+    {
+        $this->seedWorld();
+        DB::table('payroll_attendance')->insert([
+            'record_key' => self::YM . '|甲项目', 'year_month' => self::YM, 'project_name' => '甲项目',
+            'rows' => json_encode(['经理甲' => ['days' => array_pad(['√'], 31, ''), 'welfare' => 88]], JSON_UNESCAPED_UNICODE),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $resp = $this->get('/api/attendance/template?ym=' . self::YM . '&project=__managers__', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'pf') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+        $nameCol = null; $welfareCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            if ($h === '姓名') $nameCol = $L;
+            if ($h === '已发福利/奖励') $welfareCol = $L;
+        }
+        $this->assertNotNull($welfareCol, '虚拟组模板必须含福利列');
+        $row = null;
+        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $row = $r; break; }
+        }
+        $this->assertNotNull($row);
+        $this->assertSame(88, (int) $sheet->getCell("{$welfareCol}{$row}")->getValue(), '虚拟组模板应带出福利值');
+    }
+
+    public function test_upload_accepts_new_status_header(): void
+    {
+        // 回归：2026-10-09 模板表头「人员状态」改为「员工状态」但解析端未同步，
+        // 导致新表头时代上传的考勤 status 被丢弃（查看页状态列显示"-"）。
+        // FIELD_MAP 现双表头兼容，新表头需正常入库。
+        $this->staff(1, '经理甲', 'manager', '甲项目');
+        $path = $this->makeWorkbook([
+            ['name' => '经理甲', 'status' => '正式', 'days' => array_pad(['√'], 5, '')],
+        ], '员工状态');
+        $resp = $this->upload($path, '__managers__', $this->adminToken);
+        $resp->assertOk();
+        $rows = $this->blockRows('甲项目');
+        $this->assertSame('正式', $rows['经理甲']['status'] ?? null, '「员工状态」表头的状态值应入库');
     }
 }

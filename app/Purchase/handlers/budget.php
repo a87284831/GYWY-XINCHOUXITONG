@@ -106,7 +106,7 @@ function handle_budgets_template() {
 
     // 标题（仿用户原表样式：深蓝底白字）
     $ws->mergeCells('A1:O1');
-    $ws->setCellValue('A1', "{$year} 年度项目采购预算表");
+    $ws->setCellValue('A1', "广盈物业 {$year} 年度项目采购预算表");
     $ws->getStyle('A1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
     $ws->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF366092');
     $ws->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
@@ -172,7 +172,7 @@ function handle_budgets_template() {
     $ws->getStyle('C5:O' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
     $ws->freezePane('C5');
 
-    $fileName = "{$year}年度采购预算导入模板.xlsx";
+    $fileName = "广盈物业_{$year}年度采购预算导入模板.xlsx";
     \App\Purchase\Support::header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     \App\Purchase\Support::header('Content-Disposition: attachment; filename="' . rawurlencode($fileName) . '"');
     $writer = new Xlsx($spreadsheet);

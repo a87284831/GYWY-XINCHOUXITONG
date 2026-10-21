@@ -173,6 +173,96 @@ class PayrollWriteController extends ApiController
     }
 
     /**
+     * POST /api/payroll/delete-month
+     * 按维度删除当月薪资核算数据（type=staff/manager/case/hq，默认 staff）。
+     * 仅删除当前维度行及被删人员的当月微调日志，其他维度数据不受影响。
+     * 仅总部管理员；维度内存在已归档行拒绝（需先解锁）；首次 409 返回范围统计，force=true 执行。
+     */
+    public function deleteMonth(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅总部管理员可删除薪资数据'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '核算月份格式应为 YYYY-MM'], 400);
+        }
+        $type = (string) $request->input('type', 'staff');
+        $typeLabels = ['staff' => '员工', 'manager' => '管理人员', 'case' => '案场人员', 'hq' => '总部人员'];
+        if (!isset($typeLabels[$type])) {
+            return response()->json(['ok' => false, 'error' => '删除维度无效'], 400);
+        }
+        $query = DB::table('payroll_results')->where('year_month', $ym);
+        $this->applyRowTypeScope($query, $type);
+        $rows = $query->get();
+        if ($rows->isEmpty()) {
+            return response()->json(['ok' => false, 'error' => "该月暂无{$typeLabels[$type]}薪资核算数据"], 404);
+        }
+        $archivedCount = $rows->where('archived', true)->count();
+        if ($archivedCount > 0) {
+            return response()->json(['ok' => false, 'error' => "该月{$typeLabels[$type]}存在已归档锁定行（{$archivedCount}行），请先解锁归档后再删除"], 400);
+        }
+        // 微调日志范围隔离：仅统计/删除被删行涉及人员的当月日志
+        $staffIds = $rows->pluck('staff_legacy_id')->unique()->values()->all();
+        $adjustLogCount = DB::table('payroll_adjust_logs')->where('ym', $ym)
+            ->whereIn('staff_legacy_id', $staffIds)->count();
+        $scope = [
+            'scope_type' => $type,
+            'scope_label' => $typeLabels[$type],
+            'total_rows' => $rows->count(),
+            'staff_rows' => $rows->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)->count(),
+            'manager_rows' => $rows->where('is_manager_row', true)->where('is_hq_row', false)->count(),
+            'case_rows' => $rows->where('is_case_row', true)->count(),
+            'hq_rows' => $rows->where('is_hq_row', true)->count(),
+            'adjust_logs' => $adjustLogCount,
+            'projects' => $rows->pluck('project_name')->unique()->values()->all(),
+            'total_gross' => round($rows->sum(fn ($r) => (float) (($this->jsonValue($r->row_data)['gross'] ?? 0))), 2),
+            'total_net' => round($rows->sum(fn ($r) => (float) (($this->jsonValue($r->row_data)['net'] ?? 0))), 2),
+        ];
+        if (!(bool) $request->input('force')) {
+            return response()->json(['ok' => false, 'need_confirm' => true, 'scope' => $scope], 409);
+        }
+        DB::transaction(function () use ($ym, $type, $staffIds, $scope, $account) {
+            $del = DB::table('payroll_results')->where('year_month', $ym);
+            $this->applyRowTypeScope($del, $type);
+            $del->delete();
+            if ($staffIds) {
+                DB::table('payroll_adjust_logs')->where('ym', $ym)
+                    ->whereIn('staff_legacy_id', $staffIds)->delete();
+            }
+            DB::table('payroll_delete_logs')->insert([
+                'ym' => $ym,
+                'scope_info' => json_encode($scope, JSON_UNESCAPED_UNICODE),
+                'operator' => (string) ($account->name ?? $account->username ?? 'admin'),
+                'operator_role' => (string) ($account->role ?? ''),
+                'created_at' => now(),
+            ]);
+        });
+        \Illuminate\Support\Facades\Log::warning('payroll.delete_month', [
+            'ym' => $ym, 'type' => $type, 'operator' => $account->username, 'scope' => $scope,
+        ]);
+        return response()->json(['ok' => true, 'deleted' => $scope]);
+    }
+
+    /**
+     * 工资表行维度过滤（与 archive 分层口径一致）。
+     */
+    private function applyRowTypeScope(\Illuminate\Database\Query\Builder $query, string $type): void
+    {
+        if ($type === 'manager') {
+            $query->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($type === 'case') {
+            $query->where('is_case_row', true);
+        } elseif ($type === 'hq') {
+            $query->where('is_hq_row', true);
+        } else {
+            $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+        }
+    }
+
+    /**
      * 重新核算前的归档保护（问题5）。
      * 目标核算范围内若存在已锁定（archived）行：首次请求返回 409 + 锁定名单，
      * 调用方须带 force=true 二次确认才放行。
@@ -674,7 +764,7 @@ class PayrollWriteController extends ApiController
         return response()->download($path, '历史工资导入错误报告_' . now()->format('Ymd_Hi') . '.xlsx');
     }
 
-    /** 从 dept_path（形如 "示例项目/客服部"）解析末级部门名；末级等于项目名时回退上一级（与 PayrollCalculator 同逻辑） */
+    /** 从 dept_path（形如 "罗庄春暖花开/客服部"）解析末级部门名；末级等于项目名时回退上一级（与 PayrollCalculator 同逻辑） */
     private function deptFromPath(?string $deptPath, string $project): string
     {
         $path = trim((string) $deptPath);

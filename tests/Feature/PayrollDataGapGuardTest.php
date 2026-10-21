@@ -60,17 +60,17 @@ class PayrollDataGapGuardTest extends TestCase
         return $out;
     }
 
-    private function seedStaff(int $id, string $name, float $fixed, float $base, string $status = '正式', $personType = 'staff'): void
+    private function seedStaff(int $id, string $name, float $fixed, float $base, string $status = '正式', $personType = 'staff', ?string $resignDate = null): void
     {
         DB::table('payroll_staff')->insert([
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '测试岗',
             'status' => $status, 'fixed_monthly' => $fixed, 'base_salary' => $base,
-            'hire_date' => '2026-01-01', 'resign_date' => null,
+            'hire_date' => '2026-01-01', 'resign_date' => $resignDate,
             'deleted' => false, 'person_type' => $personType,
             'data' => json_encode([
                 'salary_history' => [['effective_date' => '2026-01-01', 'fixed_monthly' => $fixed, 'base_salary' => $base, 'type' => '初始', 'note' => '']],
                 'special_deductions' => [],
-                'regular_date' => '', 'resign_date' => '',
+                'regular_date' => '', 'resign_date' => $resignDate ?? '',
             ], JSON_UNESCAPED_UNICODE),
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -162,6 +162,107 @@ class PayrollDataGapGuardTest extends TestCase
         $this->assertStringContainsString('考勤', $m['reason']);
         $this->assertStringNotContainsString('薪资数据缺失', $m['reason']);
         $this->assertArrayNotHasKey(1, $r['rows']);
+    }
+
+    // ---------- 离职人员提示口径（2026-10-19，口径A） ----------
+
+    public function test_resigned_before_month_start_not_in_missing_list(): void
+    {
+        // 上月已离职（resign_date < 核算月初）：不再进「考勤缺人」info 清单
+        $this->seedRules();
+        $this->seedStaff(1, '早离甲', 6000, 5000, '离职', 'staff', '2026-06-30');
+
+        $r = $this->calc([]);
+
+        $this->assertSame(0, $r['result']['count']);
+        $this->assertSame([], $r['result']['missing']);
+        $this->assertSame([], $r['result']['warnings']);
+    }
+
+    public function test_resigned_within_month_without_attendance_still_prompted(): void
+    {
+        // 当月内离职且无考勤行：仍是当月核算相关异常，保留 info 提示
+        $this->seedRules();
+        $this->seedStaff(1, '月中离', 6000, 5000, '离职', 'staff', '2026-07-15');
+
+        $r = $this->calc([]);
+
+        $this->assertCount(1, $r['result']['missing']);
+        $m = $r['result']['missing'][0];
+        $this->assertSame('月中离', $m['name']);
+        $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('离职', $m['reason']);
+    }
+
+    public function test_resigned_empty_resign_date_still_prompted(): void
+    {
+        // status=离职 但 resign_date 为空（钉钉历史遗留）：口径A 下不排除，仍提示；
+        // 方案B（2026-10-20）文案精确化：暴露「档案缺离职日期」数据缺口，引导补录
+        $this->seedRules();
+        $this->seedStaff(1, '无日期', 6000, 5000, '离职');
+
+        $r = $this->calc([]);
+
+        $this->assertCount(1, $r['result']['missing']);
+        $m = $r['result']['missing'][0];
+        $this->assertSame('无日期', $m['name']);
+        $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('离职', $m['reason']);
+        $this->assertStringContainsString('档案缺离职日期', $m['reason']);
+        $this->assertStringContainsString('请补录离职日期', $m['reason']);
+    }
+
+    // ---------- 方案B（2026-10-20）：钉钉占位档案去噪 + 聚合提示 ----------
+
+    public function test_placeholder_staff_excluded_and_aggregated_as_single_info(): void
+    {
+        // name='待同步' 的占位档案不逐条进 missing，聚合为 1 条含数量的 info 提示
+        $this->seedRules();
+        $this->seedStaff(1, '待同步', 0, 0, '离职', 'staff');
+        $this->seedStaff(2, '待同步', 0, 0, '离职', 'staff');
+        $this->seedStaff(3, '正常有考勤', 6000, 5000);
+
+        $r = $this->calc(['正常有考勤' => $this->makeAtt($this->workedDays())]);
+
+        // 正常人员正常出行；占位行逐条不出现
+        $this->assertSame(1, $r['result']['count']);
+        $this->assertFalse(in_array('待同步', array_column($r['result']['missing'], 'name'), true));
+        // 聚合为 1 条 info，数量为 2
+        $agg = array_filter($r['result']['missing'], fn ($m) => $m['name'] === '占位档案汇总');
+        $this->assertCount(1, $agg);
+        $m = array_values($agg)[0];
+        $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('2 条', $m['reason']);
+        $this->assertStringContainsString('待同步', $m['reason']);
+    }
+
+    public function test_only_placeholders_yields_aggregate_info_not_empty_missing(): void
+    {
+        // 全部人员都是占位档案（无真实出行）时，聚合提示仍出现（不静默）
+        $this->seedRules();
+        $this->seedStaff(1, '待同步', 0, 0, '离职', 'staff');
+
+        $r = $this->calc([]);
+
+        $this->assertSame(0, $r['result']['count']);
+        $this->assertCount(1, $r['result']['missing']);
+        $this->assertSame('占位档案汇总', $r['result']['missing'][0]['name']);
+        $this->assertSame('info', $r['result']['missing'][0]['level']);
+    }
+
+    public function test_active_staff_without_attendance_still_prompted(): void
+    {
+        // 在职人员无考勤行：行为不变，仍进 info 清单（防回归）
+        $this->seedRules();
+        $this->seedStaff(1, '在职无考勤', 6000, 5000);
+
+        $r = $this->calc([]);
+
+        $this->assertCount(1, $r['result']['missing']);
+        $m = $r['result']['missing'][0];
+        $this->assertSame('在职无考勤', $m['name']);
+        $this->assertSame('info', $m['level']);
+        $this->assertStringContainsString('考勤表中无此人的记录', $m['reason']);
     }
 
     // ---------- Task 2: 行级 warnings ----------

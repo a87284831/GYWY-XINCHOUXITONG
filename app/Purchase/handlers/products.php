@@ -236,7 +236,7 @@ function handle_products_import_template() {
 
     // 标题
     $ws->mergeCells('A1:F1');
-    $ws->setCellValue('A1', '标准商品库批量导入模板');
+    $ws->setCellValue('A1', '广盈物业标准商品库批量导入模板');
     $ws->getStyle('A1')->getFont()->setBold(true)->setSize(15)->getColor()->setARGB('FFFFFFFF');
     $ws->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF366092');
     $ws->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
@@ -294,7 +294,7 @@ function handle_products_import_template() {
     }
     $ws->freezePane('A5');
 
-    $fileName = '标准商品库批量导入模板.xlsx';
+    $fileName = '广盈物业_标准商品库批量导入模板.xlsx';
     $asciiName = 'standard_products_import_template.xlsx';
     \App\Purchase\Support::header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     \App\Purchase\Support::header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($fileName));

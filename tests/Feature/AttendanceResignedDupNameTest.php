@@ -23,7 +23,7 @@ class AttendanceResignedDupNameTest extends TestCase
     use RefreshDatabase;
 
     private const YM = '2026-10';
-    private const PROJ = '测试项目A';
+    private const PROJ = '罗庄春暖花开';
     private string $adminToken;
 
     protected function setUp(): void
@@ -50,20 +50,20 @@ class AttendanceResignedDupNameTest extends TestCase
         ]);
         // 两条同名档案：一个离职（无 resign_date），一个在职
         DB::table('payroll_staff')->insert([
-            ['legacy_id' => 406, 'name' => '张同名', 'project_name' => self::PROJ, 'position' => '保洁',
+            ['legacy_id' => 406, 'name' => '徐振祥', 'project_name' => self::PROJ, 'position' => '保洁',
              'status' => '离职', 'person_type' => 'staff', 'hire_date' => '2021-06-08',
              'resign_date' => null, 'deleted' => false,
-             'dingtalk_userid' => 'dt_dup_a', 'fixed_monthly' => 2400, 'base_salary' => 2160,
+             'dingtalk_userid' => '01426863134224328102', 'fixed_monthly' => 2400, 'base_salary' => 2160,
              'data' => '{}', 'created_at' => now(), 'updated_at' => now()],
-            ['legacy_id' => 422, 'name' => '张同名', 'project_name' => self::PROJ, 'position' => '',
+            ['legacy_id' => 422, 'name' => '徐振祥', 'project_name' => self::PROJ, 'position' => '',
              'status' => '正式', 'person_type' => 'staff', 'hire_date' => null,
              'resign_date' => null, 'deleted' => false,
-             'dingtalk_userid' => 'dt_dup_b', 'fixed_monthly' => 2400, 'base_salary' => 2160,
+             'dingtalk_userid' => '393732484024328102', 'fixed_monthly' => 2400, 'base_salary' => 2160,
              'data' => '{}', 'created_at' => now(), 'updated_at' => now()],
         ]);
     }
 
-    /** 构造一份只含在职张同名一行考勤的 xlsx（与 parseWorkbook 期望的结构一致：B3="姓名"，第3行1..31日期列，数据从第5行起） */
+    /** 构造一份只含在职徐振祥一行考勤的 xlsx（与 parseWorkbook 期望的结构一致：B3="姓名"，第3行1..31日期列，数据从第5行起） */
     private function buildXlsx(): string
     {
         $daysInMonth = (int) date('t', strtotime(self::YM . '-01'));
@@ -76,9 +76,9 @@ class AttendanceResignedDupNameTest extends TestCase
         }
         $reqLetter = Coordinate::stringFromColumnIndex(5 + $daysInMonth);
         $sheet->setCellValue("{$reqLetter}3", '应出勤(手填)');
-        // 第 5 行：张同名考勤行（√ 出勤 20 天，其余空）
+        // 第 5 行：徐振祥考勤行（√ 出勤 20 天，其余空）
         $sheet->setCellValue('A5', 1);
-        $sheet->setCellValue('B5', '张同名');
+        $sheet->setCellValue('B5', '徐振祥');
         $sheet->setCellValue('C5', '正式');
         for ($d = 1; $d <= 20; $d++) {
             $sheet->setCellValue(Coordinate::stringFromColumnIndex(4 + $d) . '5', '√');
@@ -100,7 +100,7 @@ class AttendanceResignedDupNameTest extends TestCase
             $resp->assertOk();
             $this->assertTrue((bool) $resp->json('ok'), '上传校验应通过：' . ($resp->json('error') ?? ''));
             $this->assertSame(1, $resp->json('count'));
-            $this->assertContains('张同名', $resp->json('names'));
+            $this->assertContains('徐振祥', $resp->json('names'));
         } finally {
             @unlink($path);
         }

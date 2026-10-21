@@ -95,21 +95,12 @@ function handle_admin_confirm_item($id) {
     if ($item['status'] === 'returned') {
         return ['ok' => false, 'msg' => '该记录已退回，员工尚未重新提交，暂不能确认'];
     }
-    $wasReturned = ($item['status'] === 'returned'); // 保留分支（正常流程下 reached 时返回过 false，不会执行到）
     db()->prepare("UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE id=?")->execute([$id]);
-    // 退回后重新确认：同步存档数量与金额（单价保留）
-    if ($wasReturned && $item['price'] > 0) {
-        $total = round((float)$item['quantity'] * (float)$item['price'], 2);
-        $st = db()->prepare(
-            "UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?"
-        );
-        $st->execute([$item['quantity'], $total, $item['month'], $item['project_id'], $item['item_name'], $item['spec']]);
-    }
     log_action('确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} x{$item['quantity']}");
     // Q14③：确认完成提醒员工
     $pname = project_name((int)$item['project_id']);
     foreach (project_user_ids((int)$item['project_id']) as $uid) {
-        notify_user((int)$uid, 'confirmed', "{$item['month']}月 填报已确认", "【{$pname}】{$item['item_name']} 已确认通过。", "#/my-items?month={$item['month']}");
+        notify_user((int)$uid, 'confirmed', "{$item['month']}月 填报已确认", "【{$pname}】{$item['item_name']} 已确认通过。", "/app/purchase/my-items?month={$item['month']}");
     }
     return ['ok' => true, 'msg' => '已确认'];
 }
@@ -132,7 +123,7 @@ function handle_admin_return_item($id) {
     // Q14②：被退回提醒员工
     $pname = project_name((int)$item['project_id']);
     foreach (project_user_ids((int)$item['project_id']) as $uid) {
-        notify_user((int)$uid, 'returned', "{$item['month']}月 填报被退回", "【{$pname}】{$item['item_name']} 被退回：{$reason}。请修改后重新提交。", "#/my-items?month={$item['month']}");
+        notify_user((int)$uid, 'returned', "{$item['month']}月 填报被退回", "【{$pname}】{$item['item_name']} 被退回：{$reason}。请修改后重新提交。", "/app/purchase/my-items?month={$item['month']}");
     }
     return ['ok' => true, 'msg' => '已退回给填报人修改'];
 }
@@ -157,7 +148,7 @@ function handle_admin_return_project() {
     // Q14②：被退回提醒员工
     $pname = project_name((int)$project_id);
     foreach (project_user_ids((int)$project_id) as $uid) {
-        notify_user((int)$uid, 'returned', "{$month}月 填报被退回", "【{$pname}】{$month}月填报被退回：{$reason}。请修改后重新提交。", "#/my-items?month=$month");
+        notify_user((int)$uid, 'returned', "{$month}月 填报被退回", "【{$pname}】{$month}月填报被退回：{$reason}。请修改后重新提交。", "/app/purchase/my-items?month=$month");
     }
     return ['ok' => true, 'msg' => "已退回 {$st->rowCount()} 条给填报人修改"];
 }
@@ -189,30 +180,19 @@ function handle_admin_confirm_batch() {
     $stR = db()->prepare($sqlR);
     $stR->execute($paramsR);
     $returnedTotal = (int)$stR->fetchColumn();
-    // 有价格的退回记录（需同步存档）
-    $sql = "SELECT id, item_name, spec, quantity, price FROM purchase_items WHERE month=? AND project_id=? AND status='returned' AND price>0";
-    $params = [$month, $project_id];
-    if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
-    $st = db()->prepare($sql);
-    $st->execute($params);
-    $returnedCount = $st->rowCount();
-    foreach ($st->fetchAll() as $r) {
-        $total = round((float)$r['quantity'] * (float)$r['price'], 2);
-        db()->prepare("UPDATE archived_purchases SET quantity=?, total=? WHERE month=? AND project_id=? AND item_name=? AND spec=?")
-            ->execute([$r['quantity'], $total, $month, $project_id, $r['item_name'], $r['spec']]);
-    }
+    // 口径统一：仅已提交行可被确认并进入存档；退回行须员工重新提交，不在此处同步存档
     $sql = "UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE month=? AND project_id=? AND status='submitted'";
     $params = [$month, $project_id];
     if ($line !== '') { $sql .= " AND line=?"; $params[] = $line; }
     $st = db()->prepare($sql);
     $st->execute($params);
     $confirmed = $st->rowCount();
-    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedCount > 0 ? "，跳过已退回{$returnedCount}条" : ''));
+    log_action('批量确认', "{$month} 项目{$project_id}" . ($line !== '' ? " {$line}条线" : '') . " 确认{$confirmed}条" . ($returnedTotal > 0 ? "，跳过已退回{$returnedTotal}条" : ''));
     // Q14③：确认完成提醒员工
     if ($confirmed > 0) {
         $pname = project_name((int)$project_id);
         foreach (project_user_ids((int)$project_id) as $uid) {
-            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedCount > 0 ? "，{$returnedCount} 条已退回待重新提交。" : '。'), "#/my-items?month=$month");
+            notify_user((int)$uid, 'confirmed', "{$month}月 填报已确认", "【{$pname}】{$month}月填报已批量确认（{$confirmed} 条）" . ($returnedTotal > 0 ? "，{$returnedTotal} 条已退回待重新提交。" : '。'), "/app/purchase/my-items?month=$month");
         }
     }
     $msg = "已确认 {$confirmed} 条";
@@ -259,13 +239,14 @@ function handle_admin_unarchive() {
     return ['ok' => true, 'msg' => '已撤销归档，恢复可编辑'];
 }
 
-// 清单外列表（is_custom=1 或 秩序条线）
+// 清单外列表：已确认且未审核的清单外商品（管理员全部确认后进入此列表）
 function handle_admin_customs() {
     require_admin();
     $st = db()->prepare(
         "SELECT pi.*, p.name AS project_name FROM purchase_items pi
          JOIN payroll.payroll_projects p ON pi.project_id=p.id
-         WHERE pi.is_custom=1 AND pi.status='submitted' ORDER BY pi.month DESC, pi.project_id, pi.line, pi.id"
+         WHERE pi.is_custom=1 AND pi.status='confirmed' AND (pi.custom_reviewed IS NULL OR pi.custom_reviewed=0)
+         ORDER BY pi.month DESC, pi.project_id, pi.line, pi.id"
     );
     $st->execute();
     $items = $st->fetchAll();
@@ -338,7 +319,7 @@ function handle_admin_customs_check_duplicate() {
     return ['ok' => true, 'data' => $st->fetchAll()];
 }
 
-// 清单外「编辑入库」：mode=create 新建标准商品并归入；mode=merge 归入已有商品。
+// 清单外「编辑入库」：mode=create 新建标准商品；mode=merge 归入已有商品；mode=add_spec 给已有商品新增规格。
 // 管理员可修改员工填的所有字段：条线/分类/名称/品牌/规格/单位/数量/现有库存/使用地点/备注；别名可改（默认员工原填名称）。
 function handle_admin_customs_save() {
     require_admin();
@@ -349,7 +330,7 @@ function handle_admin_customs_save() {
     $item = fetch_item($item_id);
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
-    if ($mode !== 'create' && $mode !== 'merge') return ['ok' => false, 'msg' => 'mode 参数错误（create/merge）'];
+    if (!in_array($mode, ['create', 'merge', 'add_spec'], true)) return ['ok' => false, 'msg' => 'mode 参数错误（create/merge/add_spec）'];
 
     // 可编辑字段（员工填报的全部业务字段，申购原因 reason 按口径不编辑、保留原值）
     $line = trim((string)($in['line'] ?? $item['line']));
@@ -363,7 +344,7 @@ function handle_admin_customs_save() {
     $use_location = trim((string)($in['use_location'] ?? $item['use_location'] ?? ''));
     $remark = trim((string)($in['remark'] ?? $item['remark'] ?? ''));
 
-    // 预校验（不写库）：merge 目标商品存在性 / create 必填与唯一键防重
+    // 预校验
     $product_id = 0; $prod = null;
     if ($mode === 'merge') {
         $product_id = (int)($in['product_id'] ?? 0);
@@ -375,7 +356,23 @@ function handle_admin_customs_save() {
         // 归入已有时以标准商品为准：条线/分类/名称/品牌/规格/单位用商品自带值
         $line = $prod['line']; $category = $prod['category'];
         $name = $prod['name']; $brand = $prod['brand']; $spec = $prod['spec']; $unit = $prod['unit'];
+    } elseif ($mode === 'add_spec') {
+        // 给已有商品新增规格：以 base_product 的名称/条线/分类/品牌/单位为准，规格用新填值
+        $base_id = (int)($in['base_product_id'] ?? 0);
+        if ($base_id <= 0) return ['ok' => false, 'msg' => '请选择要新增规格的标准商品'];
+        $pst = db()->prepare('SELECT * FROM products WHERE id=? AND status=1');
+        $pst->execute([$base_id]);
+        $base = $pst->fetch();
+        if (!$base) return ['ok' => false, 'msg' => '目标商品不存在'];
+        if ($spec === '') return ['ok' => false, 'msg' => '新增规格必填'];
+        // 校验同商品下规格不重复
+        $dup = db()->prepare('SELECT id FROM products WHERE status=1 AND name=? AND brand=? AND spec=? AND unit=? LIMIT 1');
+        $dup->execute([$base['name'], $base['brand'], $spec, $base['unit']]);
+        if ($dup->fetch()) return ['ok' => false, 'msg' => '该商品已存在相同规格，请选择归入已有'];
+        $line = $base['line']; $category = $base['category'];
+        $name = $base['name']; $brand = $base['brand']; $unit = $base['unit'];
     } else {
+        // create
         if ($name === '') return ['ok' => false, 'msg' => '商品名称必填'];
         if ($line === '') return ['ok' => false, 'msg' => '条线必填'];
         if ($category === '') return ['ok' => false, 'msg' => '分类必填'];
@@ -390,7 +387,7 @@ function handle_admin_customs_save() {
     $alias = mb_substr($alias, 0, 100);
     $by = (int)($in['by'] ?? $in['created_by'] ?? 0);
 
-    // 写库原子性：单请求内开事务；外层已有事务（测试）则不嵌套
+    // 写库原子性
     $tx = !db()->inTransaction();
     if ($tx) db()->beginTransaction();
     try {
@@ -408,6 +405,7 @@ function handle_admin_customs_save() {
                 ->execute([$item_id, $product_id, 'map', $aliasSaved, '清单外编辑入库-归入已有商品', $by]);
             log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 归入已有标准商品「{$name}」");
         } else {
+            // create 或 add_spec 都需要插入 products 新行
             db()->prepare('INSERT INTO products (line, category, name, brand, spec, unit, status) VALUES (?,?,?,?,?,?,1)')
                 ->execute([$line, $category, $name, $brand, $spec, $unit]);
             $product_id = (int) db()->lastInsertId();
@@ -419,14 +417,32 @@ function handle_admin_customs_save() {
                     db()->prepare('INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)')->execute([$product_id, $alias]);
                 } catch (PDOException $e) {}
             }
+            $note = $mode === 'add_spec' ? '清单外编辑入库-已有商品新增规格' : '清单外编辑入库-新建标准商品';
             db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
-                ->execute([$item_id, $product_id, 'new', $aliasSaved, '清单外编辑入库-新建标准商品', $by]);
-            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 新建标准商品「{$name}」入库");
+                ->execute([$item_id, $product_id, $mode === 'add_spec' ? 'add_spec' : 'new', $aliasSaved, $note, $by]);
+            log_action('清单外编辑入库', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ " . ($mode === 'add_spec' ? "给已有商品「{$name}」新增规格「{$spec}」" : "新建标准商品「{$name}」入库"));
         }
         if ($tx) db()->commit();
-        return ['ok' => true, 'msg' => $mode === 'merge' ? '已归入标准商品「' . $name . '」' : '已新建标准商品「' . $name . '」并归入'];
+        if ($mode === 'merge') $msg = '已归入标准商品「' . $name . '」';
+        elseif ($mode === 'add_spec') $msg = '已给「' . $name . '」新增规格「' . $spec . '」并归入';
+        else $msg = '已新建标准商品「' . $name . '」并归入';
+        return ['ok' => true, 'msg' => $msg];
     } catch (\Throwable $e) {
         if ($tx) db()->rollBack();
         throw $e;
     }
+}
+
+// 清单外「忽略」：不加入标准库，标记已审核，从清单外待审核列表移除（保留 is_custom=1 用于统计）
+function handle_admin_ignore_custom() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    $item_id = (int)($in['item_id'] ?? 0);
+    if ($item_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
+    $item = fetch_item($item_id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
+    db()->prepare("UPDATE purchase_items SET custom_reviewed=1 WHERE id=?")->execute([$item_id]);
+    log_action('清单外忽略', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」不加入标准库，标记已审核");
+    return ['ok' => true, 'msg' => '已忽略（不加入标准库）'];
 }

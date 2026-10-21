@@ -1015,7 +1015,7 @@ private function matchCondition($b, array $formData): bool
                 if ($position !== '') {
                     $q = DB::table('payroll_staff')->where('position', $position)->where('deleted', 0);
                     if ($scope === 'global') {
-                        $rows = (clone $q)->where('project_name', '物业总部')->get();
+                        $rows = (clone $q)->where('project_name', \App\Services\PayrollCalculator::HQ_PROJECT)->get();
                         if (!$rows->count()) $rows = $q->get();
                     } else {
                         $rows = $project !== '' ? (clone $q)->where('project_name', $project)->get() : collect();

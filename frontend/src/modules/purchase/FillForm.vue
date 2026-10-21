@@ -1,6 +1,6 @@
 <script setup>
 // 采购填报·明细表单（复刻旧 #/fill-form：联想填商品/规格联动/近3月采购/本地草稿/保存与提交/退回重报）
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ElMessageBox } from 'element-plus'
 import {
   FILL_LINES, newRow, isRowReadonly, canCopyRow, canRevokeRow, canDeleteRow,
-  rowSaveable, validateRow, rowPayload, saveSummary, freqCell, draftKey,
+  rowSaveable, validateRow, notInLibrary, rowPayload, saveSummary, freqCell, draftKey,
 } from './fillLogic'
 
 const route = useRoute()
@@ -34,11 +34,22 @@ const savedCount = computed(() => rows.value.filter((r) => r.id).length)
 const saveableCount = computed(() => rows.value.filter((r) => rowSaveable(r, isAdmin.value)).length)
 const fillerName = computed(() => (auth.user && (auth.user.project_name || auth.user.name)) || '')
 
-// —— 本地草稿（2 秒防抖，仅未入库行） ——
-const DKEY = computed(() => draftKey(month.value, projectId.value))
+// —— 本地草稿（2 秒防抖，仅未入库行；key 按填报主体隔离：员工=项目名，admin=代填项目 id） ——
+const DKEY = computed(() => draftKey(month.value, isAdmin.value ? projectId.value : ((auth.user && auth.user.project_name) || 'me')))
+// 校验失败行红框标记：行 key → 内容快照；仅当该行内容被编辑后自动解除（保存其他行赋 id 不影响）
+const errorMarks = ref(new Map())
+const errSnap = (r) => JSON.stringify([r.line, r.item_name, r.spec, r.brand, r.unit, r.quantity, r.stock, r.reason, r.use_location, r.remark, r.is_custom, r.product_id])
 let draftTimer = null
 watch(rows, () => {
   if (loading.value) return
+  if (errorMarks.value.size) {
+    const m = new Map()
+    for (const [k, snap] of errorMarks.value) {
+      const row = rows.value.find((r) => r.key === k)
+      if (row && errSnap(row) === snap) m.set(k, snap)
+    }
+    if (m.size !== errorMarks.value.size) errorMarks.value = m
+  }
   clearTimeout(draftTimer)
   draftTimer = setTimeout(saveDraft, 2000)
 }, { deep: true })
@@ -108,19 +119,23 @@ async function loadRows() {
       return_reason: n.return_reason || '', returned_at: n.returned_at || '',
       nameOptions: [], specs: [], freq: null, loadingName: false, _isNew: false,
     }))
-    // 本地草稿恢复：仅当服务端无草稿行（避免与已存草稿重复）
+    // 本地草稿恢复：仅当服务端无草稿行（避免与已存草稿重复）；服务端已有草稿则本地残留作废清除
     let restored = 0
     try {
       const raw = localStorage.getItem(DKEY.value)
-      if (raw && !rows.value.some((n) => n.status === 'draft')) {
-        const list = JSON.parse(raw)
-        if (Array.isArray(list) && list.length) {
-          list.forEach((m) => {
-            const r = Object.assign(newRow(++keySeq, defaultLine.value), m)
-            r.key = ++keySeq
-            rows.value.push(r)
-          })
-          restored = list.length
+      if (raw) {
+        if (!rows.value.some((n) => n.status === 'draft')) {
+          const list = JSON.parse(raw)
+          if (Array.isArray(list) && list.length) {
+            list.forEach((m) => {
+              const r = Object.assign(newRow(++keySeq, defaultLine.value), m)
+              r.key = ++keySeq
+              rows.value.push(r)
+            })
+            restored = list.length
+          }
+        } else {
+          localStorage.removeItem(DKEY.value)
         }
       }
     } catch (e) { /* 草稿损坏忽略 */ }
@@ -206,6 +221,12 @@ function resetProduct(r) {
 
 // —— 行操作 ——
 function addRow() {
+  // 存在未匹配清单商品的可编辑行时禁止新增，引导先处理（选清单内或开清单外）
+  const bad = rows.value.find((r) => !isRowReadonly(r, isAdmin.value) && notInLibrary(r))
+  if (bad) {
+    toast('第 ' + (rows.value.indexOf(bad) + 1) + ' 行「' + bad.item_name + '」未匹配到清单内商品，请先从联想列表选择商品，或打开该行「清单外」开关', false)
+    return
+  }
   rows.value.push(newRow(++keySeq, defaultLine.value))
 }
 function copyRow(r) {
@@ -253,29 +274,72 @@ async function revokeRow(r) {
     toast(e.message, false)
   }
 }
+// 撤销按钮：admin 任意时机可撤销；员工仅窗口开放期可撤销（窗口外后端也会拒绝，前端先藏）
+function showRevoke(r) {
+  if (!canRevokeRow(r)) return false
+  if (isAdmin.value) return true
+  return !!(win.value && win.value.open)
+}
+// admin 改单：已提交行默认锁定，显式确认后解锁编辑（保存后自动复锁，后端逐字段记日志）
+async function unlockRow(r) {
+  try {
+    await ElMessageBox.confirm(
+      '将对已提交记录「' + r.item_name + '」解锁修改，修改内容会逐字段记录操作日志。确认解锁？',
+      '改单确认',
+      { type: 'warning', confirmButtonText: '解锁修改', cancelButtonText: '取消' },
+    )
+  } catch (e) { return }
+  r._unlocked = true
+}
 
+// 保存/提交：先整表校验，错误行红框保留原位不清草稿；
+// 提交有任何错误行则整单拦截一条不发；保存可部分落库（成功行就地赋 id，失败行留草稿）
 async function saveAll(submit) {
+  const targets = rows.value.filter((r) => rowSaveable(r, isAdmin.value))
+  if (!targets.length) {
+    const s = saveSummary(0, 0, submit)
+    toast(s.text, s.type === 'success')
+    return
+  }
+  const bad = new Map()
+  const errs = []
+  for (const r of targets) {
+    const err = validateRow(r, rows.value.indexOf(r) + 1)
+    if (err) { errs.push(err); bad.set(r.key, errSnap(r)) }
+  }
+  errorMarks.value = bad
+  if (errs.length && submit) {
+    toast('共 ' + errs.length + ' 行未填完整（已红框标出），请补全后再提交：' + errs[0], false)
+    return
+  }
   saving.value = true
   let saved = 0
-  let failed = 0
+  const skipped = errs.length
   try {
-    for (const r of rows.value) {
-      if (!rowSaveable(r, isAdmin.value)) continue
-      const err = validateRow(r, rows.value.indexOf(r) + 1)
-      if (err) {
-        toast(err, false)
-        failed++
-        continue
-      }
+    for (const r of targets) {
+      if (bad.has(r.key)) continue
       const payload = rowPayload(r, month.value, projectId.value, isAdmin.value, submit)
-      if (r.id) await api('/api/purchase/fill/items/' + r.id, { method: 'PUT', body: payload })
-      else await api('/api/purchase/fill/items', { body: payload })
+      if (r.id) {
+        await api('/api/purchase/fill/items/' + r.id, { method: 'PUT', body: payload })
+        if (payload.status) r.status = payload.status
+      } else {
+        const res = await api('/api/purchase/fill/items', { body: payload })
+        if (res && res.data && res.data.id) {
+          r.id = res.data.id
+          r.status = payload.status || 'draft'
+          r._isNew = false
+        }
+      }
+      if (r._unlocked) r._unlocked = false // admin 改单保存后自动复锁
       saved++
     }
-    const s = saveSummary(saved, failed, submit)
-    toast(s.text, s.type === 'success')
-    clearDraft()
-    await loadRows()
+    const s = saveSummary(saved, skipped, submit)
+    toast(skipped ? s.text + '：' + errs[0] : s.text, s.type === 'success')
+    if (skipped === 0) {
+      clearDraft()
+      await loadRows() // 全部成功：刷新对齐服务端（状态标签/锁定/参考价）
+    }
+    // 部分成功：成功行已就地落 id，错误行红框保留，草稿由 watch 自动续存（仅含未入库行）
   } catch (e) {
     toast(e.message, false)
   } finally {
@@ -286,6 +350,8 @@ async function saveAll(submit) {
 onMounted(async () => {
   await Promise.all([loadWindow(), loadRows(), loadProxyName()])
 })
+// 离开页面取消防抖中的草稿写入，避免卸载后误写
+onUnmounted(() => clearTimeout(draftTimer))
 </script>
 
 <template>
@@ -330,7 +396,7 @@ onMounted(async () => {
     </div>
 
     <el-table v-loading="loading" :data="rows" border stripe size="small" style="width:100%" max-height="640"
-      :row-class-name="({ row }) => (row.status === 'returned' ? 'row-returned' : '')">
+      :row-class-name="({ row }) => (errorMarks.has(row.key) ? 'row-error' : row.status === 'returned' ? 'row-returned' : '')">
       <el-table-column label="条线" width="100">
         <template #default="{ row }">
           <el-select v-model="row.line" size="small" :disabled="isRowReadonly(row, isAdmin)" @change="resetProduct(row)">
@@ -338,22 +404,27 @@ onMounted(async () => {
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="商品名称" min-width="180">
+      <el-table-column min-width="180">
+        <template #header><span style="color:#f56c6c">*</span> 商品名称</template>
         <template #default="{ row }">
           <el-autocomplete v-if="!row.is_custom" v-model="row.item_name" size="small" style="width:100%"
             :fetch-suggestions="(q, cb) => searchNames(row, q, cb)" :trigger-on-focus="false"
             placeholder="输入名称即联想" :disabled="isRowReadonly(row, isAdmin)"
             @select="(item) => selectName(row, item.value)" />
           <el-input v-else v-model="row.item_name" size="small" placeholder="清单外商品名称" :disabled="isRowReadonly(row, isAdmin)" />
+          <div v-if="!isRowReadonly(row, isAdmin) && notInLibrary(row)" style="color:#e6a23c;font-size:12px;line-height:1.5;margin-top:2px;">
+            ⚠ 未匹配到清单内商品：请从联想下拉选择，或打开行尾「清单外」开关手填
+          </div>
         </template>
       </el-table-column>
-      <el-table-column label="规格型号" width="150">
+      <el-table-column width="150">
+        <template #header><span style="color:#f56c6c">*</span> 规格型号</template>
         <template #default="{ row }">
           <el-select v-if="!row.is_custom" v-model="row.spec" size="small" style="width:100%" placeholder="选择规格"
             :disabled="isRowReadonly(row, isAdmin)" @change="selectSpec(row)">
             <el-option v-for="s in row.specs" :key="s.id" :value="s.spec" :label="s.spec" />
           </el-select>
-          <el-input v-else v-model="row.spec" size="small" placeholder="规格（选填）" :disabled="isRowReadonly(row, isAdmin)" />
+          <el-input v-else v-model="row.spec" size="small" style="width:100%" placeholder="规格" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
       <el-table-column label="品牌" width="120">
@@ -366,12 +437,14 @@ onMounted(async () => {
           <el-input v-model="row.unit" size="small" placeholder="如箱/个" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
-      <el-table-column label="数量" width="100">
+      <el-table-column width="100">
+        <template #header><span style="color:#f56c6c">*</span> 数量</template>
         <template #default="{ row }">
           <el-input-number v-model="row.quantity" size="small" style="width:100%" :min="0" :controls="false" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
       </el-table-column>
-      <el-table-column label="库存" width="100">
+      <el-table-column width="100">
+        <template #header><span style="color:#f56c6c">*</span> 库存</template>
         <template #default="{ row }">
           <el-input-number v-model="row.stock" size="small" style="width:100%" :min="0" :controls="false" :disabled="isRowReadonly(row, isAdmin)" />
         </template>
@@ -418,10 +491,11 @@ onMounted(async () => {
           <span v-else style="color:#ccc;font-size:12px;">待报价</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="108" align="center">
+      <el-table-column label="操作" width="148" align="center">
         <template #default="{ row }">
           <el-button v-if="canCopyRow(row)" link type="primary" size="small" @click="copyRow(row)">复制</el-button>
-          <el-button v-if="canRevokeRow(row)" link type="warning" size="small" @click="revokeRow(row)">撤销</el-button>
+          <el-button v-if="showRevoke(row)" link type="warning" size="small" @click="revokeRow(row)">撤销</el-button>
+          <el-button v-if="isAdmin && row.status === 'submitted' && !row._unlocked" link type="primary" size="small" @click="unlockRow(row)">改单</el-button>
           <el-button v-if="canDeleteRow(row, isAdmin)" link type="danger" size="small" @click="deleteRow(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -429,7 +503,7 @@ onMounted(async () => {
 
     <div style="padding:8px 14px;color:#999;font-size:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
       <span>共 {{ rows.length }} 行（已存 {{ savedCount }} 条）</span>
-      <span>输入内容 2 秒后自动存为本地草稿，防止误关丢失；提交后不可再修改，招采确认前可撤销提交；被退回的行红色标出，修改后重新提交</span>
+      <span>输入内容 2 秒后自动存为本地草稿，防止误关丢失；提交后不可再修改，招采确认前可撤销提交；被退回的行与未填完整的行红框标出，补全后重新保存/提交</span>
     </div>
   </div>
 </template>
@@ -437,4 +511,7 @@ onMounted(async () => {
 <style scoped>
 :deep(.row-returned) { background: #fdf0f0 !important; }
 :deep(.row-returned:hover > td) { background: #fbe6e6 !important; }
+:deep(.row-error) { background: #fde2e2 !important; }
+:deep(.row-error:hover > td) { background: #fbd5d5 !important; }
+:deep(.row-error > td:first-child) { box-shadow: inset 3px 0 0 #e64646; }
 </style>

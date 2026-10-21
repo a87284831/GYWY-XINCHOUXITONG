@@ -141,6 +141,38 @@ table.tb tbody tr.att-hl td.sticky-col { background:#bfdbe6 !important; }
 .msg.ok { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
 .msg.err { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; }
 .msg.info { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+/* 核算结果提示卡片（CalcNotice.vue，员工/管理/案场/总部四 tab 复用） */
+.pn { background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin:10px 0; overflow:hidden; }
+.pn-head { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #e5e7eb; }
+.pn-ico { width:28px; height:28px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+.pn--ok .pn-ico { background:#f0fdf4; color:#15803d; }
+.pn--warn .pn-ico { background:#fef2f2; color:#b91c1c; }
+.pn-title { font-size:14px; font-weight:600; color:#1f2937; }
+.pn-pill { margin-left:auto; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; }
+.pn--ok .pn-pill { background:#f0fdf4; color:#15803d; }
+.pn--warn .pn-pill { background:#fef2f2; color:#b91c1c; }
+.pn-stats { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid #e5e7eb; }
+.pn-chip { font-size:12px; padding:3px 10px; border-radius:999px; background:#f1f5f9; color:#334155; display:inline-flex; gap:5px; align-items:center; }
+.pn-chip b { font-weight:700; font-variant-numeric:tabular-nums; }
+.pn-chip.dg { background:#fef2f2; color:#b91c1c; }
+.pn-chip.if { background:#eff6ff; color:#1d4ed8; }
+.pn-body { padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+.pn-sect { border:1px solid #e5e7eb; border-left:3px solid #cbd5e1; border-radius:8px; background:#f8fafc; overflow:hidden; }
+.pn-sect.dg { border-left-color:#dc2626; }
+.pn-sect.if { border-left-color:#3b82f6; }
+.pn-sect-h { display:flex; align-items:center; gap:6px; padding:8px 12px; font-size:12px; font-weight:600; }
+.pn-sect.dg .pn-sect-h { color:#b91c1c; }
+.pn-sect.if .pn-sect-h { color:#1d4ed8; }
+.pn-how { margin-left:auto; color:#8c8c8c; font-weight:400; }
+.pn-row { display:flex; align-items:baseline; gap:8px; padding:7px 12px; border-top:1px solid #e5e7eb; }
+.pn-name { font-size:13px; font-weight:600; color:#1f2937; flex:none; }
+.pn-proj { flex:none; font-size:12px; color:#64748b; background:#fff; border:1px solid #e5e7eb; border-radius:999px; padding:1px 8px; white-space:nowrap; }
+.pn-why { font-size:13px; color:#595959; min-width:0; }
+.pn-more { width:100%; border:none; border-top:1px solid #e5e7eb; background:transparent; color:#1d4ed8; font-size:12px; font-weight:600; padding:8px; cursor:pointer; }
+.pn-more:hover { background:#eff6ff; }
+.pn-skip { font-size:12px; color:#8c8c8c; padding:0 2px; }
+.pn-skip b { color:#595959; font-weight:600; }
+.pn-foot { font-size:12px; color:#8c8c8c; border-top:1px solid #e5e7eb; padding:8px 14px; background:#fafafa; }
 /* 弹窗 */
 .modal-mask { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; z-index:99; }
 .modal { background:#fff; border-radius:10px; padding:22px 24px; width:640px; max-width:94vw; max-height:88vh; overflow:auto; }

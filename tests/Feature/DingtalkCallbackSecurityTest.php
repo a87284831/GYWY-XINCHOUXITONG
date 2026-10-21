@@ -68,7 +68,7 @@ class DingtalkCallbackSecurityTest extends TestCase
     private function deptTree(): array
     {
         return [
-            1 => ['name' => '公司总部', 'parent_id' => 0, 'level' => 1],
+            1 => ['name' => '万城服务', 'parent_id' => 0, 'level' => 1],
             2 => ['name' => '测试项目A', 'parent_id' => 1, 'level' => 2],
         ];
     }
@@ -121,7 +121,7 @@ class DingtalkCallbackSecurityTest extends TestCase
     {
         $this->mockConfig();
         $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getUserDetail')->willReturnCallback(
             fn(string $uid) => $uid === 'u1' ? [
                 'dept_id_list' => [2], 'hired_date' => 0, 'actual_confirm_date' => '',
@@ -163,7 +163,7 @@ class DingtalkCallbackSecurityTest extends TestCase
             $calls++;
             return $this->deptTree();
         });
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getUserDetail')->willReturnCallback(
             fn(string $uid) => [
                 'dept_id_list' => [2], 'hired_date' => 0, 'actual_confirm_date' => '',
@@ -192,7 +192,7 @@ class DingtalkCallbackSecurityTest extends TestCase
     private function mockFullSyncHappyPath(): void
     {
         $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([
             // getAllUsers 会为每个用户派生 _dept_ids（与真实返回一致）
             'u1' => ['name' => '张三', 'title' => '保安', '_dept_ids' => [2], 'hired_date' => 0, 'mobile' => '13800000000'],
@@ -252,7 +252,7 @@ class DingtalkCallbackSecurityTest extends TestCase
         ]);
 
         $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([]);
         $this->dt->method('getDismissedUsers')->willReturn(['u9' => true]);
         // 详情接口修复后能返回真实姓名与最后工作日
@@ -274,7 +274,7 @@ class DingtalkCallbackSecurityTest extends TestCase
     {
         // 离职列表新建行：从未经历在职花名册同步，岗位职级未知，不得伪造为 'staff'
         $this->dt->method('getAllDepartments')->willReturn($this->deptTree());
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([]);
         $this->dt->method('getDismissedUsers')->willReturn(['u9' => true]);
         $this->dt->method('getDismissedUserInfos')->willReturn([

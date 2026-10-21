@@ -150,7 +150,7 @@
     <div class="modal" style="width:480px">
       <h3>在「{{ addParent ? addParent.name : '—' }}」下新增{{ addParentType === 'company' ? '项目' : '部门' }}</h3>
       <div class="form-grid">
-        <label>节点名称<input type="text" v-model="mName" :placeholder="addParentType === 'company' ? '如：示例项目' : '如：客服一部'" /></label>
+        <label>节点名称<input type="text" v-model="mName" :placeholder="addParentType === 'company' ? '如：临沂万城花开' : '如：客服一部'" /></label>
         <label>节点类型<select v-model="mType">
           <option v-if="addParentType === 'company'" value="project">项目</option>
           <option v-else value="department">部门</option>

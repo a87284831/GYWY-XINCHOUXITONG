@@ -13,10 +13,10 @@ export function windowState(w, today) {
 
 // 导出文件名（逐字复刻）
 export function exportMonthName(month) {
-  return '' + month + '_采购计划统计表.xlsx'
+  return '广盈物业_' + month + '_采购计划统计表.xlsx'
 }
 export function exportYearName(year) {
-  return '' + year + '年度采购明细汇总.xlsx'
+  return '广盈物业_' + year + '年度采购明细汇总.xlsx'
 }
 
 // 超预算项目一键退回的原因模板

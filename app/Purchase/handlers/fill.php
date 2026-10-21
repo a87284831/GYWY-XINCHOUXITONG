@@ -105,13 +105,14 @@ function handle_fill_update($id) {
     }
     $in = json_decode(file_get_contents('php://input'), true) ?? [];
     $oldStatus = $item['status'];
-    $fields = ['line', 'product_id', 'item_name', 'brand', 'spec', 'unit', 'quantity', 'stock', 'reason', 'use_location', 'remark', 'status'];
+    $fields = ['line', 'product_id', 'item_name', 'brand', 'spec', 'unit', 'quantity', 'stock', 'reason', 'use_location', 'remark', 'status', 'is_custom'];
     $sets = []; $params = [];
     foreach ($fields as $f) {
         if (array_key_exists($f, $in)) {
             $sets[] = "{$f}=?";
             $v = $in[$f];
             if ($f === 'product_id') { $v = $v ? (int)$v : null; }
+            elseif ($f === 'is_custom') { $v = (int)$v ? 1 : 0; }
             elseif ($f === 'status') { $v = in_array($v, ['draft', 'submitted']) ? $v : 'draft'; }
             elseif (in_array($f, ['quantity', 'stock'])) { $v = (float)$v; }
             elseif ($f === 'spec') { $v = norm_spec((string)$v); }
@@ -120,10 +121,13 @@ function handle_fill_update($id) {
         }
     }
     if (!$sets) return ['ok' => false, 'msg' => '无更新内容'];
-    // 若选择了标准商品则不再是清单外
-    if (array_key_exists('product_id', $in)) {
-        $sets[] = "is_custom=?";
-        $params[] = $in['product_id'] ? 0 : 1;
+    // 清单外模式：清空商品绑定（is_custom=1 时 product_id 必须为 null）
+    // 兼容旧前端：未传 is_custom 但传了 product_id 时，由 product_id 派生 is_custom
+    $customFlag = array_key_exists('is_custom', $in) ? (int)$in['is_custom'] : null;
+    if ($customFlag === 1) {
+        if (!in_array('product_id=?', $sets)) { $sets[] = "product_id=?"; $params[] = null; }
+    } elseif ($customFlag === null && array_key_exists('product_id', $in)) {
+        if (!in_array('is_custom=?', $sets)) { $sets[] = "is_custom=?"; $params[] = $in['product_id'] ? 0 : 1; }
     }
     $params[] = $id;
     $sets[] = "resubmitted_at=" . ($oldStatus === 'returned' && array_key_exists('status', $in) && ($in['status'] ?? '') === 'submitted' ? 'NOW()' : 'resubmitted_at');
@@ -137,6 +141,30 @@ function handle_fill_update($id) {
             if ($user['role'] !== 'admin') notify_submitted($item['month'], (int)$item['project_id'], $user, $item['item_name']);
         } else {
             log_action('撤销提交', "{$item['month']} {$item['item_name']}({$item['spec']}) 状态 submitted→draft");
+        }
+    }
+    // 管理员改单留痕：修改已提交记录的内容字段时逐字段记录 旧值→新值
+    if ($user['role'] === 'admin' && $oldStatus === 'submitted') {
+        $labels = ['line' => '条线', 'product_id' => '商品ID', 'item_name' => '商品名称', 'brand' => '品牌',
+            'spec' => '规格', 'unit' => '单位', 'quantity' => '数量', 'stock' => '库存',
+            'reason' => '申购原因', 'use_location' => '使用位置', 'remark' => '备注'];
+        $diffs = [];
+        foreach ($labels as $f => $label) {
+            if (!array_key_exists($f, $in)) continue;
+            if ($f === 'product_id') {
+                $newV = $in[$f] ? (int)$in[$f] : null;
+                $oldV = $item[$f] !== null ? (int)$item[$f] : null;
+            } elseif (in_array($f, ['quantity', 'stock'])) {
+                $newV = (float)$in[$f];
+                $oldV = (float)$item[$f];
+            } else {
+                $newV = $f === 'spec' ? norm_spec((string)$in[$f]) : trim((string)$in[$f]);
+                $oldV = (string)$item[$f];
+            }
+            if ($newV !== $oldV) $diffs[] = "{$label}「{$oldV}」→「{$newV}」";
+        }
+        if ($diffs) {
+            log_action('改单', "{$item['month']} 项目{$item['project_id']} #{$id} {$item['item_name']}：" . implode('；', $diffs));
         }
     }
     return ['ok' => true, 'msg' => '已更新'];
@@ -263,7 +291,7 @@ function notify_submitted(string $month, int $project_id, array $user, string $i
     $title = '有新填报待确认';
     $content = "【{$pname}】{$month}月 {$user['name']} 提交了填报（{$item_name}），请及时确认。";
     foreach (admin_user_ids() as $uid) {
-        notify_user((int)$uid, 'fill_submitted', $title, $content, '#/overview');
+        notify_user((int)$uid, 'fill_submitted', $title, $content, '/app/purchase/overview');
     }
 }
 

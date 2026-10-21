@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        // 本地开发代理：/api 请求转发到本地后端（php artisan serve --port=8899）
+        // 本地测试后端（协同开发约定）。生产域名 oa.haoxuanyunshu.cn 严禁改动。
         target: 'http://127.0.0.1:8899',
         changeOrigin: true,
         secure: false,

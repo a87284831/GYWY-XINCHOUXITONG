@@ -53,10 +53,10 @@ class RosterFieldMappingTest extends TestCase
     private function mockSyncBase(array $rosterReturn): void
     {
         $this->dt->method('getAllDepartments')->willReturn([
-            1 => ['name' => '公司总部', 'parent_id' => 0, 'level' => 1],
+            1 => ['name' => '万城服务', 'parent_id' => 0, 'level' => 1],
             2 => ['name' => '测试项目A', 'parent_id' => 1, 'level' => 2],
         ]);
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([
             'u1' => ['name' => '对照员工', 'title' => '保安', '_dept_ids' => [2], 'hired_date' => 0, 'mobile' => ''],
         ]);
@@ -164,10 +164,10 @@ class RosterFieldMappingTest extends TestCase
         // 否则兜底信号永远落不了库。
         $id = $this->seedActiveStaff('u1', ['status' => '离职', 'name' => '离职员工']);
         $this->dt->method('getAllDepartments')->willReturn([
-            1 => ['name' => '公司总部', 'parent_id' => 0, 'level' => 1],
+            1 => ['name' => '万城服务', 'parent_id' => 0, 'level' => 1],
             2 => ['name' => '测试项目A', 'parent_id' => 1, 'level' => 2],
         ]);
-        $this->dt->method('getDeptPath')->willReturn(['公司总部', '测试项目A']);
+        $this->dt->method('getDeptPath')->willReturn(['万城服务', '测试项目A']);
         $this->dt->method('getAllUsers')->willReturn([]); // 已移出在职目录
         $this->dt->method('getDismissedUsers')->willReturn(['u1' => ['userid' => 'u1']]);
         $this->dt->method('getDismissedUserInfos')->willReturn([]);

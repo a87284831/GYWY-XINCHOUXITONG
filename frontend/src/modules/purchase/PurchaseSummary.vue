@@ -66,7 +66,7 @@ async function doSearch() {
 }
 
 function exportMonth() {
-  download('/api/purchase/export?month=' + month.value, '' + month.value.slice(0, 4) + '_采购计划统计表.xlsx')
+  download('/api/purchase/export?month=' + month.value, '广盈物业_' + month.value.slice(0, 4) + '_采购计划统计表.xlsx')
 }
 
 const monthText = computed(() => (month.value ? Number(month.value.slice(0, 4)) + ' 年 ' + Number(month.value.slice(5)) + ' 月' : ''))

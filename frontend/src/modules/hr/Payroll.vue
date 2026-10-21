@@ -24,6 +24,9 @@
             <button class="btn" @click="histFile.click()">导入历史工资</button>
             <input type="file" ref="histFile" accept=".xlsx,.xls" style="display:none" @change="importHistory" />
             <span v-html="archiveHtml"></span>
+            <span style="flex:1"></span>
+            <button class="btn danger" @click="openDeleteDialog('staff')">删除当月员工薪资数据</button>
+            <button class="btn" @click="openDeleteLogs">删除日志</button>
           </div>
           <div class="checkbox-list" style="margin-top:10px">
             <label v-for="p in projChecks" :key="p">
@@ -31,6 +34,7 @@
             </label>
           </div>
           <div v-if="calcMsg" v-html="calcMsg"></div>
+          <CalcNotice v-if="calcNotice" :notice="calcNotice" />
         </template>
         <div v-else class="msg info">项目账号仅可查看/导出本项目已由总部核定完成的薪资数据，薪资核定与归档权限仅总部管理员拥有。</div>
       </div>
@@ -59,10 +63,11 @@
                 <tr
                   v-for="r in empFiltered"
                   :key="r.staff_id"
-                  :class="{ 'pay-sel': paySel === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
+                  :class="{ 'pay-sel': paySel === r.staff_id, 'row-zero-pay': isZeroPayRow(r), 'row-adjusted': isAdjusted(r) }"
                   @click="paySel = r.staff_id"
                 >
-                  <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
+                  <td>{{ r.project }}</td><td>{{ r.department || '' }}</td><td>{{ r.position }}</td>
+                  <td>{{ r.name }}<span v-if="isAdjusted(r)" class="tag orange" style="margin-left:4px" title="本月有人工微调">调</span></td>
                   <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
                   <td>{{ r.hire_date || '' }}</td>
                   <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
@@ -108,7 +113,7 @@
           </div>
           <div class="hint">点击"微调"可对单人补贴/扣款/社保/个税等字段人工修正（留存操作日志）。归档后禁止修改、重传考勤、重算，仅超管可解锁。微调日志见下方。</div>
           <template v-if="empLogs.length">
-            <h3 style="margin-top:14px">微调日志（本月 {{ empLogs.length }} 条，最新在前）</h3>
+            <h3 style="margin-top:14px">微调日志（本月 {{ empLogs.length }} 条，最新在前）<button v-if="isAdmin" class="btn sm" style="margin-left:8px" @click="exportAdjustLogs">导出日志</button></h3>
             <div class="table-wrap" style="max-height:240px">
               <table class="tb">
                 <thead><tr><th>时间</th><th>操作人</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
@@ -142,13 +147,15 @@
           <button
             v-if="(tp === 'mgr' || tp === 'hq') && isQuarterEndMonth(ui.month)"
             class="btn warn"
-            @click="openCoefDialog()"
+            @click="openCoefDialog(tp)"
           >{{ coefEntryLabel(ui.month) }}</button>
           <span v-html="typeArchiveHtml[tp]"></span>
+          <span style="flex:1"></span>
+          <button class="btn danger" @click="openDeleteDialog(tp)">删除当月{{ TP_META[tp].noun }}薪资数据</button>
         </div>
         <div class="hint">{{ TP_META[tp].hint }}</div>
         <div v-if="typeErr[tp]" class="msg err">{{ typeErr[tp] }}</div>
-        <div v-if="typeMsg[tp]" v-html="typeMsg[tp]"></div>
+        <CalcNotice v-if="typeNotice[tp]" :notice="typeNotice[tp]" />
         <div style="margin-top:10px">
           <template v-if="typeRows[tp].length">
             <div v-html="attStatusHtml"></div>
@@ -171,11 +178,12 @@
                   <tr
                     v-for="r in typeFiltered[tp]"
                     :key="r.staff_id"
-                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id, 'row-zero-pay': isZeroPayRow(r) }"
+                    :class="{ 'pay-sel': typeSel[tp] === r.staff_id, 'row-zero-pay': isZeroPayRow(r), 'row-adjusted': isAdjusted(r) }"
                     @click="typeSel[tp] = r.staff_id"
                   >
                       <td>{{ r.project }}</td>
-                      <td>{{ r.department || '' }}</td><td>{{ r.position }}</td><td>{{ r.name }}</td>
+                      <td>{{ r.department || '' }}</td><td>{{ r.position }}</td>
+                      <td>{{ r.name }}<span v-if="isAdjusted(r)" class="tag orange" style="margin-left:4px" title="本月有人工微调">调</span></td>
                       <td><span :class="`tag ${STATUS_TAG[r.status] || 'gray'}`">{{ r.status }}</span></td>
                       <td>{{ r.hire_date || '' }}</td>
                       <td class="num">{{ money(r.fixed) }}</td><td class="num">{{ money(r.base) }}</td>
@@ -223,7 +231,7 @@
             </div>
             <div class="hint">{{ TP_META[tp].tableHint }}</div>
             <template v-if="typeLogs[tp].length">
-              <h3 style="margin-top:14px">微调日志（本月 {{ typeLogs[tp].length }} 条，最新在前）</h3>
+              <h3 style="margin-top:14px">微调日志（本月 {{ typeLogs[tp].length }} 条，最新在前）<button v-if="isAdmin" class="btn sm" style="margin-left:8px" @click="exportAdjustLogs">导出日志</button></h3>
               <div class="table-wrap" style="max-height:240px">
                 <table class="tb">
                   <thead><tr><th>时间</th><th>操作人</th><th>项目</th><th>姓名</th><th>调整内容</th><th>调整后实发</th><th>原因</th></tr></thead>
@@ -343,6 +351,64 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除当月薪资数据确认弹窗（按当前维度） -->
+    <div v-if="deleteDialog.show" class="modal-mask" @mousedown.self="deleteDialog.show = false">
+      <div class="modal" style="width:520px;position:relative">
+        <div @click="deleteDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <h3 style="color:#dc2626">删除 {{ ui.month }} {{ deleteDialog.typeLabel }}薪资数据</h3>
+        <div class="msg err">⚠ 该操作不可恢复！仅删除该月{{ deleteDialog.typeLabel }}薪资核算结果及这些人员的微调日志，其他维度（员工/管理/案场/总部）数据不受影响。</div>
+        <div v-if="deleteDialog.loading" class="msg info">查询删除范围…</div>
+        <div v-else-if="deleteDialog.err" class="msg err">{{ deleteDialog.err }}</div>
+        <template v-else-if="deleteDialog.scope">
+          <table class="tb">
+            <tbody>
+              <tr><td style="width:110px;color:#64748b">删除维度</td><td>{{ deleteDialog.scope.scope_label || deleteDialog.typeLabel }}</td></tr>
+              <tr><td style="color:#64748b">删除行数</td><td class="num">{{ deleteDialog.scope.total_rows }}</td></tr>
+              <tr><td style="color:#64748b">微调日志</td><td class="num">{{ deleteDialog.scope.adjust_logs }} 条</td></tr>
+              <tr><td style="color:#64748b">涉及项目</td><td>{{ (deleteDialog.scope.projects || []).join('、') }}</td></tr>
+              <tr><td style="color:#64748b">应发合计</td><td class="num">{{ money(deleteDialog.scope.total_gross) }}</td></tr>
+              <tr><td style="color:#64748b">实发合计</td><td class="num">{{ money(deleteDialog.scope.total_net) }}</td></tr>
+            </tbody>
+          </table>
+        </template>
+        <div class="row end" style="margin-top:14px">
+          <button class="btn" @click="deleteDialog.show = false">取消</button>
+          <button class="btn danger" :disabled="deleteDialog.loading || !deleteDialog.scope || deleteDialog.deleting" @click="confirmDelete">
+            {{ deleteDialog.deleting ? '删除中…' : '确认删除（不可恢复）' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除日志弹窗 -->
+    <div v-if="deleteLogsDialog.show" class="modal-mask" @mousedown.self="deleteLogsDialog.show = false">
+      <div class="modal" style="width:880px;position:relative">
+        <div @click="deleteLogsDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <h3>薪资删除日志<button class="btn sm" style="margin-left:8px" @click="exportDeleteLogs">导出日志</button></h3>
+        <div v-if="deleteLogsDialog.loading" class="msg info">加载中…</div>
+        <div v-else-if="!deleteLogsDialog.logs.length" class="msg info">暂无删除日志。</div>
+        <div v-else class="table-wrap" style="max-height:420px">
+          <table class="tb">
+            <thead><tr><th>时间</th><th>操作人</th><th>月份</th><th>维度</th><th>总行数</th><th>员工/管理/案场/总部</th><th>微调日志</th><th>应发合计</th><th>实发合计</th><th>涉及项目</th></tr></thead>
+            <tbody>
+              <tr v-for="l in deleteLogsDialog.logs" :key="l.id">
+                <td style="white-space:nowrap">{{ formatLogTime(l.created_at) }}</td>
+                <td>{{ l.operator }}</td>
+                <td>{{ l.ym }}</td>
+                <td>{{ l.scope.scope_label || '全部维度' }}</td>
+                <td class="num">{{ l.scope.total_rows }}</td>
+                <td class="num">{{ l.scope.staff_rows }}/{{ l.scope.manager_rows }}/{{ l.scope.case_rows }}/{{ l.scope.hq_rows }}</td>
+                <td class="num">{{ l.scope.adjust_logs }}</td>
+                <td class="num">{{ money(l.scope.total_gross) }}</td>
+                <td class="num">{{ money(l.scope.total_net) }}</td>
+                <td>{{ (l.scope.projects || []).join('、') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -355,7 +421,8 @@ import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, groupNotices, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
+import CalcNotice from './CalcNotice.vue'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -399,6 +466,7 @@ const TP_META = {
 const payTab = ref('emp')
 const calcProjects = ref(auth.projects.slice())
 const calcMsg = ref('')
+const calcNotice = ref(null)
 const histFile = ref(null)
 const empRows = ref([])
 const empMeta = ref({})
@@ -410,8 +478,9 @@ const paySel = ref('')
 const typeRows = reactive({ mgr: [], case: [], hq: [] })
 const typeLogs = reactive({ mgr: [], case: [], hq: [] })
 const typeArchived = reactive({ mgr: false, case: false, hq: false })
+const typeAdjusted = reactive({ mgr: [], case: [], hq: [] })
 const typeErr = reactive({ mgr: '', case: '', hq: '' })
-const typeMsg = reactive({ mgr: '', case: '', hq: '' })
+const typeNotice = reactive({ mgr: null, case: null, hq: null })
 const typeProjFilter = reactive({ mgr: '', case: '', hq: '' })
 const typeSel = reactive({ mgr: '', case: '', hq: '' })
 const typeTableEls = {}
@@ -428,6 +497,12 @@ const adjHistoryLoading = ref(false)
 
 // 季度/半年度系数录入弹窗
 const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
+
+// 按维度删除当月薪资数据：确认弹窗 + 删除日志弹窗（tp 为前端 tab 键，apiType 为后端维度参数）
+const DELETE_TYPE_LABEL = { staff: '员工', mgr: '管理人员', case: '案场人员', hq: '总部人员' }
+const DELETE_API_TYPE = { staff: 'staff', mgr: 'manager', case: 'case', hq: 'hq' }
+const deleteDialog = reactive({ show: false, loading: false, deleting: false, scope: null, err: '', type: 'staff', typeLabel: '员工' })
+const deleteLogsDialog = reactive({ show: false, loading: false, logs: [] })
 
 const projChecks = computed(() => auth.projects.filter((p) => p !== '物业总部'))
 
@@ -458,6 +533,11 @@ function perfAmt(r, key) {
 }
 // 微调日志：列表接口已按 id 倒序（最新在前），最多展示 50 条
 const empLogs = computed(() => (empMeta.value.logs || []).slice(0, 50))
+// 微调高亮：本月有微调日志的人员集合（后端 adjusted_staff_ids），行标黄+“调”标签
+function isAdjusted(r) {
+  const ids = payTab.value === 'emp' ? (empMeta.value.adjusted_staff_ids || []) : (typeAdjusted[payTab.value] || [])
+  return ids.includes(r.staff_id)
+}
 
 // 微调禁用原因（问题5）：锁定或项目账号 → 按钮置灰并给出明确提示
 const empAdjustReason = computed(() => adjustDisabledReason(empArchived.value, isAdmin.value))
@@ -529,6 +609,54 @@ async function loadPayroll() {
   } catch (e) { empErr.value = e.message }
 }
 
+// 微调日志 Excel 导出（仅总部管理员）：当月全部微调记录留档对账
+function exportAdjustLogs() {
+  download(`/api/payroll/adjust-logs/export?ym=${ui.month}`, `微调日志_${ui.month}.xlsx`)
+}
+
+// 按维度删除：首次请求 409 拿范围统计，force 执行删除；维度内已归档被后端 400 拦截提示先解锁
+async function openDeleteDialog(tp = 'staff') {
+  deleteDialog.type = DELETE_API_TYPE[tp] || 'staff'
+  deleteDialog.typeLabel = DELETE_TYPE_LABEL[tp] || '员工'
+  deleteDialog.show = true
+  deleteDialog.loading = true
+  deleteDialog.err = ''
+  deleteDialog.scope = null
+  try {
+    await api('/api/payroll/delete-month', { body: { ym: ui.month, type: deleteDialog.type } })
+  } catch (e) {
+    if (e.status === 409 && e.payload && e.payload.need_confirm) {
+      deleteDialog.scope = e.payload.scope
+    } else {
+      deleteDialog.err = e.message
+    }
+  } finally { deleteDialog.loading = false }
+}
+
+async function confirmDelete() {
+  deleteDialog.deleting = true
+  deleteDialog.err = ''
+  try {
+    const r = await api('/api/payroll/delete-month', { body: { ym: ui.month, type: deleteDialog.type, force: true } })
+    toast(`已删除 ${ui.month} ${deleteDialog.typeLabel}薪资数据（${r.deleted.total_rows} 行，微调日志 ${r.deleted.adjust_logs} 条）`)
+    deleteDialog.show = false
+    reloadActive()
+  } catch (e) { deleteDialog.err = e.message } finally { deleteDialog.deleting = false }
+}
+
+async function openDeleteLogs() {
+  deleteLogsDialog.show = true
+  deleteLogsDialog.loading = true
+  try {
+    const r = await api('/api/payroll/delete-logs')
+    deleteLogsDialog.logs = r.logs || []
+  } catch (e) { toast(e.message, false) } finally { deleteLogsDialog.loading = false }
+}
+
+function exportDeleteLogs() {
+  download('/api/payroll/delete-logs/export', '薪资删除日志.xlsx')
+}
+
 async function loadType(tp) {
   typeErr[tp] = ''
   try {
@@ -537,6 +665,7 @@ async function loadType(tp) {
     attStatus.value = st
     typeRows[tp] = data.rows || []
     typeLogs[tp] = (data.logs || []).slice(0, 50)
+    typeAdjusted[tp] = data.adjusted_staff_ids || []
     typeArchived[tp] = !!data.archived
     typeProjFilter[tp] = ''
     typeSel[tp] = ''
@@ -576,20 +705,16 @@ async function doCalc() {
       body: { ym: ui.month, projects: calcProjects.value, force },
     }))
     if (r.__cancelled) return
-    const notices = groupNotices(r.missing || [], r.warnings || [])
-    const dangerTxt = notices.danger.length
-      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    const infoTxt = notices.info.length
-      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    let msg = `核算完成，共 ${r.count} 人。`
-    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
-    msg += dangerTxt ? `\n${dangerTxt}` : ''
-    msg += infoTxt ? `\n${infoTxt}` : ''
-    calcMsg.value = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
+    calcNotice.value = buildCalcNotice({
+      title: `${ui.month} 员工核算完成`,
+      count: r.count, skipped: r.skipped, missing: r.missing, warnings: r.warnings,
+    })
+    calcMsg.value = ''
     loadPayroll()
-  } catch (e) { calcMsg.value = `<div class="msg err">${e.message}</div>` }
+  } catch (e) {
+    calcNotice.value = null
+    calcMsg.value = `<div class="msg err">${escHtml(e.message)}</div>`
+  }
 }
 
 function downloadHistoryTemplate() {
@@ -633,21 +758,17 @@ async function doCalcType(tp) {
   try {
     const r = await calcWithLockGuard((force) => api(TP_META[tp].calcApi, { body: { ym: ui.month, force } }))
     if (r.__cancelled) return
-    const notices = groupNotices(r.missing || [], r.warnings || [])
-    const dangerTxt = notices.danger.length
-      ? `🚨 ${notices.danger.length} 项异常：` + notices.danger.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    const infoTxt = notices.info.length
-      ? `ℹ️ ${notices.info.length} 项提示：` + notices.info.map((w) => `${w.name}(${w.project})：${w.reason}`).join('；')
-      : ''
-    let msg = `${label}完成，共 ${r.count} 人。`
-    if (r.skipped && r.skipped.length) msg += '（' + r.skipped.join('、') + '）'
-    msg += dangerTxt ? `\n${dangerTxt}` : ''
-    msg += infoTxt ? `\n${infoTxt}` : ''
-    typeMsg[tp] = `<div class="msg ${dangerTxt ? 'err' : infoTxt ? 'info' : 'ok'}">${escHtml(msg)}</div>`
+    typeNotice[tp] = buildCalcNotice({
+      title: `${ui.month} ${TP_META[tp].noun}核算完成`,
+      count: r.count, skipped: r.skipped, missing: r.missing, warnings: r.warnings,
+    })
+    typeErr[tp] = ''
     loadType(tp)
     loadPayroll()
-  } catch (e) { typeMsg[tp] = `<div class="msg err">${e.message}</div>` }
+  } catch (e) {
+    typeNotice[tp] = null
+    typeErr[tp] = e.message
+  }
 }
 
 async function postArchive(body) {
@@ -744,14 +865,16 @@ async function saveAdjust() {
   } catch (e) { alert(e.message) }
 }
 
-async function openCoefDialog() {
+async function openCoefDialog(tab) {
   coefDialog.show = true
   coefDialog.loading = true
   coefDialog.err = ''
   coefDialog.ym = ui.month
   coefDialog.items = []
   try {
-    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}`)
+    // 按 tab 过滤人员类型：管理 tab 只列管理人员、总部 tab 只列总部人员（2026-10-20）
+    const cat = tab === 'hq' ? 'hq' : 'manager'
+    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}&category=${cat}`)
     if (!r.ok) { coefDialog.err = r.error || r.message || '当前月份不是季度末月，无需录入季度系数'; coefDialog.loading = false; return }
     coefDialog.period = r.period
     coefDialog.half_period = r.half_period || null
@@ -813,6 +936,13 @@ tr.pay-sel td {
 }
 tr.row-zero-pay td {
   background: #fff7ed;
+}
+/* 微调高亮：本月有人工微调的行，琥珀底色+加粗姓名列，与选中/零实发行区分 */
+tr.row-adjusted td {
+  background: #fef3c7;
+}
+tr.row-adjusted td:nth-child(4) {
+  font-weight: bold;
 }
 td.zero-pay {
   font-weight: bold;

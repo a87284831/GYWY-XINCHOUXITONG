@@ -164,7 +164,7 @@ class OrgService
             $now = now();
             // 1. 根公司
             $companyId = DB::table('org_nodes')->insertGetId([
-                'parent_id' => null, 'type' => 'company', 'name' => '公司总部',
+                'parent_id' => null, 'type' => 'company', 'name' => '广盈物业',
                 'sort_order' => 1, 'enabled' => true,
                 'data' => json_encode(['default' => true], JSON_UNESCAPED_UNICODE),
                 'created_at' => $now, 'updated_at' => $now,

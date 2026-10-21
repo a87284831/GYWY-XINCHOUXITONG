@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   summaryTotals, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows,
-  isZeroPayRow, groupNotices, archiveBlockerText, formatLogChanges, formatLogTime,
+  isZeroPayRow, groupNotices, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime,
   adjustDisabledReason, lockedRecalcConfirmText,
 } from './payrollLogic'
 
@@ -188,6 +188,42 @@ describe('groupNotices（缺失/警告条目按 level 分组）', () => {
     ]
     const { danger } = groupNotices(missing, [])
     expect(danger.map((x) => x.name)).toEqual(['D1', 'D2'])
+  })
+})
+
+describe('buildCalcNotice（核算结果卡片数据组装）', () => {
+  it('无异常无提示时 kind=ok，danger/info 为空数组', () => {
+    const n = buildCalcNotice({ title: '2026-09 员工核算完成', count: 35 })
+    expect(n.kind).toBe('ok')
+    expect(n.danger).toEqual([])
+    expect(n.info).toEqual([])
+    expect(n.count).toBe(35)
+    expect(n.title).toBe('2026-09 员工核算完成')
+  })
+
+  it('danger 存在时 kind=warn；info/danger 分级透传', () => {
+    const n = buildCalcNotice({
+      title: 't',
+      count: 42,
+      missing: [{ name: '王帅山', project: '新沂春暖花开', reason: '绩效系数缺失', level: 'danger' }],
+      warnings: [{ name: '孔祥坤', project: '定陶', reason: '实发工资 ≤ 0', level: 'info' }],
+    })
+    expect(n.kind).toBe('warn')
+    expect(n.danger).toHaveLength(1)
+    expect(n.danger[0].name).toBe('王帅山')
+    expect(n.info).toHaveLength(1)
+    expect(n.info[0].name).toBe('孔祥坤')
+  })
+
+  it('仅 info 提示（含无 level 旧条目）时 kind 仍为 ok', () => {
+    const n = buildCalcNotice({ title: 't', count: 3, warnings: [{ name: 'C', reason: 'r3' }] })
+    expect(n.kind).toBe('ok')
+    expect(n.info).toHaveLength(1)
+  })
+
+  it('skipped 透传为数组；未传时为空数组', () => {
+    expect(buildCalcNotice({ title: 't', count: 1, skipped: ['陈辉'] }).skipped).toEqual(['陈辉'])
+    expect(buildCalcNotice({ title: 't', count: 1 }).skipped).toEqual([])
   })
 })
 

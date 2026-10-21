@@ -64,7 +64,8 @@ function handle_export_excel() {
         $st = db()->prepare(
             "SELECT pi.*, p.name AS project_name FROM purchase_items pi
              JOIN payroll.payroll_projects p ON pi.project_id=p.id
-             WHERE pi.month=? ORDER BY FIELD(pi.line,'环境','绿化','工程','秩序','行政'), pi.project_id, pi.id"
+             WHERE pi.month=? AND pi.status IN ('submitted','confirmed')
+             ORDER BY FIELD(pi.line,'环境','绿化','工程','秩序','行政'), pi.project_id, pi.id"
         );
         $st->execute([$month]);
         $items = $st->fetchAll();
@@ -88,8 +89,8 @@ function handle_export_excel() {
     $ws->setTitle('月度采购计划汇总收集表');
     $titleMonth = sprintf('%d年%d月', (int)substr($month, 0, 4), (int)substr($month, 5, 2));
     $ws->mergeCells('A1:M1');
-    $ws->setCellValue('A1', "{$titleMonth} 月度采购计划收集表");
-    style_title($ws, 'A1:M1', 1, "{$titleMonth} 月度采购计划收集表");
+    $ws->setCellValue('A1', "广盈物业 {$titleMonth} 月度采购计划收集表");
+    style_title($ws, 'A1:M1', 1, "广盈物业 {$titleMonth} 月度采购计划收集表");
 
     $ws->setCellValue('A2', '统计月份：' . $month);
     $ws->setCellValue('C2', '填报日期：');
@@ -202,8 +203,8 @@ function handle_export_excel() {
         $isEng = ($line === '工程');
         $maxCol = $isEng ? 'M' : 'L';
         $lws->mergeCells("A1:{$maxCol}1");
-        $lws->setCellValue('A1', '' . $month . ' ' . $title . '采购明细');
-        style_title($lws, "A1:{$maxCol}1", 1, '' . $month . ' ' . $title . '采购明细', 14);
+        $lws->setCellValue('A1', '广盈物业 ' . $month . ' ' . $title . '采购明细');
+        style_title($lws, "A1:{$maxCol}1", 1, '广盈物业 ' . $month . ' ' . $title . '采购明细', 14);
 
         $lheaders = ['序号', '项目名称', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '合计', '项目库存', '申购原因'];
         if ($isEng) $lheaders[] = '使用位置';
@@ -269,7 +270,7 @@ function handle_export_excel() {
     }
 
     // 输出
-    $fileName = "{$month}_采购计划统计表.xlsx";
+    $fileName = "广盈物业_{$month}_采购计划统计表.xlsx";
     $asciiName = 'purchase_plan_' . $month . '.xlsx';
     log_action('导出报价', "{$month} 导出采购计划统计表（{$fileName}）");
     \App\Purchase\Support::header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -305,8 +306,8 @@ function handle_export_my_month() {
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('填报明细');
     $ws->mergeCells('A1:J1');
-    $ws->setCellValue('A1', "{$month} {$pname} 采购填报明细");
-    style_title($ws, 'A1:J1', 1, "{$month} {$pname} 采购填报明细", 14);
+    $ws->setCellValue('A1', "广盈物业 {$month} {$pname} 采购填报明细");
+    style_title($ws, 'A1:J1', 1, "广盈物业 {$month} {$pname} 采购填报明细", 14);
 
     $headers = ['条线', '商品名称', '规格型号', '品牌', '单位', '数量', '单价（元）', '金额（元）', '申购原因', '库存'];
     foreach ($headers as $i => $h) {
@@ -460,7 +461,7 @@ function handle_import_archive() {
         $pids = $st->fetchAll(PDO::FETCH_COLUMN);
         foreach ($pids as $pid) {
             foreach (project_user_ids((int)$pid) as $uid) {
-                notify_user((int)$uid, 'price_imported', "{$month}月 报价已导入", "本月采购报价已导入存档，可在「我的填报记录」查看最终单价与金额。", "#/my-items?month=$month");
+                notify_user((int)$uid, 'price_imported', "{$month}月 报价已导入", "本月采购报价已导入存档，可在「我的填报记录」查看最终单价与金额。", "/app/purchase/my-items?month=$month");
             }
         }
     } catch (Throwable $e) {}
@@ -480,7 +481,7 @@ function handle_import_archive() {
         }
         if ($over) {
             foreach (admin_user_ids() as $uid) {
-                notify_user((int)$uid, 'budget_over', "{$month}月 预算超支提醒", implode('；', $over), '#/overview');
+                notify_user((int)$uid, 'budget_over', "{$month}月 预算超支提醒", implode('；', $over), '/app/purchase/overview');
             }
             log_action('预算超支', "{$month} " . implode('；', $over));
         }
@@ -535,8 +536,8 @@ function handle_export_year() {
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('全年采购明细');
     $ws->mergeCells('A1:J1');
-    $ws->setCellValue('A1', "{$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）');
-    style_title($ws, 'A1:J1', 1, "{$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）', 14);
+    $ws->setCellValue('A1', "广盈物业 {$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）');
+    style_title($ws, 'A1:J1', 1, "广盈物业 {$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）', 14);
 
     $headers = ['月份', '项目名称', '条线', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '金额'];
     foreach ($headers as $i => $h) {
@@ -586,7 +587,7 @@ function handle_export_year() {
     // 自动筛选
     $ws->setAutoFilter('A2:J' . max($r - 1, 2));
 
-    $fileName = "{$year}年度采购明细汇总.xlsx";
+    $fileName = "广盈物业_{$year}年度采购明细汇总.xlsx";
     log_action('年度导出', "{$year} 年度采购明细汇总导出（{$fileName}）");
     \App\Purchase\Support::header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     \App\Purchase\Support::header('Content-Disposition: attachment; filename="' . rawurlencode($fileName) . '"');

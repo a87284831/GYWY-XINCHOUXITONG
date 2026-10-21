@@ -137,7 +137,7 @@ namespace {
         try {
             $st = fdb()->query("SELECT id, name, status FROM projects WHERE status = 1 ORDER BY sort_no, id");
             $rows = $st->fetchAll();
-            $exclude = [17, 26]; // id=17 物业总部（管理端载体项目，非业务项目）；id=26 历史遗留重复项目
+            $exclude = [17, 26]; // id=17 物业总部（管理端载体项目，非业务项目）；id=26 蓝钻庄园：与临沂/五莲蓝钻重复的历史遗留项目
             $out = [];
             foreach ($rows as $r) {
                 $rid = (int) $r['id'];

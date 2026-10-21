@@ -167,7 +167,7 @@ class PurchaseController extends ApiController
     private function dispatch(string $uri, string $method): mixed
     {
         if ($uri === '') {
-            return ['ok' => true, 'msg' => '采购管理系统 API 运行中', 'time' => date('Y-m-d H:i:s')];
+            return ['ok' => true, 'msg' => '广盈物业采购管理系统 API 运行中', 'time' => date('Y-m-d H:i:s')];
         }
 
         // 商品库
@@ -210,6 +210,7 @@ class PurchaseController extends ApiController
         if ($uri === 'admin/customs/map' && $method === 'POST') return handle_admin_map_custom();
         if ($uri === 'admin/customs/check-duplicate' && $method === 'POST') return handle_admin_customs_check_duplicate();
         if ($uri === 'admin/customs/save' && $method === 'POST') return handle_admin_customs_save();
+        if ($uri === 'admin/customs/ignore' && $method === 'POST') return handle_admin_ignore_custom();
 
         // 预算
         if ($uri === 'budgets' && $method === 'GET') return handle_budgets_list();

@@ -153,7 +153,7 @@ namespace {
         }
         if ($link !== '') {
             try {
-                $full = rtrim((string) env('APP_URL', ''), '/') . $link;
+                $full = 'https://oa.haoxuanyunshu.cn' . $link;
                 db()->prepare("INSERT INTO payroll.app_messages (account_id, type, title, content, link, project_name, `read`, created_at, updated_at) VALUES (?,?,?,?,?,?,0,NOW(),NOW())")
                     ->execute([$user_id, $type, $title, mb_substr($content, 0, 500), $full, '']);
             } catch (Throwable $e) {}

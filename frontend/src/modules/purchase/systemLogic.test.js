@@ -23,8 +23,8 @@ describe('systemLogic', () => {
   })
 
   it('导出文件名逐字复刻', () => {
-    expect(exportMonthName('2026-09')).toBe('2026-09_采购计划统计表.xlsx')
-    expect(exportYearName(2026)).toBe('2026年度采购明细汇总.xlsx')
+    expect(exportMonthName('2026-09')).toBe('广盈物业_2026-09_采购计划统计表.xlsx')
+    expect(exportYearName(2026)).toBe('广盈物业_2026年度采购明细汇总.xlsx')
   })
 
   it('overBudgetReason: 退回原因模板（金额千分位 2 位）', () => {

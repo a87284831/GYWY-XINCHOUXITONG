@@ -1,113 +1,94 @@
 # 薪酬核算系统
 
-面向物业服务企业的工资核算平台：钉钉人员档案同步、考勤上传与锁定、多项目工资核算（含试用期/转正分段、月度绩效、季度/半年度兑现、个税补差）、工资条导出、数据全量导出与备份。
+面向物业服务企业的内部一体化管理平台，核心是**薪酬核算**（项目员工/案场/管理/总部四类人员），并集成：考勤上传与符号库、钉钉花名册同步、个税独立计税、五险一金、绩效（月度/季度/半年度）、财务台账、采购申报、维保台账、审批流（OA）、组织架构、报表导出、工资条查询。
 
-## 功能概览
+## 文档索引
 
-- **钉钉集成**：通讯录/花名册/离职名单同步，支持每天定时同步与事件回调实时同步（可选项）
-- **人员档案**：按项目/部门/岗位管理，薪资、职级、试用期、转正日期等字段随钉钉同步
-- **考勤管理**：Excel 模板下载、按人上传合并、锁定防篡改、缺卡/迟到阶梯扣款
-- **工资核算**：逐日分段计算（试用期/转正/离职当月）、绩效双轨（月度系数 + 季度兑现）、错误码显式失败不静默降级
-- **导出**：考勤表、工资表、工资全量数据包、绩效专项表，支持部门合并单元格
-- **权限**：总部管理员（全项目）+ 项目账号（仅本项目）
+| 文档 | 位置 | 用途 |
+|---|---|---|
+| **联合开发指南** | [docs/联合开发指南.md](docs/联合开发指南.md) | 协作工作流、分支/PR/部署规范，**新成员必读** |
+| 项目开发文档 | [docs/项目开发文档.md](docs/项目开发文档.md) | 活文档，每次开发后追加记录 |
+| 项目交接文档 | workspace 根目录（不入库） | 生产环境事实、备份机制、运维 runbook |
 
-## 环境要求
+## 本地开发快速开始
+
+### 环境要求
 
 | 组件 | 版本 |
 |---|---|
-| PHP | 8.2+（扩展：pdo_mysql、mbstring、zip、gd、fileinfo） |
+| PHP | 8.2+（扩展：pdo_sqlite/mysql、mbstring、zip、gd、fileinfo） |
 | Composer | 2.x |
-| MySQL | 5.7+ / 8.0 |
-| Node.js | 20+（仅构建前端时需要） |
-| Web 服务器 | Nginx / Apache |
+| Node.js | 20+（前端构建与测试） |
 
-## 部署步骤
+> Windows 本机无 PHP/Node 时，可用绿色版方案，见 `.trae/skills/windows-portable-php-composer/`。
 
-> **没有默认账号密码。** 系统安装后数据库为空，必须执行下方「步骤 2」创建管理员才能登录。
-
-### 1. 后端安装
+### 首次设置
 
 ```bash
-composer install --no-dev -o
+git clone git@github.com:a87284831/haoxuanyunshu.git laravel-app
+cd laravel-app
+
+composer install
 cp .env.example .env
-# 编辑 .env：填写 APP_URL 和数据库连接信息
+# .env 默认即可本地运行（SQLite）；向管理员索取 data/ 配置目录副本放到 ../data
+
 php artisan key:generate
-php artisan migrate
+php artisan migrate          # 自动创建 database/local.sqlite
+php artisan payroll:init-admin admin 你的密码   # 创建本地管理员（密码至少8位）
 ```
 
-### 2. 创建首个管理员账号
+> **没有默认账号密码。** 数据库为空时必须先用上面的命令创建管理员才能登录。
+> 如需演示数据（17 个项目 + 历史工资），可运行 `php database/seed_demo_payroll.php`（**仅限本地，生产严禁**）。
 
-```bash
-php artisan payroll:init-admin admin 你的密码
+### 启动本地服务
+
+```powershell
+# 不要用 artisan serve（/app 目录导致 SPA 刷新 404），用专用 router：
+php -S 127.0.0.1:8910 -t public server_router.php
 ```
 
-> **系统没有默认账号密码。** 空白安装后数据库为空，必须先执行此命令创建管理员才能登录。用户名可自定义，密码至少 8 位。
-
-### 3. 前端构建
+前端开发（可选，改前端源码时）：
 
 ```bash
 cd frontend
 npm ci
-npm run build
+npm run dev      # 或 npm run build 后由后端托管
 ```
 
-构建产物输出到 `public/app/`，由后端站点直接托管，无需单独部署。
-
-### 4. Nginx 配置示例
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-    root /var/www/payroll/laravel-app/public;
-    index index.php;
-
-    # 前端 SPA（构建产物在 public/app）
-    location /app {
-        try_files $uri $uri/ /app/index.html;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location ~ \.php$ {
-        fastcgi_pass unix:/tmp/php-cgi-82.sock;   # 按实际环境调整
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-```
-
-### 5. 定时任务（可选，钉钉自动同步）
+### 测试（提交前必跑）
 
 ```bash
-crontab -e
-# 每分钟触发 Laravel 调度器（系统会按配置在每天 02:00 执行钉钉全量同步）
-* * * * * cd /var/www/payroll/laravel-app && php artisan schedule:run >> /dev/null 2>&1
+php vendor/bin/phpunit        # 后端（:memory: SQLite）
+cd frontend && npm run test   # 前端 vitest
+npm run build                 # 验证构建不破坏
 ```
 
-## 钉钉配置
+## 协作工作流（简版）
 
-登录系统后进入「设置」页填写（保存到系统数据库，均为空表示未启用同步）：
+```
+git pull origin main          # 每次开发前
+git checkout -b feat/xxx      # 一个功能一个分支
+# 开发 + 本地测试
+git push origin feat/xxx      # 提 PR → CI 绿 → review → 合并 main
+# 合并后由指定人员从 main 构建并部署（见联合开发指南）
+```
 
-| 配置项 | 说明 |
-|---|---|
-| AppKey / AppSecret | 钉钉开放平台应用凭证 |
-| AgentId | 应用 AgentId |
-| 回调 Token / 加密密钥 | 仅在配置事件回调时需要 |
+详细规范（分支命名、数据库变更纪律、部署纪律、数据安全红线）见 [docs/联合开发指南.md](docs/联合开发指南.md)。
 
-填写后点「立即同步」验证连通性。事件回调（实时同步人员增删改）为可选项，需在钉钉开放平台「事件订阅」中登记回调地址，未配置时依靠定时同步兜底。
+## 生产部署（指定人员执行）
 
-## 数据初始化
+- 前端：`deploy/deploy-frontend-full.sh`（整包同步 + 资源自检 + 失败自动回滚）
+- 后端：快照 → 同步 PHP 文件 → `php artisan migrate --force`（如有迁移）→ 缓存重建 → 冒烟
+- **禁止在生产服务器上改代码、禁止在服务器上 npm build**
 
-空白安装后建议按以下顺序配置：
+## 功能概览
 
-1. **项目设置** → 创建薪酬项目
-2. **钉钉同步** → 拉取人员档案（或在人员页手工添加）
-3. **符号库/规则** → 核算规则与考勤符号（默认模板已内置，可调整）
-4. **考勤上传** → 下载模板填写后上传并锁定
-5. **工资核算** → 按月核算并导出
+- **钉钉集成**：通讯录/花名册/离职名单同步，定时全量同步（凌晨 2 点）+ 事件回调（可选）
+- **人员档案**：按项目/部门/岗位管理，薪资、职级、试用期、转正日期随钉钉同步
+- **考勤管理**：Excel 模板下载、按人上传合并、锁定防篡改
+- **工资核算**：逐日分段（试用期/转正/离职当月）、绩效三模式（月度/分期兑现/季度绩效法）、错误码显式失败不静默降级
+- **采购管理**：项目填报 → 管理员确认 → 清单外审核（归入/新增规格/忽略）→ 导出报价 → 导入价格 → 归档
+- **财务台账**、**维保台账**、**审批流（OA）**、**绩效模块**、**报表导出**
 
 ## 目录结构
 
@@ -116,13 +97,11 @@ laravel-app/
 ├── app/
 │   ├── Console/Commands/     # 钉钉同步、管理员初始化、重算命令
 │   ├── Http/Controllers/Api/ # 全部业务接口
-│   └── Services/             # 核算引擎、钉钉服务、状态判定
-├── database/migrations/      # 数据库结构
-├── frontend/                 # Vue3 前端源码（构建输出到 public/app）
-├── public/app/               # 前端构建产物
+│   └── Services/             # 核算引擎、钉钉服务、规则读取
+├── database/migrations/      # 数据库结构（变更只允许走迁移）
+├── frontend/                 # Vue3 + Vite 前端源码（构建输出到 public/app）
+├── public/app/               # 前端构建产物（不入库，部署时构建）
+├── deploy/                   # 部署脚本
+├── docs/                     # 开发文档（活文档）
 └── routes/                   # 路由与调度定义
 ```
-
-## 备份建议
-
-至少每日备份数据库（mysqldump）与 `.env`。系统数据全部在 MySQL 中，文件上传存于 `storage/app/private/`。
