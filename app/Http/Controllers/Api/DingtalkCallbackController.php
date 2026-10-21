@@ -651,6 +651,11 @@ class DingtalkCallbackController extends ApiController
 
         // 薪资列单独处理：钉钉侧可能返回布尔/文本等非数值（2026-10-04 线上 fixed_monthly='true' 事故），
         // 必须入口归一化——坏值跳过不写（保留本地原值），不能让 SQL 1366 炸掉整批同步。
+        $dataUpdate = [];
+        $staffRow = DB::table('payroll_staff')->where('id', $dbId)->first(['fixed_monthly', 'base_salary', 'hire_date', 'data']);
+        $oldFixed = (float)($staffRow->fixed_monthly ?? 0);
+        $oldBase = (float)($staffRow->base_salary ?? 0);
+        $salaryChanged = false;
         $systemUpdate = [];
         foreach (['月度薪资标准' => 'fixed_monthly', '月度基本工资' => 'base_salary'] as $dtField => $dbField) {
             if (!array_key_exists($dtField, $fields)) continue;
@@ -662,9 +667,29 @@ class DingtalkCallbackController extends ApiController
                 continue;
             }
             $systemUpdate[$dbField] = $num;
+            // 检测薪资变化（任一字段变动即触发 salary_history 追加）
+            if ($dbField === 'fixed_monthly' && abs($num - $oldFixed) > 0.001) $salaryChanged = true;
+            if ($dbField === 'base_salary' && abs($num - $oldBase) > 0.001) $salaryChanged = true;
         }
 
-        $dataUpdate = [];
+        // 调薪：钉钉无生效日期字段，按用户口径「整月生效」，以同步当月 1 号为生效日。
+        // appendSalarySegment 会自动补全变更前基线，保证月中之前的天数不被新值覆盖。
+        if ($salaryChanged) {
+            $newFixed = $systemUpdate['fixed_monthly'] ?? $oldFixed;
+            $newBase = $systemUpdate['base_salary'] ?? $oldBase;
+            $data = json_decode($staffRow->data ?? '{}', true) ?: [];
+            $data['salary_history'] = \App\Services\PayrollCalculator::appendSalarySegment(
+                $data['salary_history'] ?? [],
+                $staffRow->hire_date,
+                $oldFixed, $oldBase,
+                now()->format('Y-m-01'),
+                $newFixed, $newBase,
+                ['type' => '调薪', 'note' => '钉钉花名册同步']
+            );
+            // 合并到后续 dataUpdate，保证与其他花名册字段一起落库
+            $dataUpdate = array_merge($dataUpdate, ['salary_history' => $data['salary_history']]);
+        }
+
         foreach ($dataMap as $dtField => $dbField) {
             if (!empty($fields[$dtField])) {
                 $dataUpdate[$dbField] = $fields[$dtField];

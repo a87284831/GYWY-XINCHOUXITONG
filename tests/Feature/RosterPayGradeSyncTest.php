@@ -57,4 +57,35 @@ class RosterPayGradeSyncTest extends TestCase
         $this->applyRoster(1, ['薪酬档位' => '']);
         $this->assertEquals('主管级', $this->dataOf(1)['pay_grade'] ?? null);
     }
+
+    /** 钉钉调薪同步：薪资变化时应追加 salary_history 段，生效日为同步当月 1 号 */
+    public function test_roster_salary_change_appends_salary_history(): void
+    {
+        $this->seedStaff(1);
+        $this->applyRoster(1, ['月度薪资标准' => 8000, '月度基本工资' => 6500]);
+        $staff = DB::table('payroll_staff')->where('id', 1)->first();
+        $this->assertEquals(8000.0, (float) $staff->fixed_monthly);
+        $this->assertEquals(6500.0, (float) $staff->base_salary);
+
+        $history = $this->dataOf(1)['salary_history'] ?? [];
+        $this->assertCount(2, $history, '首次调薪应补全基线 + 新段共 2 条');
+        // 基线：入职日生效、旧薪资
+        $this->assertEquals('2025-01-01', $history[0]['effective_date']);
+        $this->assertEquals(6000.0, (float) $history[0]['fixed_monthly']);
+        $this->assertEquals(5000.0, (float) $history[0]['base_salary']);
+        // 新段：当月 1 号生效、新薪资
+        $this->assertEquals(date('Y-m-01'), $history[1]['effective_date']);
+        $this->assertEquals(8000.0, (float) $history[1]['fixed_monthly']);
+        $this->assertEquals(6500.0, (float) $history[1]['base_salary']);
+        $this->assertEquals('调薪', $history[1]['type'] ?? null);
+    }
+
+    /** 薪资未变化时，不应追加 salary_history 段 */
+    public function test_roster_salary_unchanged_does_not_append_history(): void
+    {
+        $this->seedStaff(1);
+        $this->applyRoster(1, ['月度薪资标准' => 6000, '月度基本工资' => 5000]);
+        $history = $this->dataOf(1)['salary_history'] ?? [];
+        $this->assertEmpty($history, '薪资未变不应写 salary_history');
+    }
 }
