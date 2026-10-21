@@ -16,7 +16,7 @@ class PayrollQuarterGradeTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function seedRules(): void
+    private function seedRules(bool $specialistQuarter = false): void
     {
         $rules = [
             'base_salary' => ['segment_by_date' => true, 'prorate_base' => 'required'],
@@ -27,7 +27,7 @@ class PayrollQuarterGradeTest extends TestCase
                     'levels' => [
                         '经理级' => ['mode' => 'quarter'],
                         '主管级' => ['mode' => 'monthly'],
-                        '专员级' => ['mode' => 'monthly'],
+                        '专员级' => ['mode' => $specialistQuarter ? 'quarter' : 'monthly'],
                     ],
                 ],
                 'hq' => ['cycle' => 'monthly', 'ratio' => 1.0],
@@ -86,9 +86,13 @@ class PayrollQuarterGradeTest extends TestCase
         ]);
     }
 
-    /** 把周期系数写到对应季度末月行的 row_data.coef + 考勤表的 coef（统一 coef 列方案） */
+    /** 模拟弹窗录入：双写周期系数表 + 季度末月行 row_data.coef + 考勤表 coef（统一 coef 列方案） */
     private function seedCoef(int $staffId, string $type, string $key, float $coef): void
     {
+        DB::table('payroll_period_coefs')->updateOrInsert(
+            ['staff_legacy_id' => $staffId, 'period_type' => $type, 'period_key' => $key],
+            ['coef' => $coef, 'created_at' => now(), 'updated_at' => now()]
+        );
         $month = $this->periodKeyToMonth($key);
         DB::table('payroll_results')->updateOrInsert(
             ['year_month' => $month, 'staff_legacy_id' => $staffId, 'is_manager_row' => true],
@@ -269,5 +273,53 @@ class PayrollQuarterGradeTest extends TestCase
         // 仅累计在职的 2/3 月：2000 × 1.0 = 2000
         $this->assertEquals(2000.0, (float) $r['perf_pay']);
         $this->assertEquals(['2026-02', '2026-03'], array_column($r['perf_detail']['months'], 'ym'));
+    }
+
+    /** 回归（2026-10-21 总部 4 月事故）：专员级同样走季度型，录入 1.00 必须视为已录入 */
+    public function test_quarter_grade_specialist_quarter_type_accepts_entered_coef_1(): void
+    {
+        $this->seedRules(true);
+        $this->seedManager(1, '张三', '专员级');
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
+        $r = $this->calcManagers('2026-04', ['张三'])['张三'];
+        $this->assertArrayNotHasKey('error', $r['perf_detail'] ?? [], '1.00 是合法系数，不得判为未录入');
+        $this->assertEquals(3000.0, (float) $r['perf_pay']);
+        $this->assertEquals(1.0, (float) $r['coef']);
+    }
+
+    /** 回归：行内 coef 被重算覆盖成默认 1.0 时，以周期录入表的值为准 */
+    public function test_quarter_grade_period_coef_wins_over_stale_row_coef(): void
+    {
+        $this->seedRules(true);
+        $this->seedManager(1, '张三', '专员级');
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
+        $this->seedCoef(1, 'quarterly', '2026-Q1', 1.1);
+        // 模拟重算把季度末月行内 coef 覆盖回默认 1.0
+        DB::table('payroll_results')->where('year_month', '2026-04')->where('staff_legacy_id', 1)
+            ->update(['row_data' => json_encode(['coef' => 1.0, 'fixed' => 6000, 'base' => 5000,
+                'perf_att' => 22, 'req_att' => 22, 'name' => '张三'], JSON_UNESCAPED_UNICODE)]);
+        $r = $this->calcManagers('2026-04', ['张三'])['张三'];
+        $this->assertArrayNotHasKey('error', $r['perf_detail'] ?? []);
+        $this->assertEquals(3300.0, (float) $r['perf_pay'], '按录入值 1.1 计发');
+        $this->assertEquals(1.1, (float) $r['coef'], '主表 coef 应回写为录入值');
+    }
+
+    /** 回归：既无周期录入记录、行内也只是默认 1.0 → 仍须显式报缺系数 */
+    public function test_quarter_grade_specialist_quarter_type_without_entry_still_errors(): void
+    {
+        $this->seedRules(true);
+        $this->seedManager(1, '张三', '专员级');
+        foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
+        DB::table('payroll_results')->insert([
+            'year_month' => '2026-04', 'staff_legacy_id' => 1, 'project_name' => '测试项目',
+            'row_data' => json_encode(['coef' => 1.0, 'fixed' => 6000, 'base' => 5000,
+                'perf_att' => 22, 'req_att' => 22, 'name' => '张三'], JSON_UNESCAPED_UNICODE),
+            'archived' => false, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $r = $this->calcManagers('2026-04', ['张三'])['张三'];
+        $this->assertEquals('missing_coef', $r['perf_detail']['error'] ?? null);
+        $this->assertEquals(0.0, (float) $r['perf_pay']);
     }
 }

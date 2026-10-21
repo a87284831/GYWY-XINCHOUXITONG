@@ -678,15 +678,14 @@ class PayrollCalculator
                     $perfPay = 0.0;
                 }
             } elseif (($payRule['cycle'] ?? '') === 'quarter_grade') {
-                // 季度绩效法：经理级=季度型，主管/专员级=月度型
-                $existingRow = null;
-                if ($payGrade === '经理级') {
-                    // 经理级：coef 优先读已存工资行（弹窗录入的），覆盖考勤 coef
-                    $existingRow = DB::table('payroll_results')->where('staff_legacy_id', (int)$person->legacy_id)->where('year_month', $ym)->where('archived', false)->first();
-                    if ($existingRow && $existingRow->row_data) {
-                        $rd = json_decode((string)$existingRow->row_data, true);
-                        if (isset($rd['coef'])) $coef = (float)$rd['coef'];
-                    }
+                // 季度绩效法：季度型（总部三档、管理人员经理级）按季度累计发放，其余档位月度发放
+                // 已存工资行里可能有弹窗录入的系数：所有档位都要读，不能只读经理级，
+                // 否则专员/主管级永远只能拿到考勤默认 1.0（2026-10-21 总部 4 月缺系数事故）
+                $existingRow = DB::table('payroll_results')->where('staff_legacy_id', (int)$person->legacy_id)->where('year_month', $ym)->where('archived', false)->first();
+                $rowCoef = null;
+                if ($existingRow && $existingRow->row_data) {
+                    $rd = json_decode((string)$existingRow->row_data, true) ?: [];
+                    if (isset($rd['coef']) && is_numeric($rd['coef'])) $rowCoef = (float)$rd['coef'];
                 }
                 $year = (int)substr($ym, 0, 4);
                 $month = (int)substr($ym, 5, 2);
@@ -705,12 +704,15 @@ class PayrollCalculator
                             $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                         } else {
                             [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
-                            // 统一读主表 coef
-                            $qCoef = ($coef == 1.0 && !$existingRow) ? null : $coef;
+                            // 「是否已录入」以周期系数表为显式凭证：1.00 是合法系数，不能用 coef==1.0 判空；
+                            // 未走弹窗双写的历史/导入行仅在 coef≠1.0 时兼容读取
+                            $periodCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
+                            $qCoef = $periodCoef ?? (($rowCoef !== null && $rowCoef != 1.0) ? $rowCoef : null);
                             if ($qCoef === null) {
                                 $perfPay = 0.0;
                                 $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
                             } else {
+                                $coef = $qCoef;
                                 $perfPay = round($qBase * $qCoef, 2);
                                 $perfDetail = [
                                     'period' => $qKey, 'type' => 'quarterly', 'pay_grade' => $payGrade,
