@@ -20,7 +20,7 @@ echo "=== 1. 备份当前 index.html ==="
 cp $REMOTE/public/app/index.html /root/index.html.bak.$TS
 echo "备份: /root/index.html.bak.$TS"
 
-echo "=== 2. 整包解压覆盖（只增改不删，旧哈希文件保留作浏览器缓存兜底）==="
+echo "=== 2. 整包解压覆盖（旧产物在 3b 自检通过后清理）==="
 tar -xzf /tmp/app-bundle.tar.gz -C $REMOTE/public/
 
 echo "=== 3. 校验 index.html 引用的所有资源（不过 200 自动回滚）=="
@@ -36,6 +36,17 @@ if [ $FAIL -ne 0 ]; then
   exit 1
 fi
 echo "全部资源 200，部署自洽"
+
+echo "=== 3b. 清理不在本次构建中的旧哈希产物（保持三端一致）==="
+# 必须在自检通过后执行：自检失败会回滚 index.html，旧产物此时不能删
+# 注意：清理后旧标签页需硬刷新；若需保留回滚窗口，可改为保留上一代产物
+tar tzf /tmp/app-bundle.tar.gz | grep '^app/assets/' | grep -v '/$' | sed 's|^app/|public/app/|' | sort > /tmp/keep-assets-deploy.txt
+find $REMOTE/public/app/assets -type f | sort > /tmp/cur-assets-deploy.txt
+comm -23 /tmp/cur-assets-deploy.txt /tmp/keep-assets-deploy.txt > /tmp/del-assets-deploy.txt
+echo "删除旧产物: $(wc -l < /tmp/del-assets-deploy.txt) 个；保留: $(wc -l < /tmp/keep-assets-deploy.txt) 个"
+if [ -s /tmp/del-assets-deploy.txt ]; then
+  xargs -d '\n' rm -f < /tmp/del-assets-deploy.txt
+fi
 
 echo "=== 4. 首页状态 ==="
 curl -sk -o /dev/null -w "GET /app/ -> %{http_code}\n" https://oa.haoxuanyunshu.cn/app/
