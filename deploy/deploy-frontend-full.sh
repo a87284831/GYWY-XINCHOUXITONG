@@ -52,7 +52,9 @@ echo "=== 3b. 清理不在本次构建中的旧哈希产物（保持三端一致
 # 注意：清理后旧标签页需硬刷新；若需保留回滚窗口，可改为保留上一代产物
 tar tzf /tmp/app-bundle.tar.gz | grep '^app/assets/' | grep -v '/$' | sed 's|^app/|public/app/|' | sort > /tmp/keep-assets-deploy.txt
 KEEP_CNT=$(wc -l < /tmp/keep-assets-deploy.txt)
-find $REMOTE/public/app/assets -type f | sort > /tmp/cur-assets-deploy.txt
+# 关键：cur 也 strip 成相对路径（public/app/assets/xxx.js），否则 comm 和 keep 的前缀对不上，
+# 全部 cur 都会被误判为"旧产物"（2026-10-22 事故：cur 完整路径 vs keep 相对路径，误删 199 个）
+find $REMOTE/public/app/assets -type f | sed "s|^$REMOTE/||" | sort > /tmp/cur-assets-deploy.txt
 CUR_CNT=$(wc -l < /tmp/cur-assets-deploy.txt)
 
 # 防呆（2026-10-21 二次白屏事故）：若包内清单异常偏少，comm 会把服务器上全部产物判为“旧产物”而清空，

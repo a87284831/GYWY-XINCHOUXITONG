@@ -10,7 +10,7 @@
           <option v-for="g in VIRTUAL_ATT_GROUPS" :key="g.value" :value="g.value">{{ g.label }}（跨项目汇总）</option>
         </select></label>
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
-        <input ref="fileEl" type="file" accept=".xlsx" style="display:none" @change="attUpload" />
+        <input ref="fileEl" type="file" accept=".xlsx,.xls" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
         <button class="btn" :disabled="!!blockReason('view')" :title="blockReason('view') || '查看本项目本月已上传的考勤'" @click="attView">查看已上传数据</button>
         <button class="btn" :disabled="!!blockReason('lock')" :title="blockReason('lock') || (attLocked ? '解除最终版本锁定' : '锁定为本月最终考勤，锁定后不能重传或删除')" @click="attLock">{{ attLocked ? '🔓 解锁考勤' : '🔒 锁定考勤' }}</button>
