@@ -312,6 +312,12 @@ const routes = [
         meta: { perm: 'purchase_view' },
       },
       {
+        path: 'changelog',
+        name: 'changelog',
+        component: () => import('@/modules/home/Changelog.vue'),
+        meta: { perm: '' },
+      },
+      {
         path: 'purchase/my-items',
         name: 'purchaseMyItems',
         component: () => import('@/modules/purchase/MyItems.vue'),

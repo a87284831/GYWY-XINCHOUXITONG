@@ -32,6 +32,7 @@
         <div class="u" v-html="userLabel"></div>
         <a style="cursor:pointer" @click="showChangePw = true">修改密码</a>
         <a style="cursor:pointer" @click="onLogout">退出登录</a>
+        <div v-if="currentVersion" class="ver-line" title="查看更新日志" @click="goPage('changelog')">📋 {{ currentVersion }}</div>
       </div>
     </div>
     <div class="main">
@@ -86,6 +87,8 @@
       </div>
     </div>
 
+    <ChangelogModal v-if="showChangelog" :entries="changelogUnread" @close="closeChangelog" />
+
     <div v-if="showChangePw" class="modal-mask" @mousedown.self="showChangePw = false">
       <div class="modal" style="width:420px">
         <h3>修改密码</h3>
@@ -108,6 +111,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { APPS, ALL_MENUS, PAGE_TITLES, appOfPage, pageKeyOfPath, pagePath, goPage, appEnabled, APP_ROUTE } from '@/nav/menus'
+import ChangelogModal from '@/components/ChangelogModal.vue'
+import { unreadEntries, latestVersion, getReadVersion, markRead } from '@/modules/home/changelogLogic'
 
 const route = useRoute()
 const router = useRouter()
@@ -121,6 +126,9 @@ const unread = ref(0)
 const showChangePw = ref(false)
 const pwOld = ref('')
 const pwNew = ref('')
+const showChangelog = ref(false)
+const changelogUnread = ref([])
+const currentVersion = ref('')
 const openSections = reactive(new Set())
 let unreadTimer = null
 
@@ -280,6 +288,24 @@ async function onLogout() {
   await auth.logout()
 }
 
+async function loadChangelog() {
+  try {
+    const d = await api('/api/changelog?limit=50')
+    const items = d.items || []
+    currentVersion.value = latestVersion(items)
+    const unreadList = unreadEntries(items, getReadVersion())
+    if (unreadList.length) {
+      changelogUnread.value = unreadList
+      showChangelog.value = true
+    }
+  } catch (e) { /* 接口失败不打扰使用；版本号留空即不显示 */ }
+}
+
+function closeChangelog() {
+  markRead(latestVersion(changelogUnread.value))
+  showChangelog.value = false
+}
+
 function onDocClick() {
   launcherOpen.value = false
   bellOpen.value = false
@@ -289,6 +315,7 @@ onMounted(async () => {
   document.addEventListener('click', onDocClick)
   unreadTimer = setInterval(loadUnread, 120000)
   loadUnread()
+  loadChangelog()
   // 会话恢复：有 token 但缺用户或项目列表 → /api/init 拉取（登录响应不含 projects）
   if (auth.token && (!auth.user || !auth.projects.length)) {
     try {
@@ -309,3 +336,8 @@ onBeforeUnmount(() => {
   clearInterval(unreadTimer)
 })
 </script>
+
+<style scoped>
+.ver-line { margin-top: 6px; color: #8fa3cc; font-size: 11.5px; cursor: pointer; }
+.ver-line:hover { color: #fff; }
+</style>

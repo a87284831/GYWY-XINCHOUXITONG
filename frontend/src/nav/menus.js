@@ -30,6 +30,7 @@ export const HOME_META = {
 
 export const PAGE_TITLES = {
   home: '工作台主页',
+  changelog: '系统更新日志',
   reportHome: '报表总览', hrReport: '人力资源报表', salaryReport: '薪酬报表', attReport: '考勤报表',
   fireReport: '消防维保报表', elevReport: '电梯维保报表',
   summary: '薪资数据汇总展示', payroll: '薪资核算与人工微调',
@@ -55,6 +56,7 @@ export const PAGE_TITLES = {
 
 export const ALL_MENUS = [
   { top: true, fixed: true, always: true, key: 'home', label: '工作台主页', icon: '🏠' },
+  { top: true, fixed: true, always: true, key: 'changelog', label: '更新日志', icon: '📋' },
   { section: '采购系统', icon: '📦', app: 'purchase', items: [
     { key: 'purchaseDashboard', label: '📊 数据驾驶舱', perm: 'purchase_view' },
     { key: 'purchaseFill', label: '📝 员工填报（代填）', staffLabel: '📝 采购填报', perm: 'purchase_view' },
@@ -129,7 +131,7 @@ const HR_PAGES = ['summary', 'payroll', 'taxMode', 'attendance', 'org', 'staff',
 const SETTING_PAGES = ['settings', 'users', 'logs', 'backup', 'salarySettings', 'rules', 'symbols']
 
 export function appOfPage(key) {
-  if (key === 'home' || !key) return 'home'
+  if (key === 'home' || key === 'changelog' || !key) return 'home'
   // 采购子路由（如 /purchase/fill-form）不在 PURCHASE_PAGES 枚举中，按前缀兜底，避免侧栏误落到 oa
   if (PURCHASE_PAGES.includes(key) || key.startsWith('purchase/')) return 'purchase'
   if (FINANCE_PAGES.includes(key)) return 'finance'

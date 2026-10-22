@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PayslipController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\OrgController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\ChangelogController;
 use App\Http\Controllers\Api\ApprovalFlowController;
 use Illuminate\Support\Facades\Route;
 
@@ -171,6 +172,7 @@ Route::get('/messages', [MessageController::class, 'list']);
 Route::get('/messages/unread_count', [MessageController::class, 'unreadCount']);
 Route::post('/messages/read', [MessageController::class, 'markRead']);
 Route::post('/messages/read_all', [MessageController::class, 'markAllRead']);
+Route::get('/changelog', [ChangelogController::class, 'list']);
 // ---- 通用审批流引擎 ----
 Route::get('/approval/positions', [ApprovalFlowController::class, 'positions']);
 Route::get('/approval/flows', [ApprovalFlowController::class, 'flows']);
