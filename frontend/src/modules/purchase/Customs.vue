@@ -1,10 +1,10 @@
 <script setup>
 // 清单外商品审核（复刻旧 #/customs：归入候选标准商品 / 新建入库 / 忽略确认通过）
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { seedCustomForm, mapPayload, saveCustomPayload, productOptions, productLabel, findProduct } from './adminLogic'
+import { seedCustomForm, mapPayload, saveCustomPayload, productLabel } from './adminLogic'
 
 const auth = useAuthStore()
 const rows = ref([])
@@ -25,49 +25,65 @@ function uid() {
   return (auth.user && auth.user.id) || 0
 }
 
-// 已检索过的商品 id → 商品对象。Element Plus 选中后会清空搜索词并重跑 remote-method，
-// 靠这份缓存保住选中项标签，避免下拉框变空白
-const productMap = new Map()
-function rememberProducts(list) {
-  ;(list || []).forEach((p) => {
-    if (p && p.id !== null && p.id !== undefined) productMap.set(String(p.id), p)
-  })
+// —— 方案 B：全量加载商品库 + 本地 filter，彻底绕开 EP remote 模式 ——
+// EP 2.14.6 filterable remote 模式下，选中后 handleOptionSelect 不清空 inputValue（EP bug），
+// 且 remote 模式的 cachedOptions Map 不包含选中项 → getOption() 返回空 → currentLabel 空 →
+// 即便手动清 inputValue 也无法让 #label 插槽渲染正确标签。
+// 根治方案：一次性拉完所有商品进 allProducts，el-select 不再 remote，用 :filter-method 本地过滤。
+// 这样 EP 直接从 v-for 的 el-option 里命中 modelValue → getOption() 正确 → 选中回显原生正确。
+const allProducts = ref([])
+
+async function loadAllProducts() {
+  try {
+    const PAGE_SIZE = 200 // 后端 max=200
+    let page = 1
+    let items = []
+    let total = 0
+    do {
+      const d = await api(`/api/purchase/products/list?page=${page}&page_size=${PAGE_SIZE}`)
+      const batch = d.data.items || d.data || []
+      items = items.concat(batch)
+      total = d.data.total || items.length
+      page++
+    } while (items.length < total && page <= 20) // 兜底最多 20 页
+    allProducts.value = items
+  } catch (e) {
+    // 全量加载失败不阻塞主流程（无 remote 兜底时下拉无选项，但归入功能不受影响）
+    console.warn('全量商品库加载失败，下拉无选项可用', e)
+  }
 }
 
+// 本地 filter-method：支持名称 / 规格 / 品牌模糊匹配
+function productFilter(kw, cb) {
+  const q = (kw || '').trim().toLowerCase()
+  if (!q) { cb(allProducts.value); return }
+  const result = allProducts.value.filter((p) =>
+    (p.name || '').toLowerCase().includes(q) ||
+    (p.spec || '').toLowerCase().includes(q) ||
+    (p.brand || '').toLowerCase().includes(q)
+  )
+  cb(result)
+}
+
+// 选中的商品 id → 商品对象（直接查 allProducts，不需要缓存）
+function findProduct(id) {
+  if (id === null || id === undefined || id === '') return null
+  const key = String(id)
+  return allProducts.value.find((p) => String(p.id) === key) || null
+}
+
+// —— 以下为原逻辑，大部分保留 ——
 async function load() {
   loading.value = true
   try {
     const d = await api('/api/purchase/admin/customs')
-    rows.value = d.data.map((r) => {
-      rememberProducts(r.candidates)
-      return { ...r, _sel: null, _selItem: null, _search: [], _saveAlias: false }
-    })
+    rows.value = d.data.map((r) => ({
+      ...r, _sel: null, _selItem: null, _saveAlias: false
+    }))
   } catch (e) {
     toast(e.message, false)
   } finally {
     loading.value = false
-  }
-}
-
-// 商品库远程搜索：下拉内输入关键字时实时检索标准商品（不限于后端预置候选）
-const searchRowId = ref(null)
-let searchSeq = 0
-async function remoteSearch(row, kw) {
-  const q = (kw || '').trim()
-  // 空关键字保留上一次结果（选中商品时 Element Plus 会回调空串，清空会导致标签丢失）
-  if (!q) return
-  const seq = ++searchSeq
-  searchRowId.value = row.id
-  try {
-    const d = await api('/api/purchase/products/search?keyword=' + encodeURIComponent(q))
-    if (seq === searchSeq) {
-      row._search = d.data || []
-      rememberProducts(row._search)
-    }
-  } catch (e) {
-    if (seq === searchSeq) row._search = []
-  } finally {
-    if (seq === searchSeq) searchRowId.value = null
   }
 }
 
@@ -262,46 +278,10 @@ function onSelectChange(row, v) {
     return
   }
   row._sel = v
-  // 先查缓存（选中瞬间搜索结果可能已被清空），再查当前选项
-  const hit = productMap.get(String(v)) || findProduct(productOptions(row), v)
-  row._selItem = hit || null
-  // 把选中项持久化进选项列表：Element Plus 选中后清空搜索词，options 若不含该值会渲染成空白
-  if (hit) {
-    const list = Array.isArray(row._search) ? row._search.slice() : []
-    if (!list.some((x) => String(x.id) === String(v))) list.unshift(hit)
-    row._search = list
-  }
+  row._selItem = findProduct(v)
 }
 
-// 把 el-select 实例挂到行上，供选中后手动清空 inputValue
-// Vue 3.5 function ref 语义变化：el-table 重渲染/unmount 时会传 null 覆盖旧实例
-function setSelectRef(row, el) {
-  if (el) row._selectRef = el
-}
-
-// EP 2.14.6 单选 filterable 选中后 handleOptionSelect 不清空 inputValue（EP bug），
-// 导致 shouldShowPlaceholder=false → #label 插槽被挡不渲染 → 框内残留搜索词或空白。
-// EP 自身有 expanded watcher 会在下拉关闭时清空，但 Vue 3.5 + el-table-column slot
-// 环境下触发时机不稳定，故在 @visible-change="false" 时强制清一遍确保正确渲染。
-function clearSelectInput(row) {
-  nextTick(() => {
-    const sel = row._selectRef
-    if (sel && sel.states && sel.states.inputValue !== undefined) {
-      sel.states.inputValue = ''
-    }
-  })
-}
-
-// 选中项显示文案（label 插槽兜底：即使 options 未命中也不出现空白）
-function selectedLabel(row, v) {
-  if (v === null || v === undefined || v === '') return ''
-  const hit = (row && row._selItem && String(row._selItem.id) === String(v))
-    ? row._selItem
-    : (productMap.get(String(v)) || findProduct(productOptions(row), v))
-  return hit ? productLabel(hit) : ''
-}
-
-onMounted(load)
+onMounted(() => { load(); loadAllProducts() })
 </script>
 
 <template>
@@ -333,20 +313,15 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="归入标准商品" min-width="250">
         <template #default="{ row }">
-          <el-select :model-value="row._sel" filterable remote
-            :ref="(el) => setSelectRef(row, el)"
-            :remote-method="(kw) => remoteSearch(row, kw)" :loading="searchRowId === row.id"
-            clearable placeholder="输入关键字搜索商品库，或选「＋新建标准商品入库」"
+          <!-- 方案 B：不 remote，本地 filter。EP 从 v-for el-option 里命中 modelValue → getOption 正确 → 选中回显原生正确，无需任何 hack -->
+          <el-select :model-value="row._sel" filterable
+            :filter-method="productFilter"
+            clearable placeholder="输入关键字搜索商品库"
             style="width:230px"
-            @update:model-value="(v) => onSelectChange(row, v)"
-            @visible-change="(v) => !v && clearSelectInput(row)">
-            <template #label="{ value }">
-              <span v-if="selectedLabel(row, value)">{{ selectedLabel(row, value) }}</span>
-              <span v-else>{{ value }}</span>
-            </template>
+            @update:model-value="(v) => onSelectChange(row, v)">
             <el-option label="＋ 新建标准商品入库" value="__new__" />
-            <el-option v-for="c in productOptions(row)" :key="c.id"
-              :label="productLabel(c)" :value="c.id" />
+            <el-option v-for="p in allProducts" :key="p.id"
+              :label="productLabel(p)" :value="p.id" />
           </el-select>
         </template>
       </el-table-column>
