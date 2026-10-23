@@ -1,5 +1,13 @@
 [
   {
+    "version": "v2026.10.23.9",
+    "date": "2026-10-23",
+    "commit": "39b7c44",
+    "items": [
+      { "category": "修复", "text": "清单外归入下拉选中商品后显示空白——根治方案 B：不再走 EP filterable remote，改为页面加载时全量拉取 1010 条商品 + 本地 filter。EP 的 v-for el-option 始终包含选中项，getOption() 原生命中，选中回显彻底正确。" }
+    ]
+  },
+  {
     "version": "v2026.10.23.6",
     "date": "2026-10-23",
     "commit": "38485e2",
