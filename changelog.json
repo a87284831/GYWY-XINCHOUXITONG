@@ -4,7 +4,7 @@
     "date": "2026-10-23",
     "commit": "38485e2",
     "items": [
-      { "category": "修复", "text": "清单外归入下拉选中商品后仍显示空白——Element Plus 2.14.6 单选 filterable 选中后不清空搜索词，手动清空 inputValue 后选中名称正常显示" }
+      { "category": "已知问题", "text": "清单外归入下拉选中商品后仍显示空白——生产未修复（详见开发记录 v6 条）" }
     ]
   },
   {
