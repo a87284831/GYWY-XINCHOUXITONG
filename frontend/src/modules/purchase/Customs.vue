@@ -271,17 +271,25 @@ function onSelectChange(row, v) {
     if (!list.some((x) => String(x.id) === String(v))) list.unshift(hit)
     row._search = list
   }
-  // EP 2.14.6 单选 filterable 选中后不清空 inputValue，导致 shouldShowPlaceholder=false、
-  // #label 插槽不渲染、框内残留搜索词。手动清空 inputValue 强制走 label 插槽显示选中项。
-  nextTick(() => {
-    const sel = row._selectRef
-    if (sel && sel.states) sel.states.inputValue = ''
-  })
 }
 
 // 把 el-select 实例挂到行上，供选中后手动清空 inputValue
+// Vue 3.5 function ref 语义变化：el-table 重渲染/unmount 时会传 null 覆盖旧实例
 function setSelectRef(row, el) {
-  row._selectRef = el
+  if (el) row._selectRef = el
+}
+
+// EP 2.14.6 单选 filterable 选中后 handleOptionSelect 不清空 inputValue（EP bug），
+// 导致 shouldShowPlaceholder=false → #label 插槽被挡不渲染 → 框内残留搜索词或空白。
+// EP 自身有 expanded watcher 会在下拉关闭时清空，但 Vue 3.5 + el-table-column slot
+// 环境下触发时机不稳定，故在 @visible-change="false" 时强制清一遍确保正确渲染。
+function clearSelectInput(row) {
+  nextTick(() => {
+    const sel = row._selectRef
+    if (sel && sel.states && sel.states.inputValue !== undefined) {
+      sel.states.inputValue = ''
+    }
+  })
 }
 
 // 选中项显示文案（label 插槽兜底：即使 options 未命中也不出现空白）
@@ -329,7 +337,9 @@ onMounted(load)
             :ref="(el) => setSelectRef(row, el)"
             :remote-method="(kw) => remoteSearch(row, kw)" :loading="searchRowId === row.id"
             clearable placeholder="输入关键字搜索商品库，或选「＋新建标准商品入库」"
-            style="width:230px" @update:model-value="(v) => onSelectChange(row, v)">
+            style="width:230px"
+            @update:model-value="(v) => onSelectChange(row, v)"
+            @visible-change="(v) => !v && clearSelectInput(row)">
             <template #label="{ value }">
               <span v-if="selectedLabel(row, value)">{{ selectedLabel(row, value) }}</span>
               <span v-else>{{ value }}</span>
