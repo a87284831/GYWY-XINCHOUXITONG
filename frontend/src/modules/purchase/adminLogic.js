@@ -33,6 +33,13 @@ export function budgetStats(rows) {
   }
 }
 
+// 按 id 在商品列表里查找（宽松比较：Element Plus 可能把 option value 转成字符串）
+export function findProduct(list, id) {
+  if (id === null || id === undefined || id === '') return null
+  const key = String(id)
+  return (list || []).find((p) => String(p.id) === key) || null
+}
+
 // 清单外审核「归入标准商品」下拉选项：远程搜索结果优先，无搜索时回退后端预置候选；
 // 已选中的商品始终保留在选项里，避免下一次搜索后标签退化成 id
 export function productOptions(row) {

@@ -4,7 +4,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { seedCustomForm, mapPayload, saveCustomPayload, productOptions, productLabel } from './adminLogic'
+import { seedCustomForm, mapPayload, saveCustomPayload, productOptions, productLabel, findProduct } from './adminLogic'
 
 const auth = useAuthStore()
 const rows = ref([])
@@ -25,11 +25,23 @@ function uid() {
   return (auth.user && auth.user.id) || 0
 }
 
+// 已检索过的商品 id → 商品对象。Element Plus 选中后会清空搜索词并重跑 remote-method，
+// 靠这份缓存保住选中项标签，避免下拉框变空白
+const productMap = new Map()
+function rememberProducts(list) {
+  ;(list || []).forEach((p) => {
+    if (p && p.id !== null && p.id !== undefined) productMap.set(String(p.id), p)
+  })
+}
+
 async function load() {
   loading.value = true
   try {
     const d = await api('/api/purchase/admin/customs')
-    rows.value = d.data.map((r) => ({ ...r, _sel: null, _saveAlias: false }))
+    rows.value = d.data.map((r) => {
+      rememberProducts(r.candidates)
+      return { ...r, _sel: null, _selItem: null, _search: [], _saveAlias: false }
+    })
   } catch (e) {
     toast(e.message, false)
   } finally {
@@ -42,15 +54,16 @@ const searchRowId = ref(null)
 let searchSeq = 0
 async function remoteSearch(row, kw) {
   const q = (kw || '').trim()
-  if (!q) {
-    row._search = []
-    return
-  }
+  // 空关键字保留上一次结果（选中商品时 Element Plus 会回调空串，清空会导致标签丢失）
+  if (!q) return
   const seq = ++searchSeq
   searchRowId.value = row.id
   try {
     const d = await api('/api/purchase/products/search?keyword=' + encodeURIComponent(q))
-    if (seq === searchSeq) row._search = d.data || []
+    if (seq === searchSeq) {
+      row._search = d.data || []
+      rememberProducts(row._search)
+    }
   } catch (e) {
     if (seq === searchSeq) row._search = []
   } finally {
@@ -161,11 +174,18 @@ async function doSave(row, mode, pid) {
 function onSelectChange(row, v) {
   if (v === '__new__') {
     row._sel = null
+    row._selItem = null
     openEdit(row)
-  } else {
-    row._sel = v
-    row._selItem = productOptions(row).find((c) => c.id === v) || row._selItem || null
+    return
   }
+  if (v === null || v === undefined || v === '') {
+    row._sel = null
+    row._selItem = null
+    return
+  }
+  row._sel = v
+  // 先查缓存（选中瞬间搜索结果可能已被清空），再查当前选项
+  row._selItem = productMap.get(String(v)) || findProduct(productOptions(row), v)
 }
 
 onMounted(load)

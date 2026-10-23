@@ -12,9 +12,20 @@ import {
   hasBudgetMonth,
   productOptions,
   productLabel,
+  findProduct,
 } from './adminLogic'
 
 describe('adminLogic', () => {
+  it('findProduct: 数字/字符串 id 都能匹配，空值返回 null', () => {
+    const list = [{ id: 3, name: 'A' }, { id: 7, name: 'B' }]
+    expect(findProduct(list, 7)).toEqual({ id: 7, name: 'B' })
+    expect(findProduct(list, '7')).toEqual({ id: 7, name: 'B' })
+    expect(findProduct(list, 99)).toBeNull()
+    expect(findProduct(list, null)).toBeNull()
+    expect(findProduct(list, '')).toBeNull()
+    expect(findProduct(null, 3)).toBeNull()
+  })
+
   it('productOptions: 有远程搜索结果时优先，否则回退后端预置候选', () => {
     const cand = [{ id: 1, name: 'A', spec: 's1' }]
     const searched = [{ id: 9, name: 'B', spec: 's2' }]
