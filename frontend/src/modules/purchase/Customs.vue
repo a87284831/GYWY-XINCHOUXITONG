@@ -40,15 +40,14 @@ async function loadAllProducts() {
     let items = []
     let total = 0
     do {
-      const d = await api(`/api/purchase/products/list?page=${page}&page_size=${PAGE_SIZE}`)
-      const batch = d.data.items || d.data || []
+      const d = await api(`/api/purchase/products?page=${page}&page_size=${PAGE_SIZE}`)
+      const batch = d.data || [] // 后端直接 data 数组，无 items 嵌套
       items = items.concat(batch)
-      total = d.data.total || items.length
+      total = d.total || items.length
       page++
-    } while (items.length < total && page <= 20) // 兜底最多 20 页
+    } while (items.length < total && page <= 20)
     allProducts.value = items
   } catch (e) {
-    // 全量加载失败不阻塞主流程（无 remote 兜底时下拉无选项，但归入功能不受影响）
     console.warn('全量商品库加载失败，下拉无选项可用', e)
   }
 }
