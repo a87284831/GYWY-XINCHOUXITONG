@@ -293,7 +293,7 @@ onMounted(load)
           <div style="color:#909399;font-size:12px;margin-top:2px">
             品牌：{{ row.brand || '-' }}　规格：{{ row.spec || '-' }}　单位：{{ row.unit || '-' }}
           </div>
-          <div style="color:#909399;font-size:12px">数量：{{ row.quantity }}　分类：{{ row.category || '-' }}</div>
+          <div style="color:#909399;font-size:12px">分类：{{ row.category || '-' }}</div>
         </template>
       </el-table-column>
       <el-table-column label="归入标准商品" min-width="250">
