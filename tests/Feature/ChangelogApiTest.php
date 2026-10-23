@@ -58,7 +58,7 @@ class ChangelogApiTest extends TestCase
             $this->assertArrayHasKey('items', $entry);
             $this->assertIsArray($entry['items']);
             foreach ($entry['items'] as $it) {
-                $this->assertContains($it['category'], ['新增', '修复', '优化'], '分类限定 新增/修复/优化');
+                $this->assertContains($it['category'], ['新增', '修复', '优化', '已知问题'], '分类限定 新增/修复/优化/已知问题');
                 $this->assertNotEmpty($it['text'], '条目正文不能为空');
             }
         }
