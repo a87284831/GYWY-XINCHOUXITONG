@@ -1,6 +1,6 @@
 <script setup>
 // 清单外商品审核（复刻旧 #/customs：归入候选标准商品 / 新建入库 / 忽略确认通过）
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
@@ -271,6 +271,17 @@ function onSelectChange(row, v) {
     if (!list.some((x) => String(x.id) === String(v))) list.unshift(hit)
     row._search = list
   }
+  // EP 2.14.6 单选 filterable 选中后不清空 inputValue，导致 shouldShowPlaceholder=false、
+  // #label 插槽不渲染、框内残留搜索词。手动清空 inputValue 强制走 label 插槽显示选中项。
+  nextTick(() => {
+    const sel = row._selectRef
+    if (sel && sel.states) sel.states.inputValue = ''
+  })
+}
+
+// 把 el-select 实例挂到行上，供选中后手动清空 inputValue
+function setSelectRef(row, el) {
+  row._selectRef = el
 }
 
 // 选中项显示文案（label 插槽兜底：即使 options 未命中也不出现空白）
@@ -315,6 +326,7 @@ onMounted(load)
       <el-table-column label="归入标准商品" min-width="250">
         <template #default="{ row }">
           <el-select :model-value="row._sel" filterable remote
+            :ref="(el) => setSelectRef(row, el)"
             :remote-method="(kw) => remoteSearch(row, kw)" :loading="searchRowId === row.id"
             clearable placeholder="输入关键字搜索商品库，或选「＋新建标准商品入库」"
             style="width:230px" @update:model-value="(v) => onSelectChange(row, v)">

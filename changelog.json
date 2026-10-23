@@ -1,5 +1,13 @@
 [
   {
+    "version": "v2026.10.23.6",
+    "date": "2026-10-23",
+    "commit": "pending",
+    "items": [
+      { "category": "修复", "text": "清单外归入下拉选中商品后仍显示空白——Element Plus 2.14.6 单选 filterable 选中后不清空搜索词，手动清空 inputValue 后选中名称正常显示" }
+    ]
+  },
+  {
     "version": "v2026.10.23.5",
     "date": "2026-10-23",
     "commit": "1d9c21c",
