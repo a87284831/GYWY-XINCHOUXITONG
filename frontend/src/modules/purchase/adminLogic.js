@@ -33,6 +33,24 @@ export function budgetStats(rows) {
   }
 }
 
+// 清单外审核「归入标准商品」下拉选项：远程搜索结果优先，无搜索时回退后端预置候选；
+// 已选中的商品始终保留在选项里，避免下一次搜索后标签退化成 id
+export function productOptions(row) {
+  const searched = Array.isArray(row && row._search) ? row._search : []
+  const base = searched.length ? searched : ((row && row.candidates) || [])
+  const picked = row && row._selItem
+  if (picked && !base.some((c) => c.id === picked.id)) return [picked].concat(base)
+  return base
+}
+
+// 商品选项展示文案：名称（规格）·品牌
+export function productLabel(p) {
+  const name = (p && p.name) || ''
+  const spec = (p && p.spec) || ''
+  const brand = (p && p.brand) || ''
+  return name + '（' + spec + '）' + (brand ? '·' + brand : '')
+}
+
 // 预算行状态：超预算 / 预算内 / 未导入 / 未设预算
 export function budgetRowState(row) {
   if (row.budget > 0 && row.over) return 'over'

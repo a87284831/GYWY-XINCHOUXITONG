@@ -4,7 +4,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
-import { seedCustomForm, mapPayload, saveCustomPayload } from './adminLogic'
+import { seedCustomForm, mapPayload, saveCustomPayload, productOptions, productLabel } from './adminLogic'
 
 const auth = useAuthStore()
 const rows = ref([])
@@ -34,6 +34,27 @@ async function load() {
     toast(e.message, false)
   } finally {
     loading.value = false
+  }
+}
+
+// 商品库远程搜索：下拉内输入关键字时实时检索标准商品（不限于后端预置候选）
+const searchRowId = ref(null)
+let searchSeq = 0
+async function remoteSearch(row, kw) {
+  const q = (kw || '').trim()
+  if (!q) {
+    row._search = []
+    return
+  }
+  const seq = ++searchSeq
+  searchRowId.value = row.id
+  try {
+    const d = await api('/api/purchase/products/search?keyword=' + encodeURIComponent(q))
+    if (seq === searchSeq) row._search = d.data || []
+  } catch (e) {
+    if (seq === searchSeq) row._search = []
+  } finally {
+    if (seq === searchSeq) searchRowId.value = null
   }
 }
 
@@ -143,6 +164,7 @@ function onSelectChange(row, v) {
     openEdit(row)
   } else {
     row._sel = v
+    row._selItem = productOptions(row).find((c) => c.id === v) || row._selItem || null
   }
 }
 
@@ -182,11 +204,13 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="归入标准商品" min-width="250">
         <template #default="{ row }">
-          <el-select :model-value="row._sel" filterable clearable placeholder="搜索选择标准商品或新建入库"
+          <el-select :model-value="row._sel" filterable remote
+            :remote-method="(kw) => remoteSearch(row, kw)" :loading="searchRowId === row.id"
+            clearable placeholder="输入关键字搜索商品库，或选「＋新建标准商品入库」"
             style="width:230px" @update:model-value="(v) => onSelectChange(row, v)">
             <el-option label="＋ 新建标准商品入库" value="__new__" />
-            <el-option v-for="c in (row.candidates || [])" :key="c.id"
-              :label="c.name + '（' + c.spec + '）' + (c.brand ? '·' + c.brand : '')" :value="c.id" />
+            <el-option v-for="c in productOptions(row)" :key="c.id"
+              :label="productLabel(c)" :value="c.id" />
           </el-select>
         </template>
       </el-table-column>

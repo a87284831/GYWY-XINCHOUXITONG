@@ -10,9 +10,34 @@ import {
   mapPayload,
   saveCustomPayload,
   hasBudgetMonth,
+  productOptions,
+  productLabel,
 } from './adminLogic'
 
 describe('adminLogic', () => {
+  it('productOptions: 有远程搜索结果时优先，否则回退后端预置候选', () => {
+    const cand = [{ id: 1, name: 'A', spec: 's1' }]
+    const searched = [{ id: 9, name: 'B', spec: 's2' }]
+    expect(productOptions({ candidates: cand, _search: searched })).toEqual(searched)
+    expect(productOptions({ candidates: cand, _search: [] })).toEqual(cand)
+    expect(productOptions({ candidates: cand })).toEqual(cand)
+    expect(productOptions({})).toEqual([])
+    expect(productOptions(null)).toEqual([])
+  })
+
+  it('productOptions: 已选中商品不在搜索结果中时仍保留，避免标签退化成 id', () => {
+    const picked = { id: 7, name: '已选商品', spec: 'x' }
+    const searched = [{ id: 9, name: 'B', spec: 's2' }]
+    expect(productOptions({ _search: searched, _selItem: picked })).toEqual([picked, searched[0]])
+    expect(productOptions({ _search: searched, _selItem: { id: 9, name: 'B', spec: 's2' } })).toEqual(searched)
+  })
+
+  it('productLabel: 名称（规格）·品牌，缺品牌不带点', () => {
+    expect(productLabel({ name: '洗手液', spec: '500ml', brand: '蓝月亮' })).toBe('洗手液（500ml）·蓝月亮')
+    expect(productLabel({ name: '洗手液', spec: '500ml', brand: '' })).toBe('洗手液（500ml）')
+    expect(productLabel({ name: '洗手液' })).toBe('洗手液（）')
+  })
+
   it('monthShort: 空值返回空串；datetime 截取为 MM-DD HH:MM（复刻 replace(T).slice(5,16)）', () => {
     expect(monthShort('')).toBe('')
     expect(monthShort(null)).toBe('')
