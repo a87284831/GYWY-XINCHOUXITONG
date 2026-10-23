@@ -377,8 +377,9 @@ function handle_admin_map_custom() {
             $target_id = (int)$existing['id'];
             $note = '清单外归入-归入已有规格「' . $spec . '」';
         }
-        db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, category=?, brand=?, spec=?, unit=?, is_custom=0 WHERE id=?')
-            ->execute([$target_id, $prod['name'], $prod['line'], $prod['category'], $prod['brand'], $spec, $unit, $item_id]);
+        // purchase_items 无 category 列（分类只存在于标准商品库），只更新 line
+        db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, is_custom=0 WHERE id=?')
+            ->execute([$target_id, $prod['name'], $prod['line'], $prod['brand'], $spec, $unit, $item_id]);
         $aliasSaved = 0;
         if ($save_alias && $item['item_name'] !== $prod['name']) {
             $aliasSaved = 1;

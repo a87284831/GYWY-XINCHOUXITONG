@@ -263,7 +263,23 @@ function onSelectChange(row, v) {
   }
   row._sel = v
   // 先查缓存（选中瞬间搜索结果可能已被清空），再查当前选项
-  row._selItem = productMap.get(String(v)) || findProduct(productOptions(row), v)
+  const hit = productMap.get(String(v)) || findProduct(productOptions(row), v)
+  row._selItem = hit || null
+  // 把选中项持久化进选项列表：Element Plus 选中后清空搜索词，options 若不含该值会渲染成空白
+  if (hit) {
+    const list = Array.isArray(row._search) ? row._search.slice() : []
+    if (!list.some((x) => String(x.id) === String(v))) list.unshift(hit)
+    row._search = list
+  }
+}
+
+// 选中项显示文案（label 插槽兜底：即使 options 未命中也不出现空白）
+function selectedLabel(row, v) {
+  if (v === null || v === undefined || v === '') return ''
+  const hit = (row && row._selItem && String(row._selItem.id) === String(v))
+    ? row._selItem
+    : (productMap.get(String(v)) || findProduct(productOptions(row), v))
+  return hit ? productLabel(hit) : ''
 }
 
 onMounted(load)
@@ -302,6 +318,10 @@ onMounted(load)
             :remote-method="(kw) => remoteSearch(row, kw)" :loading="searchRowId === row.id"
             clearable placeholder="输入关键字搜索商品库，或选「＋新建标准商品入库」"
             style="width:230px" @update:model-value="(v) => onSelectChange(row, v)">
+            <template #label="{ value }">
+              <span v-if="selectedLabel(row, value)">{{ selectedLabel(row, value) }}</span>
+              <span v-else>{{ value }}</span>
+            </template>
             <el-option label="＋ 新建标准商品入库" value="__new__" />
             <el-option v-for="c in productOptions(row)" :key="c.id"
               :label="productLabel(c)" :value="c.id" />
@@ -322,6 +342,10 @@ onMounted(load)
     <!-- 归入标准商品确认弹窗：名称强制统一、规格作为该商品的新增规格、单位必须一致 -->
     <el-dialog v-model="mapVisible" title="归入标准商品确认" width="640px" :close-on-click-modal="false">
       <div v-if="mapPreview">
+        <div style="margin-bottom:10px;font-weight:600;color:#303133">
+          归入目标：{{ mapPreview.product.name }}（{{ mapPreview.product.spec || '-' }}）
+          <span v-if="mapPreview.product.brand" style="color:#909399">·{{ mapPreview.product.brand }}</span>
+        </div>
         <el-table :data="compareRows" border size="small">
           <el-table-column prop="field" label="字段" width="110" />
           <el-table-column prop="from" label="员工填报" />
