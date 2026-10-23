@@ -32,6 +32,8 @@ function uid() {
 // 根治方案：一次性拉完所有商品进 allProducts，el-select 不再 remote，用 :filter-method 本地过滤。
 // 这样 EP 直接从 v-for 的 el-option 里命中 modelValue → getOption() 正确 → 选中回显原生正确。
 const allProducts = ref([])
+// filter-method 实际遍历的选项（EP filter-method 签名只收一个 kw 参数，无 callback）
+const filteredProducts = ref([])
 
 async function loadAllProducts() {
   try {
@@ -41,27 +43,31 @@ async function loadAllProducts() {
     let total = 0
     do {
       const d = await api(`/api/purchase/products?page=${page}&page_size=${PAGE_SIZE}`)
-      const batch = d.data || [] // 后端直接 data 数组，无 items 嵌套
+      const batch = d.data || []
       items = items.concat(batch)
       total = d.total || items.length
       page++
     } while (items.length < total && page <= 20)
     allProducts.value = items
+    filteredProducts.value = items // 全量加载完成 → 初始化为全部选项
   } catch (e) {
     console.warn('全量商品库加载失败，下拉无选项可用', e)
   }
 }
 
-// 本地 filter-method：支持名称 / 规格 / 品牌模糊匹配
-function productFilter(kw, cb) {
+// EP filter-method 签名：只收一个 kw 参数，无 callback。
+// 传了 filter-method 后 EP 跳过自己的 include 内部过滤，完全依赖我更新选项列表。
+function productFilter(kw) {
   const q = (kw || '').trim().toLowerCase()
-  if (!q) { cb(allProducts.value); return }
-  const result = allProducts.value.filter((p) =>
+  if (!q) {
+    filteredProducts.value = allProducts.value
+    return
+  }
+  filteredProducts.value = allProducts.value.filter((p) =>
     (p.name || '').toLowerCase().includes(q) ||
     (p.spec || '').toLowerCase().includes(q) ||
     (p.brand || '').toLowerCase().includes(q)
   )
-  cb(result)
 }
 
 // 选中的商品 id → 商品对象（直接查 allProducts，不需要缓存）
@@ -319,7 +325,7 @@ onMounted(() => { load(); loadAllProducts() })
             style="width:230px"
             @update:model-value="(v) => onSelectChange(row, v)">
             <el-option label="＋ 新建标准商品入库" value="__new__" />
-            <el-option v-for="p in allProducts" :key="p.id"
+            <el-option v-for="p in filteredProducts" :key="p.id"
               :label="productLabel(p)" :value="p.id" />
           </el-select>
         </template>
