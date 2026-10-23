@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>采购驾驶舱 · 待删报表卡确认</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --ink:#1D2129;--t2:#4E5969;--t3:#86909C;--line:#E5E6EB;--line2:#F2F3F5;
+    --bg:#F2F4F7;--brand:#165DFF;--ok:#00B42A;--warn:#FF7D00;--bad:#F53F3F;
+  }
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.6;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:0 14px 60px}
+  /* header */
+  .hero{
+    background:linear-gradient(135deg,#0B1220 0%,#132647 60%,#17366E 100%);
+    color:#fff;padding:26px 18px 24px;margin:0 -14px 18px;
+  }
+  .hero .k{display:inline-block;font-size:11px;letter-spacing:.12em;color:#9EC0FF;
+    border:1px solid rgba(158,192,255,.35);background:rgba(22,93,255,.16);
+    padding:3px 10px;border-radius:999px}
+  .hero h1{font-size:20px;margin:10px 0 8px;font-weight:700;letter-spacing:-.2px}
+  .hero p{margin:0;font-size:12.5px;color:#B9C6DE}
+  .hero p b{color:#fff}
+  /* 说明条 */
+  .note{
+    background:#FFF9E8;border:1px solid #FFE4BA;border-radius:12px;
+    padding:11px 13px;font-size:12.5px;color:#8A5A00;margin-bottom:18px;
+  }
+  .note b{color:#B45309}
+  /* 卡片 */
+  .card{
+    background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:14px 14px 15px;margin-bottom:16px;
+    box-shadow:0 1px 2px rgba(29,33,41,.04),0 6px 18px rgba(29,33,41,.05);
+  }
+  .cap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:11px}
+  .cap h3{font-size:15px;margin:0;font-weight:650;letter-spacing:-.1px}
+  .no{font-size:11px;font-weight:800;color:#fff;background:#B6BDC9;border-radius:6px;padding:2px 7px;flex:none}
+  .badge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:6px;flex:none}
+  .badge.del{background:#FFECEC;color:#C42020}
+  .badge.keep{background:#E8F8EC;color:#0B7A29}
+  /* 原卡片还原（白底 + 灰标题 + 圆角 16 + 柔影） */
+  .shot{
+    background:#fff;border:1px solid #eceff5;border-radius:16px;
+    padding:12px 13px 10px;box-shadow:0 1px 3px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.12);
+    overflow:hidden;
+  }
+  .shot .st{font-size:12.5px;color:#6b7280;font-weight:600;margin-bottom:8px}
+  .shot .st span{font-weight:400;color:#94a3b8}
+  /* 竖柱 */
+  .bars{display:flex;align-items:flex-end;gap:8px;height:128px;padding-top:6px}
+  .bars .c{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+  .bars .b{border-radius:3px 3px 0 0;background:#5470c6;min-height:2px;position:relative}
+  .bars .v{font-size:9.5px;color:#86909c;text-align:center;margin-bottom:2px;font-variant-numeric:tabular-nums}
+  .xlab{display:flex;gap:8px;margin-top:5px;border-top:1px solid #eef1f6;padding-top:5px}
+  .xlab span{flex:1;text-align:center;font-size:9.5px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* 正负柱 */
+  .dv{position:relative;height:132px;margin-top:6px}
+  .dv .zero{position:absolute;left:0;right:0;top:52%;height:1px;background:#e6e9f0}
+  .dv .col{position:absolute;top:0;bottom:0;width:19%;display:flex;justify-content:center}
+  .dv .col i{position:absolute;width:20px;border-radius:3px}
+  .dv .up i{background:#ee6666;bottom:48%}
+  .dv .dn i{background:#3ba272;top:52%}
+  .dv .tag{position:absolute;font-size:9.5px;font-variant-numeric:tabular-nums}
+  .dv .up .tag{color:#c0392b;bottom:calc(48% + 4px)}
+  .dv .dn .tag{color:#0b7a29;top:calc(52% + 4px)}
+  /* 分组柱（预算 vs 实际） */
+  .grp{display:flex;align-items:flex-end;gap:10px;height:130px;padding-top:6px}
+  .grp .g{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:3px;height:100%}
+  .grp .g i{width:11px;border-radius:3px 3px 0 0;min-height:2px}
+  .grp .g i.bd{background:#5470c6}
+  .grp .g i.ac{background:#91cc75}
+  .lg{display:flex;gap:14px;font-size:10.5px;color:#86909c;margin-top:7px}
+  .lg em{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+  /* 饼 */
+  .pie{display:flex;align-items:center;gap:16px;padding:8px 0 4px}
+  .pie .d{width:112px;height:112px;border-radius:50%;flex:none;
+    background:conic-gradient(#5470c6 0 78%,#91cc75 78% 100%);
+    -webkit-mask:radial-gradient(circle,transparent 44%,#000 44%);mask:radial-gradient(circle,transparent 44%,#000 44%)}
+  .pie .l{font-size:10.5px;color:#86909c;line-height:1.9}
+  .pie .l em{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+  /* 结论 */
+  .why{margin:11px 0 0;font-size:12.5px;color:var(--t2)}
+  .why b{color:#C42020;font-weight:700}
+  .alt{margin:6px 0 0;font-size:12.5px;color:var(--t2);padding-left:22px;position:relative}
+  .alt::before{content:"→";position:absolute;left:4px;color:var(--brand);font-weight:700}
+  .alt b{color:#0B7A29;font-weight:700}
+  .fnote{font-size:12px;color:var(--t3);text-align:center;line-height:1.8;margin-top:26px}
+  .fnote b{color:var(--t2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <span class="k">驾驶舱报表精简 · 待确认</span>
+    <h1>这 5 张卡准备删掉</h1>
+    <p>下面每张图按<b>原卡片样式</b>还原（当前生产端采购模块暂无真实数据，数字为示意）。<br />请确认哪些可以删，回复卡号即可。</p>
+  </div>
+
+  <div class="note">
+    <b>为什么删：</b>这 5 张卡的信息在改版后<b>全部保留</b>，只是合并进「各项目金额横条（带环比/同比切换）」和「预算进度列表」，不再单独占一张 280px 高的图为。13 张图 → 9 张图，一屏能看完。
+  </div>
+
+  <!-- 1 -->
+  <div class="card">
+    <div class="cap"><span class="no">1</span><h3>各项目采购金额</h3><span class="badge del">建议删除</span></div>
+    <div class="shot">
+      <div class="st">各项目采购金额</div>
+      <div class="bars">
+        <div class="c"><div class="v">12.4万</div><div class="b" style="height:100%"></div></div>
+        <div class="c"><div class="v">8.6万</div><div class="b" style="height:69%"></div></div>
+        <div class="c"><div class="v">6.2万</div><div class="b" style="height:50%"></div></div>
+        <div class="c"><div class="v">3.8万</div><div class="b" style="height:31%"></div></div>
+        <div class="c"><div class="v">1.9万</div><div class="b" style="height:15%"></div></div>
+      </div>
+      <div class="xlab"><span>项目A</span><span>项目B</span><span>项目C</span><span>项目D</span><span>项目E</span></div>
+    </div>
+    <p class="why"><b>问题：</b>竖柱图项目名一多就斜着排、挤成一条线，看不清是哪个项目；也没有任何对比信息。</p>
+    <p class="alt">改为<b>横向条形</b>：项目名左置完整显示，金额右侧标注，按金额降序。</p>
+  </div>
+
+  <!-- 2 -->
+  <div class="card">
+    <div class="cap"><span class="no">2</span><h3>各项目环比（红涨绿跌）</h3><span class="badge del">建议删除</span></div>
+    <div class="shot">
+      <div class="st">各项目环比（红涨绿跌）<span>　本月 vs 上月</span></div>
+      <div class="dv">
+        <div class="zero"></div>
+        <div class="col up" style="left:2%"><span class="tag">+18%</span><i style="height:26%"></i></div>
+        <div class="col dn" style="left:21%"><span class="tag">-7%</span><i style="height:18%"></i></div>
+        <div class="col up" style="left:40%"><span class="tag">+32%</span><i style="height:45%"></i></div>
+        <div class="col dn" style="left:59%"><span class="tag">-15%</span><i style="height:36%"></i></div>
+        <div class="col up" style="left:78%"><span class="tag">+4%</span><i style="height:7%"></i></div>
+      </div>
+      <div class="xlab"><span>项目A</span><span>项目B</span><span>项目C</span><span>项目D</span><span>项目E</span></div>
+    </div>
+    <p class="why"><b>问题：</b>只有百分比、看不到金额；而且和下一张「同比」长得几乎一样，容易看串。</p>
+    <p class="alt">并入第 1 张：横条右侧直接标 <b>金额 + 环比箭头</b>，一个开关切「环比 / 同比」。</p>
+  </div>
+
+  <!-- 3 -->
+  <div class="card">
+    <div class="cap"><span class="no">3</span><h3>各项目同比</h3><span class="badge del">建议删除</span></div>
+    <div class="shot">
+      <div class="st">各项目同比<span>　本月 vs 去年同月</span></div>
+      <div class="dv">
+        <div class="zero"></div>
+        <div class="col up" style="left:2%"><span class="tag">+22%</span><i style="height:36%"></i></div>
+        <div class="col dn" style="left:21%"><span class="tag">-11%</span><i style="height:22%"></i></div>
+        <div class="col up" style="left:40%"><span class="tag">+8%</span><i style="height:14%"></i></div>
+        <div class="col dn" style="left:59%"><span class="tag">-25%</span><i style="height:45%"></i></div>
+        <div class="col up" style="left:78%"><span class="tag">+3%</span><i style="height:7%"></i></div>
+      </div>
+      <div class="xlab"><span>项目A</span><span>项目B</span><span>项目C</span><span>项目D</span><span>项目E</span></div>
+    </div>
+    <p class="why"><b>问题：</b>与环比那张几乎重复，两张各占半屏，信息密度极低。</p>
+    <p class="alt">同上，作为横条卡的<b>第二档视图</b>，默认显示环比，点一下切同比。</p>
+  </div>
+
+  <!-- 4 -->
+  <div class="card">
+    <div class="cap"><span class="no">4</span><h3>各项目预算执行（预算 vs 实际）</h3><span class="badge del">建议删除</span></div>
+    <div class="shot">
+      <div class="st">各项目预算执行（预算 vs 实际）</div>
+      <div class="grp">
+        <div class="g"><i class="bd" style="height:100%"></i><i class="ac" style="height:64%"></i></div>
+        <div class="g"><i class="bd" style="height:78%"></i><i class="ac" style="height:86%"></i></div>
+        <div class="g"><i class="bd" style="height:56%"></i><i class="ac" style="height:38%"></i></div>
+        <div class="g"><i class="bd" style="height:40%"></i><i class="ac" style="height:22%"></i></div>
+      </div>
+      <div class="xlab"><span>项目A</span><span>项目B</span><span>项目C</span><span>项目D</span></div>
+      <div class="lg"><span><em style="background:#5470c6"></em>预算</span><span><em style="background:#91cc75"></em>实际</span></div>
+    </div>
+    <p class="why"><b>问题：</b>两根柱子并排，得自己在脑子里算"用了百分之多少"，超支和不超支颜色也一样，看不出来。</p>
+    <p class="alt">改为<b>预算进度列表</b>：直接显示「已用 68% / 剩余 12.3 万」，超 100% 标红、低于 75% 标橙。</p>
+  </div>
+
+  <!-- 5 -->
+  <div class="card">
+    <div class="cap"><span class="no">5</span><h3>清单外采购占比</h3><span class="badge del">建议删除</span></div>
+    <div class="shot">
+      <div class="st">清单外采购占比</div>
+      <div class="pie">
+        <div class="d"></div>
+        <div class="l">
+          <div><em style="background:#5470c6"></em>清单内 78%</div>
+          <div><em style="background:#91cc75"></em>清单外 22%</div>
+        </div>
+      </div>
+    </div>
+    <p class="why"><b>问题：</b>只有两块的饼图，占掉整整一张卡的高度，信息量还不如一行字。</p>
+    <p class="alt">压缩成 KPI 卡下的一行：<b>清单外采购占比 22.0%</b>，带一个细进度条。</p>
+  </div>
+
+  <div class="fnote">
+    以上 5 张删除后，驾驶舱由 <b>13 张图表 → 9 张</b>，信息一条不少。<br />
+    回复「都删」或「保留第 X 张」即可，我按你的确认调整后再部署。
+  </div>
+</div>
+</body>
+</html>

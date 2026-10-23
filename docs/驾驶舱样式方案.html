@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>数据驾驶舱 · 样式方案预览</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:#EDEFF3;color:#1D2129;font-size:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* ============ 顶部工具条（不属于方案，只是切换器） ============ */
+  .bar{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.88);backdrop-filter:blur(12px);
+    border-bottom:1px solid #E3E6EC;padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .bar h1{font-size:14px;margin:0;font-weight:700;letter-spacing:-.1px}
+  .bar h1 span{color:#86909C;font-weight:400;font-size:12px;margin-left:8px}
+  .tabs{display:flex;gap:4px;background:#F0F2F6;border-radius:9px;padding:3px}
+  .tabs button{border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:600;color:#4E5969;
+    padding:6px 14px;border-radius:7px;cursor:pointer;transition:.16s;white-space:nowrap}
+  .tabs button:hover{color:#165DFF}
+  .tabs button.on{background:#fff;color:#165DFF;box-shadow:0 1px 3px rgba(29,33,41,.10)}
+  .hint{font-size:11.5px;color:#86909C;margin-left:auto}
+  /* ============ 舞台 ============ */
+  .viewport{padding:22px 18px 60px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stage-wrap{width:1180px;margin:0 auto;position:relative}
+  .stage{display:none;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(29,33,41,.05),0 18px 50px rgba(29,33,41,.13)}
+  .stage.on{display:block}
+  .cap{width:1180px;margin:0 auto 10px;font-size:12px;color:#86909C;display:flex;align-items:center;gap:8px}
+  .cap b{color:#1D2129}
+  .cap .tag{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.05em}
+  .tag.old{background:#FFECEC;color:#C42020}
+  .tag.light{background:#E9F7EC;color:#0B7A29}
+  .tag.dark{background:#E8EAF6;color:#3B4BA8}
+
+  /* ================= 通用骨架 ================= */
+  .app{display:flex;height:820px;font-size:13px}
+  .side{width:196px;flex:none;display:flex;flex-direction:column}
+  .logo{padding:16px 16px 14px;display:flex;align-items:center;gap:9px}
+  .mark{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    font-size:12.5px;font-weight:800;color:#fff;letter-spacing:-.5px;flex:none}
+  .logo b{font-size:13px;font-weight:700;line-height:1.2}
+  .logo b span{display:block;font-size:8px;font-weight:500;letter-spacing:.06em;margin-top:2px}
+  .navgrp{padding:14px 16px 6px;font-size:9px;font-weight:700;letter-spacing:.1em}
+  .navitem{display:flex;align-items:center;gap:9px;margin:1px 9px;padding:8px 9px;border-radius:8px;
+    font-size:12px;position:relative;cursor:default}
+  .navitem svg{width:14px;height:14px;fill:none;stroke-width:1.8;flex:none}
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;flex:none}
+  .crumb{font-size:11.5px}
+  .crumb b{font-weight:600}
+  .topact{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .sel{display:flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;font-size:11.5px}
+  .sel svg{width:10px;height:10px;fill:none;stroke-width:2}
+  .btnx{height:30px;padding:0 13px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600}
+  .btnx svg{width:12px;height:12px;fill:none;stroke-width:1.9}
+  .av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700}
+  .body{flex:1;padding:18px 20px;overflow:hidden}
+  .phead{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+  .phead h2{margin:0;font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .phead p{margin:4px 0 0;font-size:11px}
+  .phead .meta{display:flex;gap:16px;font-size:10.5px;text-align:right}
+  .phead .meta b{display:block;font-size:12.5px;font-weight:700;margin-bottom:1px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:11px}
+  .charts{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;margin-bottom:11px}
+  .cbody{padding:13px 15px 15px}
+
+  /* ================= 现状（旧版） ================= */
+  .t-old{background:#f0f2f5;font-family:"Microsoft YaHei",sans-serif}
+  .t-old .side{background:#0f2557;color:#c7d2ea}
+  .t-old .logo{color:#fff;border-bottom:1px solid rgba(255,255,255,.12)}
+  .t-old .mark{background:#2563eb}
+  .t-old .logo b span{color:#8fa3cc}
+  .t-old .navgrp{color:#7d8db0}
+  .t-old .navitem{color:#c7d2ea}
+  .t-old .navitem.on{background:rgba(37,99,235,.32);color:#fff;box-shadow:inset 3px 0 0 #60a5fa}
+  .t-old .navitem svg{stroke:#a9b8d4}
+  .t-old .navitem.on svg{stroke:#fff}
+  .t-old .topbar{background:#fff;border-bottom:1px solid #e5e7eb}
+  .t-old .crumb{color:#94a3b8}
+  .t-old .crumb b{color:#1f2937}
+  .t-old .sel{background:#fff;border:1px solid #e2e8f0;color:#475569}
+  .t-old .btnx{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff}
+  .t-old .av{background:#dbeafe;color:#1d4ed8}
+  .t-old .phead h2{color:#1f2937}
+  .t-old .phead p{color:#8c8c8c}
+  .t-old .phead .meta{color:#94a3b8}
+  .t-old .phead .meta b{color:#1e3a8a}
+  .kpi-o{background:#fff;border-radius:8px;padding:13px 14px;position:relative;overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .kpi-o .obar{position:absolute;top:0;left:0;right:0;height:3px}
+  .kpi-o .ot{font-size:11.5px;color:#8c8c8c}
+  .kpi-o .ov{font-size:24px;font-weight:bold;color:#1e3a8a;margin-top:7px;letter-spacing:-.3px;line-height:1.1}
+  .kpi-o .ov em{font-size:11px;font-weight:normal;color:#8c8c8c;font-style:normal;margin-left:3px}
+  .kpi-o .od{font-size:11px;margin-top:7px;font-weight:bold}
+  .card-o{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .card-o .cht{font-size:12.5px;font-weight:bold;color:#1f2937;padding:11px 14px;border-bottom:1px solid #f1f3f6;
+    display:flex;align-items:center;gap:7px}
+  .card-o .cht::before{content:"";width:3px;height:13px;background:#2563eb;border-radius:2px}
+
+  /* ================= 新版（浅色 B / 深色 C 共用结构） ================= */
+  .t-light{background:#F7F8FA}
+  .t-light .side{background:#fff;border-right:1px solid #EFF1F5}
+  .t-light .logo b{color:#1D2129}
+  .t-light .logo b span{color:#B4BBC7}
+  .t-light .mark{background:linear-gradient(135deg,#165DFF,#4A8BFF)}
+  .t-light .navgrp{color:#B4BBC7}
+  .t-light .navitem{color:#4E5969}
+  .t-light .navitem svg{stroke:#86909C}
+  .t-light .navitem.on{background:#E8F3FF;color:#165DFF;font-weight:600}
+  .t-light .navitem.on svg{stroke:#165DFF}
+  .t-light .navitem.on::before{content:"";position:absolute;left:-9px;top:8px;bottom:8px;width:3px;
+    border-radius:0 3px 3px 0;background:#165DFF}
+  .t-light .topbar{background:#fff;border-bottom:1px solid #EFF1F5}
+  .t-light .crumb{color:#86909C}
+  .t-light .crumb b{color:#1D2129}
+  .t-light .sel{background:#F4F6F9;color:#4E5969}
+  .t-light .sel svg{stroke:#86909C}
+  .t-light .btnx{background:#165DFF;color:#fff;box-shadow:0 1px 2px rgba(22,93,255,.3)}
+  .t-light .btnx svg{stroke:#fff}
+  .t-light .av{background:#E8F3FF;color:#165DFF}
+  .t-light .phead h2{color:#1D2129}
+  .t-light .phead p{color:#86909C}
+  .t-light .phead .meta{color:#86909C}
+  .t-light .phead .meta b{color:#1D2129}
+
+  .kpi{position:relative;background:#fff;border:1px solid #EFF1F5;border-radius:12px;padding:14px 15px 12px;
+    box-shadow:0 1px 2px rgba(29,33,41,.03);overflow:hidden}
+  .kpi .kt{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#86909C}
+  .kpi .kt i{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    background:#E8F3FF;flex:none}
+  .kpi .kt i svg{width:12px;height:12px;stroke:#165DFF;stroke-width:1.9;fill:none}
+  .kpi .kv{font-size:26px;font-weight:750;color:#1D2129;letter-spacing:-1px;line-height:1.1;margin-top:9px;
+    font-variant-numeric:tabular-nums}
+  .kpi .kv small{font-size:12px;font-weight:500;color:#86909C;letter-spacing:0;margin-left:3px}
+  .kpi .kf{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:10.5px;color:#B4BBC7}
+  .kpi .kf .d{font-weight:700;padding:1px 6px;border-radius:5px;font-variant-numeric:tabular-nums}
+  .kpi .kf .d.up{color:#F53F3F;background:#FFECEC}
+  .kpi .kf .d.down{color:#0B7A29;background:#E9F7EC}
+  .kpi .spark{position:absolute;right:10px;bottom:8px;width:76px;height:30px;opacity:.9}
+
+  .card{background:#fff;border:1px solid #EFF1F5;border-radius:12px;box-shadow:0 1px 2px rgba(29,33,41,.03)}
+  .cht2{display:flex;align-items:center;gap:8px;padding:12px 15px;border-bottom:1px solid #F4F6F9;
+    font-size:12.5px;font-weight:650;color:#1D2129}
+  .cht2::before{content:"";width:3px;height:12px;border-radius:2px;background:#165DFF}
+  .cht2 .lg{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:9.5px;font-weight:400;color:#86909C}
+  .cht2 .lg s{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px;text-decoration:none}
+  .cbody{padding:14px 15px 16px}
+
+  /* 横向条 */
+  .hbars{display:flex;flex-direction:column;gap:11px}
+  .hb{display:grid;grid-template-columns:74px 1fr 62px;align-items:center;gap:10px;font-size:11px;color:#4E5969}
+  .hb .nm{color:#1D2129;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hb .track{height:9px;background:#F2F4F8;border-radius:99px;overflow:hidden;display:block}
+  .hb .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#4A8BFF,#165DFF);display:block}
+  .hb .vl{text-align:right;font-variant-numeric:tabular-nums;color:#1D2129;font-weight:600}
+  /* 双向条 */
+  .dbars{display:flex;flex-direction:column;gap:10px}
+  .db{display:grid;grid-template-columns:74px 1fr 60px;align-items:center;gap:10px;font-size:11px}
+  .db .nm{color:#1D2129;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .db .axis{position:relative;height:16px;background:#F7F8FA;border-radius:5px}
+  .db .axis::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:#DFE3EB}
+  .db .fg{position:absolute;top:4px;height:8px;border-radius:3px}
+  .db .fg.r{background:#FF8A8A;right:50%}
+  .db .fg.g{background:#5BD07C;left:50%}
+  .db .vl{font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+  /* 预算执行 */
+  .bud{display:flex;flex-direction:column;gap:13px}
+  .bu{display:grid;grid-template-columns:1fr 46px;gap:8px;align-items:center}
+  .bu .l{display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px}
+  .bu .l b{color:#1D2129;font-weight:600}
+  .bu .l span{color:#86909C;font-variant-numeric:tabular-nums;font-size:10.5px}
+  .bu .tr{height:8px;background:#F2F4F8;border-radius:99px;overflow:hidden}
+  .bu .fj{height:100%;border-radius:99px;background:linear-gradient(90deg,#4A8BFF,#165DFF)}
+  .bu .fj.warn{background:linear-gradient(90deg,#FFC46B,#FF7D00)}
+  .bu .fj.bad{background:linear-gradient(90deg,#FF9A9A,#F53F3F)}
+  .bu .pc{font-size:11.5px;font-weight:700;text-align:right;color:#165DFF;font-variant-numeric:tabular-nums}
+  .bu .pc.warn{color:#FF7D00}
+  .bu .pc.bad{color:#F53F3F}
+  /* 折线图 */
+  .linewrap{position:relative}
+  .linewrap .ylab{position:absolute;left:0;top:0;bottom:18px;display:flex;flex-direction:column;
+    justify-content:space-between;font-size:8.5px;color:#B4BBC7;font-variant-numeric:tabular-nums}
+  .linewrap .xlab{display:flex;justify-content:space-between;padding-left:34px;font-size:8.5px;color:#B4BBC7;margin-top:4px}
+  /* 进度表 */
+  .tb2{width:100%;border-collapse:collapse;font-size:11.5px}
+  .tb2 th{text-align:left;padding:9px 15px;font-size:9.5px;font-weight:700;color:#86909C;letter-spacing:.04em;
+    background:#FAFBFC;border-bottom:1px solid #F0F2F6}
+  .tb2 td{padding:10px 15px;border-bottom:1px solid #F6F8FB;color:#4E5969}
+  .tb2 td:first-child{color:#1D2129;font-weight:600}
+  .tb2 td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .tb2 tr:last-child td{border-bottom:none}
+  .pill{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:99px}
+  .pill s{width:5px;height:5px;border-radius:50%;display:inline-block}
+  .pill.ok{background:#E9F7EC;color:#0B7A29}.pill.ok s{background:#00B42A}
+  .pill.wait{background:#FFF3E8;color:#B45309}.pill.wait s{background:#FF7D00}
+  .pill.run{background:#E8F3FF;color:#165DFF}.pill.run s{background:#165DFF}
+  .pill.no{background:#FFECEC;color:#C42020}.pill.no s{background:#F53F3F}
+
+  /* ================= 深色主题 C ================= */
+  .t-dark{background:#0B1220}
+  .t-dark .side{background:#0F1829;border-right:1px solid #1B2437}
+  .t-dark .logo b{color:#E8EBF0}
+  .t-dark .logo b span{color:#5F7396}
+  .t-dark .mark{background:linear-gradient(135deg,#165DFF,#4A8BFF)}
+  .t-dark .navgrp{color:#46536B}
+  .t-dark .navitem{color:#A9B4C6}
+  .t-dark .navitem svg{stroke:#71809A}
+  .t-dark .navitem.on{background:rgba(74,139,255,.14);color:#7FA8FF;font-weight:600}
+  .t-dark .navitem.on svg{stroke:#7FA8FF}
+  .t-dark .navitem.on::before{content:"";position:absolute;left:-9px;top:8px;bottom:8px;width:3px;
+    border-radius:0 3px 3px 0;background:#4A8BFF;box-shadow:0 0 10px rgba(74,139,255,.8)}
+  .t-dark .topbar{background:#0F1829;border-bottom:1px solid #1B2437}
+  .t-dark .crumb{color:#5F7396}
+  .t-dark .crumb b{color:#E8EBF0}
+  .t-dark .sel{background:#16223A;color:#A9B4C6}
+  .t-dark .sel svg{stroke:#71809A}
+  .t-dark .btnx{background:#165DFF;color:#fff;box-shadow:0 0 0 1px rgba(74,139,255,.4),0 4px 14px rgba(22,93,255,.35)}
+  .t-dark .btnx svg{stroke:#fff}
+  .t-dark .av{background:#16223A;color:#7FA8FF}
+  .t-dark .phead h2{color:#F2F5FA}
+  .t-dark .phead p{color:#5F7396}
+  .t-dark .phead .meta{color:#5F7396}
+  .t-dark .phead .meta b{color:#E8EBF0}
+  .t-dark .kpi{background:#131C2E;border:1px solid #1F2A40;box-shadow:none}
+  .t-dark .kpi .kt{color:#71809A}
+  .t-dark .kpi .kt i{background:rgba(74,139,255,.15)}
+  .t-dark .kpi .kt i svg{stroke:#7FA8FF}
+  .t-dark .kpi .kv{color:#F2F5FA}
+  .t-dark .kpi .kv small{color:#5F7396}
+  .t-dark .kpi .kf{color:#46536B}
+  .t-dark .kpi .kf .d.up{color:#FF8A8A;background:rgba(245,63,63,.14)}
+  .t-dark .kpi .kf .d.down{color:#5BD07C;background:rgba(0,180,42,.14)}
+  .t-dark .card{background:#131C2E;border:1px solid #1F2A40;box-shadow:none}
+  .t-dark .cht2{color:#E8EBF0;border-bottom:1px solid #1F2A40}
+  .t-dark .cht2::before{background:#4A8BFF;box-shadow:0 0 8px rgba(74,139,255,.7)}
+  .t-dark .cht2 .lg{color:#71809A}
+  .t-dark .hb{color:#A9B4C6}
+  .t-dark .hb .nm{color:#E8EBF0}
+  .t-dark .hb .track{background:#1B2437}
+  .t-dark .hb .fill{background:linear-gradient(90deg,#2E6BFF,#7FA8FF);box-shadow:0 0 10px rgba(74,139,255,.5)}
+  .t-dark .hb .vl{color:#E8EBF0}
+  .t-dark .db .nm{color:#E8EBF0}
+  .t-dark .db .axis{background:#16223A}
+  .t-dark .db .axis::before{background:#26314A}
+  .t-dark .db .fg.r{background:#FF7A7A;box-shadow:0 0 8px rgba(245,63,63,.45)}
+  .t-dark .db .fg.g{background:#4FC46E;box-shadow:0 0 8px rgba(0,180,42,.4)}
+  .t-dark .db .vl{color:#E8EBF0}
+  .t-dark .bu .l b{color:#E8EBF0}
+  .t-dark .bu .l span{color:#71809A}
+  .t-dark .bu .tr{background:#1B2437}
+  .t-dark .bu .fj{background:linear-gradient(90deg,#2E6BFF,#7FA8FF);box-shadow:0 0 10px rgba(74,139,255,.45)}
+  .t-dark .bu .pc{color:#7FA8FF}
+  .t-dark .bu .pc.warn{color:#FFB65C}
+  .t-dark .linewrap .ylab,.t-dark .linewrap .xlab{color:#46536B}
+  .t-dark .tb2 th{background:#16223A;color:#71809A;border-bottom:1px solid #1F2A40}
+  .t-dark .tb2 td{color:#A9B4C6;border-bottom:1px solid #1B2437}
+  .t-dark .tb2 td:first-child{color:#E8EBF0}
+  .t-dark .tb2 tr:last-child td{border-bottom:none}
+  .t-dark .pill.ok{background:rgba(0,180,42,.14);color:#5BD07C}
+  .t-dark .pill.wait{background:rgba(255,125,0,.14);color:#FFB65C}
+  .t-dark .pill.run{background:rgba(74,139,255,.16);color:#7FA8FF}
+  .t-dark .pill.no{background:rgba(245,63,63,.14);color:#FF8A8A}
+
+  @media (max-width:900px){
+    .viewport{padding:14px 10px 40px}
+    .hint{margin-left:0}
+    .bar h1{width:100%}
+    .cap{width:1180px}
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>数据驾驶舱 · 样式方案预览<span>同一份内容，三种视觉表达</span></h1>
+  <div class="tabs">
+    <button class="on" data-t="old">① 现状</button>
+    <button data-t="light">② 方案 B 浅色</button>
+    <button data-t="dark">③ 方案 C 深色</button>
+  </div>
+  <div class="hint">手机上可左右滑动查看完整页面 →</div>
+</div>
+
+<div class="viewport" id="vp">
+  <div class="cap" id="cap"></div>
+  <div class="stage-wrap">
+
+    <!-- ==================== ① 现状 ==================== -->
+    <section class="stage on t-old" id="s-old">
+      <div class="app">
+        <aside class="side">
+          <div class="logo"><div class="mark">昊</div><b>昊轩云枢<span>原创开发人：李昊轩</span></b></div>
+          <div class="navgrp">采购系统</div>
+          <div class="navitem on"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>数据驾驶舱</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8"/></svg>员工填报（代填）</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>填报进度确认</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>清单外商品审核</div>
+          <div class="navgrp">通用</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>工作台主页</div>
+        </aside>
+        <div class="main">
+          <div class="topbar">
+            <span class="crumb">采购系统 / <b>数据驾驶舱</b></span>
+            <div class="topact">
+              <div class="sel">2026 年 10 月 <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+              <div class="sel">全部项目 <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+              <div class="btnx">导出</div>
+              <div class="av">李</div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="phead">
+              <div><h2>采购数据驾驶舱</h2><p>数据统计口径：按录入日期归集 · 更新时间 2026-10-23 21:40</p></div>
+              <div class="meta"><div><b>12</b>参与项目</div><div><b>1010</b>商品库</div><div><b>186</b>填报人</div></div>
+            </div>
+            <div class="kpis">
+              <div class="kpi-o"><div class="obar" style="background:linear-gradient(135deg,#3b82f6,#6366f1)"></div>
+                <div class="ot">本月采购金额</div><div class="ov">1,203,400<em>元</em></div><div class="od" style="color:#dc2626">↑ 12.4%</div></div>
+              <div class="kpi-o"><div class="obar" style="background:linear-gradient(135deg,#06b6d4,#0891b2)"></div>
+                <div class="ot">当年度累计采购金额</div><div class="ov">8,742,600<em>元</em></div><div class="od" style="color:#8c8c8c">较去年同期 +8.1%</div></div>
+              <div class="kpi-o"><div class="obar" style="background:linear-gradient(135deg,#10b981,#059669)"></div>
+                <div class="ot">本月采购项目</div><div class="ov">9<em>共 9 个项目</em></div><div class="od" style="color:#8c8c8c">覆盖在管项目 75%</div></div>
+              <div class="kpi-o"><div class="obar" style="background:linear-gradient(135deg,#f59e0b,#f97316)"></div>
+                <div class="ot">本月采购条目</div><div class="ov">247<em>条</em></div><div class="od" style="color:#8c8c8c">平均 27 条/项目</div></div>
+            </div>
+            <div class="charts" style="margin-bottom:11px">
+              <div class="card-o"><div class="cht">各项目采购金额</div>
+                <div class="cbody hbars" style="padding:14px">
+                  <div class="hb"><span class="nm">清溪云庐</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="vl">38.2万</span></div>
+                  <div class="hb"><span class="nm">澐峰苑</span><span class="track"><span class="fill" style="width:62%"></span></span><span class="vl">23.7万</span></div>
+                  <div class="hb"><span class="nm">锦绣华庭</span><span class="track"><span class="fill" style="width:44%"></span></span><span class="vl">16.8万</span></div>
+                  <div class="hb"><span class="nm">栖霞里</span><span class="track"><span class="fill" style="width:31%"></span></span><span class="vl">11.9万</span></div>
+                  <div class="hb"><span class="nm">望江府</span><span class="track"><span class="fill" style="width:22%"></span></span><span class="vl">8.4万</span></div>
+                </div>
+              </div>
+              <div class="card-o"><div class="cht">各项目环比（红涨绿跌）</div>
+                <div class="cbody dbars" style="padding:14px">
+                  <div class="db"><span class="nm">清溪云庐</span><span class="axis"><span class="fg r" style="width:32%"></span></span><span class="vl" style="color:#dc2626">+32%</span></div>
+                  <div class="db"><span class="nm">澐峰苑</span><span class="axis"><span class="fg g" style="width:18%"></span></span><span class="vl" style="color:#16a34a">-18%</span></div>
+                  <div class="db"><span class="nm">锦绣华庭</span><span class="axis"><span class="fg r" style="width:12%"></span></span><span class="vl" style="color:#dc2626">+12%</span></div>
+                  <div class="db"><span class="nm">栖霞里</span><span class="axis"><span class="fg g" style="width:25%"></span></span><span class="vl" style="color:#16a34a">-25%</span></div>
+                  <div class="db"><span class="nm">望江府</span><span class="axis"><span class="fg r" style="width:7%"></span></span><span class="vl" style="color:#dc2626">+7%</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card-o"><div class="cht">本月填报进度</div>
+              <table class="tb2">
+                <tr><th>项目</th><th style="text-align:right">总条目</th><th style="text-align:right">已提交</th><th style="text-align:right">已确认</th><th style="text-align:right">已退回</th><th>状态</th></tr>
+                <tr><td>清溪云庐</td><td class="n">42</td><td class="n">42</td><td class="n">42</td><td class="n">0</td><td><span class="pill ok"><s></s>已完成</span></td></tr>
+                <tr><td>澐峰苑</td><td class="n">36</td><td class="n">30</td><td class="n">18</td><td class="n">2</td><td><span class="pill wait"><s></s>待确认</span></td></tr>
+                <tr><td>锦绣华庭</td><td class="n">28</td><td class="n">21</td><td class="n">0</td><td class="n">0</td><td><span class="pill run"><s></s>填报中</span></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== ②③ 新版结构（B/C 共用） ==================== -->
+    <section class="stage t-light" id="s-light">
+      <div class="app">
+        <aside class="side">
+          <div class="logo"><div class="mark">昊</div><b>昊轩云枢<span>HAOXUAN CLOUD</span></b></div>
+          <div class="navgrp">采购系统</div>
+          <div class="navitem on"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>数据驾驶舱</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8"/></svg>员工填报</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>进度确认</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>清单外审核</div>
+          <div class="navgrp">通用</div>
+          <div class="navitem"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>工作台主页</div>
+        </aside>
+        <div class="main">
+          <div class="topbar">
+            <span class="crumb">采购系统 / <b>数据驾驶舱</b></span>
+            <div class="topact">
+              <div class="sel">2026 年 10 月 <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+              <div class="sel">全部项目 <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+              <div class="btnx"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 21h16"/></svg>导出</div>
+              <div class="av">李</div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="phead">
+              <div><h2>采购数据驾驶舱</h2><p>按录入日期归集 · 数据更新于 2026-10-23 21:40</p></div>
+              <div class="meta"><div><b>12</b>参与项目</div><div><b>1,010</b>商品库</div><div><b>186</b>填报人</div></div>
+            </div>
+
+            <div class="kpis">
+              <div class="kpi">
+                <div class="kt"><i><svg viewBox="0 0 24 24"><path d="M4 8h16M4 8v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></i>本月采购金额</div>
+                <div class="kv">1,203,400<small>元</small></div>
+                <div class="kf"><span class="d up">↑ 12.4%</span>较上月</div>
+                <svg class="spark" viewBox="0 0 76 30"><polyline points="0,22 10,19 20,23 30,15 40,17 50,10 60,12 70,5 76,7" fill="none" stroke="#FF8A8A" stroke-width="1.6"/></svg>
+              </div>
+              <div class="kpi">
+                <div class="kt"><i><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></i>年度累计采购</div>
+                <div class="kv">874.26<small>万元</small></div>
+                <div class="kf"><span class="d up">↑ 8.1%</span>同比去年</div>
+                <svg class="spark" viewBox="0 0 76 30"><polyline points="0,25 10,21 20,17 30,18 40,13 50,10 60,8 70,6 76,4" fill="none" stroke="#165DFF" stroke-width="1.6"/></svg>
+              </div>
+              <div class="kpi">
+                <div class="kt"><i><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><path d="M8 7V4h8v3"/></svg></i>本月采购项目</div>
+                <div class="kv">9<small>个 / 共 12</small></div>
+                <div class="kf"><span class="d up">↑ 1</span>在管覆盖率 75%</div>
+                <svg class="spark" viewBox="0 0 76 30"><polyline points="0,18 10,18 20,14 30,14 40,10 50,10 60,7 70,7 76,5" fill="none" stroke="#165DFF" stroke-width="1.6"/></svg>
+              </div>
+              <div class="kpi">
+                <div class="kt"><i><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/></svg></i>本月采购条目</div>
+                <div class="kv">247<small>条</small></div>
+                <div class="kf"><span class="d down">↓ 6</span>平均 27 条/项目</div>
+                <svg class="spark" viewBox="0 0 76 30"><polyline points="0,6 10,9 20,8 30,13 40,12 50,17 60,16 70,21 76,20" fill="none" stroke="#5BD07C" stroke-width="1.6"/></svg>
+              </div>
+            </div>
+
+            <div class="charts">
+              <div class="card">
+                <div class="cht2">各项目采购金额<span class="lg">单位：万元</span></div>
+                <div class="cbody hbars">
+                  <div class="hb"><span class="nm">清溪云庐</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="vl">38.2</span></div>
+                  <div class="hb"><span class="nm">澐峰苑</span><span class="track"><span class="fill" style="width:62%"></span></span><span class="vl">23.7</span></div>
+                  <div class="hb"><span class="nm">锦绣华庭</span><span class="track"><span class="fill" style="width:44%"></span></span><span class="vl">16.8</span></div>
+                  <div class="hb"><span class="nm">栖霞里</span><span class="track"><span class="fill" style="width:31%"></span></span><span class="vl">11.9</span></div>
+                  <div class="hb"><span class="nm">望江府</span><span class="track"><span class="fill" style="width:22%"></span></span><span class="vl">8.4</span></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="cht2">各项目环比<span class="lg"><span><s style="background:#FF8A8A"></s>上涨</span><span><s style="background:#5BD07C"></s>下降</span></span></div>
+                <div class="cbody dbars">
+                  <div class="db"><span class="nm">清溪云庐</span><span class="axis"><span class="fg r" style="width:32%"></span></span><span class="vl" style="color:#F53F3F">+32.0%</span></div>
+                  <div class="db"><span class="nm">澐峰苑</span><span class="axis"><span class="fg g" style="width:18%"></span></span><span class="vl" style="color:#0B7A29">-18.0%</span></div>
+                  <div class="db"><span class="nm">锦绣华庭</span><span class="axis"><span class="fg r" style="width:12%"></span></span><span class="vl" style="color:#F53F3F">+12.0%</span></div>
+                  <div class="db"><span class="nm">栖霞里</span><span class="axis"><span class="fg g" style="width:25%"></span></span><span class="vl" style="color:#0B7A29">-25.0%</span></div>
+                  <div class="db"><span class="nm">望江府</span><span class="axis"><span class="fg r" style="width:7%"></span></span><span class="vl" style="color:#F53F3F">+7.0%</span></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="cht2">预算执行率<span class="lg">实际 / 预算</span></div>
+                <div class="cbody bud">
+                  <div class="bu"><div><div class="l"><b>清溪云庐</b><span>38.2 / 40.0 万</span></div><div class="tr"><div class="fj" style="width:96%"></div></div></div><div class="pc">96%</div></div>
+                  <div class="bu"><div><div class="l"><b>澐峰苑</b><span>23.7 / 26.0 万</span></div><div class="tr"><div class="fj" style="width:91%"></div></div></div><div class="pc">91%</div></div>
+                  <div class="bu"><div><div class="l"><b>锦绣华庭</b><span>16.8 / 15.0 万</span></div><div class="tr"><div class="fj bad" style="width:100%"></div></div></div><div class="pc bad">112%</div></div>
+                  <div class="bu"><div><div class="l"><b>栖霞里</b><span>11.9 / 18.0 万</span></div><div class="tr"><div class="fj warn" style="width:66%"></div></div></div><div class="pc warn">66%</div></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="cht2">年度月度趋势<span class="lg">2026 年 · 万元</span></div>
+                <div class="cbody">
+                  <div class="linewrap">
+                    <div class="ylab" style="padding-left:0;padding-bottom:0"><span>130</span><span>100</span><span>70</span><span>40</span></div>
+                    <svg width="100%" height="118" viewBox="0 0 300 82" preserveAspectRatio="none" style="padding-left:34px;box-sizing:border-box">
+                      <defs>
+                        <linearGradient id="ga" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#165DFF" stop-opacity=".22"/>
+                          <stop offset="100%" stop-color="#165DFF" stop-opacity="0"/>
+                        </linearGradient>
+                      </defs>
+                      <polygon points="0,62.9 27,66 55,56.7 82,59.8 109,47.3 136,50.4 164,41.1 191,36.4 218,42.7 245,30.2 273,24 300,17.8 300,82 0,82" fill="url(#ga)"/>
+                      <polyline points="0,62.9 27,66 55,56.7 82,59.8 109,47.3 136,50.4 164,41.1 191,36.4 218,42.7 245,30.2 273,24 300,17.8"
+                        fill="none" stroke="#165DFF" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+                      <circle cx="300" cy="17.8" r="3.2" fill="#fff" stroke="#165DFF" stroke-width="2"/>
+                    </svg>
+                    <div class="xlab"><span>1月</span><span>3月</span><span>5月</span><span>7月</span><span>9月</span><span>11月</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cht2">本月填报进度<span class="lg">共 12 个项目 · 已完成 5 / 待确认 4 / 填报中 3</span></div>
+              <table class="tb2">
+                <tr><th>项目</th><th>负责人</th><th style="text-align:right">总条目</th><th style="text-align:right">已提交</th><th style="text-align:right">已确认</th><th style="text-align:right">已退回</th><th>状态</th></tr>
+                <tr><td>清溪云庐</td><td>张明</td><td class="n">42</td><td class="n">42</td><td class="n">42</td><td class="n">0</td><td><span class="pill ok"><s></s>已完成</span></td></tr>
+                <tr><td>澐峰苑</td><td>李婷</td><td class="n">36</td><td class="n">30</td><td class="n">18</td><td class="n">2</td><td><span class="pill wait"><s></s>待确认</span></td></tr>
+                <tr><td>锦绣华庭</td><td>王强</td><td class="n">28</td><td class="n">21</td><td class="n">0</td><td class="n">0</td><td><span class="pill run"><s></s>填报中</span></td></tr>
+                <tr><td>栖霞里</td><td>赵雪</td><td class="n">24</td><td class="n">19</td><td class="n">16</td><td class="n">3</td><td><span class="pill no"><s></s>有退回</span></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stage t-dark" id="s-dark"></section>
+
+  </div>
+</div>
+
+<script>
+  var caps = {
+    old:   '<span class="tag old">BEFORE</span><b>现状</b> · 深蓝侧栏 + 彩虹渐变条 KPI + 8px 硬阴影卡片，图表标题用蓝色竖条',
+    light: '<span class="tag light">方案 B</span><b>现代中性浅色</b> · 单品牌蓝 + 线性图标 + 12px 柔影卡片 + 迷你趋势线',
+    dark:  '<span class="tag dark">方案 C</span><b>深色驾驶舱</b> · 深空底 + 蓝色辉光 + 发光图表，适合大屏与演示'
+  };
+  var lightStage = document.getElementById('s-light');
+  var darkStage  = document.getElementById('s-dark');
+  darkStage.innerHTML = lightStage.innerHTML;
+
+  var cap = document.getElementById('cap');
+  var btns = document.querySelectorAll('.tabs button');
+  var stages = { old: document.getElementById('s-old'), light: lightStage, dark: darkStage };
+
+  function show(t){
+    Object.keys(stages).forEach(function(k){ stages[k].classList.toggle('on', k === t); });
+    btns.forEach(function(b){ b.classList.toggle('on', b.dataset.t === t); });
+    cap.innerHTML = caps[t];
+    document.getElementById('vp').scrollTo({left:0, behavior:'instant'});
+  }
+  btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.dataset.t); }); });
+
+  var init = (location.hash || '#old').replace('#','');
+  show(stages[init] ? init : 'old');
+</script>
+</body>
+</html>
