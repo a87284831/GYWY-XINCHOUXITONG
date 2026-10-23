@@ -2,7 +2,7 @@
   {
     "version": "v2026.10.23.3",
     "date": "2026-10-23",
-    "commit": "PENDING",
+    "commit": "fbe0fdb",
     "items": [
       { "category": "修复", "text": "清单外审核：在商品库搜索并选中某一商品后，下拉框不再变空白，选中项名称正常显示" }
     ]
