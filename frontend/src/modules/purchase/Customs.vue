@@ -1,6 +1,6 @@
 <script setup>
 // 清单外商品审核（复刻旧 #/customs：归入候选标准商品 / 新建入库 / 忽略确认通过）
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
@@ -71,15 +71,94 @@ async function remoteSearch(row, kw) {
   }
 }
 
-// 直接归入候选商品
-async function doMap(row) {
-  if (!row._sel) return
+// 直接归入候选商品（旧路径保留给内部复用，实际走归入确认弹窗）
+// 归入确认弹窗：先 preview 拿到对照与校验，再由管理员确认
+const mapVisible = ref(false)
+const mapRow = ref(null)
+const mapPreview = ref(null)
+const mapSpec = ref('')
+const mapUnit = ref('')
+const mapGuard = ref(null)
+const mapSaving = ref(false)
+const mapSaveAlias = ref(false)
+let mapTimer = null
+
+async function openMap(row) {
+  if (!row._sel) {
+    toast('请先选择要归入的标准商品', false)
+    return
+  }
+  mapRow.value = row
+  mapSpec.value = row.spec || ''
+  mapUnit.value = row.unit || ''
+  mapSaveAlias.value = !!row._saveAlias
+  mapPreview.value = null
+  mapGuard.value = null
+  mapVisible.value = true
+  await runPreview()
+}
+
+async function runPreview() {
+  if (!mapRow.value || !mapRow.value._sel) return
   try {
-    const d = await api('/api/purchase/admin/customs/map', { body: mapPayload(row, uid()) })
+    const d = await api('/api/purchase/admin/customs/map-preview', {
+      body: { item_id: mapRow.value.id, product_id: mapRow.value._sel, spec: mapSpec.value, unit: mapUnit.value },
+    })
+    if (!d.ok) {
+      toast(d.msg || '预检失败', false)
+      return
+    }
+    mapPreview.value = d.data
+    mapGuard.value = d.data.guard
+  } catch (e) {
+    toast(e.message, false)
+  }
+}
+
+// 规格/单位改动后自动重新预检（防抖）
+function onMapInput() {
+  clearTimeout(mapTimer)
+  mapTimer = setTimeout(runPreview, 300)
+}
+
+// 归入前后对照（规格/单位显示当前输入值）
+const compareRows = computed(() => {
+  const p = mapPreview.value
+  if (!p) return []
+  return [
+    { field: '商品名称', from: p.item.item_name || '-', to: p.plan.name || '-' },
+    { field: '品牌', from: p.item.brand || '-', to: p.plan.brand || '-' },
+    { field: '条线 / 分类', from: '-', to: ((p.plan.line || '-') + ' / ' + (p.plan.category || '-')) },
+    { field: '规格', from: p.item.spec || '-', to: mapSpec.value || '-' },
+    { field: '单位', from: p.item.unit || '-', to: mapUnit.value || '-' },
+    { field: '数量', from: p.item.quantity, to: p.item.quantity },
+  ]
+})
+
+async function submitMap(action) {
+  if (!mapRow.value) return
+  mapRow.value._saveAlias = mapSaveAlias.value
+  mapSaving.value = true
+  try {
+    const d = await api('/api/purchase/admin/customs/map', {
+      body: mapPayload(mapRow.value, uid(), { spec: mapSpec.value, unit: mapUnit.value, spec_action: action }),
+    })
+    if (!d.ok) {
+      toast(d.msg || '归入失败', false)
+      if (d.code === 'spec_exists') {
+        mapGuard.value = { ok: false, code: 'spec_exists', msg: d.msg, existing: d.existing || {} }
+      } else if (d.code === 'unit_mismatch') {
+        mapGuard.value = d
+      }
+      return
+    }
     toast(d.msg || '已归入')
+    mapVisible.value = false
     load()
   } catch (e) {
     toast(e.message, false)
+  } finally {
+    mapSaving.value = false
   }
 }
 
@@ -209,17 +288,13 @@ onMounted(load)
           <el-tag size="small" effect="plain">{{ row.line }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="填报内容(可编辑)" min-width="360">
+      <el-table-column label="填报内容" min-width="300">
         <template #default="{ row }">
-          <el-input v-model="row.item_name" size="small" placeholder="商品名称" style="width:100%" />
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
-            <el-input v-model="row.brand" size="small" placeholder="品牌" style="width:68px" />
-            <el-input v-model="row.spec" size="small" placeholder="规格" style="width:86px" />
-            <el-input v-model="row.unit" size="small" placeholder="单位" style="width:56px" />
+          <div style="font-weight:600">{{ row.item_name }}</div>
+          <div style="color:#909399;font-size:12px;margin-top:2px">
+            品牌：{{ row.brand || '-' }}　规格：{{ row.spec || '-' }}　单位：{{ row.unit || '-' }}
           </div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
-            <el-input v-model="row.category" size="small" placeholder="分类(必填)" style="width:100%" />
-          </div>
+          <div style="color:#909399;font-size:12px">数量：{{ row.quantity }}　分类：{{ row.category || '-' }}</div>
         </template>
       </el-table-column>
       <el-table-column label="归入标准商品" min-width="250">
@@ -236,9 +311,8 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="success" style="margin-right:8px" @click="openEdit(row)">保存入库</el-button>
-          <el-checkbox v-model="row._saveAlias" style="margin-right:8px">保存别名</el-checkbox>
-          <el-button size="small" type="primary" :disabled="!row._sel" @click="doMap(row)">归入</el-button>
+          <el-button size="small" type="success" style="margin-right:8px" @click="openEdit(row)">新建入库</el-button>
+          <el-button size="small" type="primary" :disabled="!row._sel" @click="openMap(row)">归入</el-button>
           <el-button size="small" type="info" @click="doIgnore(row)">忽略</el-button>
         </template>
       </el-table-column>
@@ -246,8 +320,44 @@ onMounted(load)
 
     <el-empty v-if="!loading && rows.length === 0" description="暂无清单外商品" />
 
+    <!-- 归入标准商品确认弹窗：名称强制统一、规格作为该商品的新增规格、单位必须一致 -->
+    <el-dialog v-model="mapVisible" title="归入标准商品确认" width="640px" :close-on-click-modal="false">
+      <div v-if="mapPreview">
+        <el-table :data="compareRows" border size="small">
+          <el-table-column prop="field" label="字段" width="110" />
+          <el-table-column prop="from" label="员工填报" />
+          <el-table-column prop="to" label="归入后" />
+        </el-table>
+
+        <el-form label-width="90px" style="margin-top:14px">
+          <el-form-item label="规格型号">
+            <el-input v-model="mapSpec" placeholder="归入后作为该标准商品的一个规格" @input="onMapInput" />
+          </el-form-item>
+          <el-form-item label="单位">
+            <el-input v-model="mapUnit" placeholder="必须与标准商品单位一致" @input="onMapInput" />
+          </el-form-item>
+          <el-form-item label="保存别名">
+            <el-checkbox v-model="mapSaveAlias">把员工原名称存为别名（下次填报自动匹配）</el-checkbox>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <el-alert v-if="mapGuard && mapGuard.code === 'unit_mismatch'" type="error" :closable="false" show-icon
+        :title="mapGuard.msg" style="margin-top:8px" />
+      <el-alert v-if="mapGuard && mapGuard.code === 'spec_exists'" type="warning" :closable="false" show-icon
+        :title="mapGuard.msg + '。可删除此记录，或修改上方规格型号后重新校验'" style="margin-top:8px" />
+
+      <template #footer>
+        <el-button @click="mapVisible = false">取消</el-button>
+        <el-button v-if="mapGuard && mapGuard.code === 'spec_exists'" type="danger" :loading="mapSaving"
+          @click="submitMap('delete')">删除此记录</el-button>
+        <el-button v-else type="primary" :loading="mapSaving"
+          :disabled="!mapGuard || !mapGuard.ok || !mapSpec" @click="submitMap('add')">确认归入</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 编辑入库（新建/归入标准商品） -->
-    <el-dialog v-model="editVisible" title="编辑入库（新建/归入标准商品）" width="520px">
+    <el-dialog v-model="editVisible" title="新建标准商品入库" width="520px">
       <el-form label-width="80px">
         <el-form-item label="商品名称" required>
           <el-input v-model="editForm.name" placeholder="必填" />

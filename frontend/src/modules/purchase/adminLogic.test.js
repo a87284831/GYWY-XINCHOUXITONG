@@ -13,6 +13,8 @@ import {
   productOptions,
   productLabel,
   findProduct,
+  normSpec,
+  buildMapPlan,
 } from './adminLogic'
 
 describe('adminLogic', () => {
@@ -108,12 +110,54 @@ describe('adminLogic', () => {
     })
   })
 
-  it('mapPayload: 归入候选商品（含 save_alias 与 created_by 透传）', () => {
-    const row = { id: 9, _sel: 88, _saveAlias: true }
-    expect(mapPayload(row, 7)).toEqual({ item_id: 9, product_id: 88, save_alias: true, created_by: 7 })
-    expect(mapPayload({ id: 9, _sel: 0, _saveAlias: false }, 0)).toEqual({
-      item_id: 9, product_id: 0, save_alias: false, created_by: 0,
+  it('mapPayload: 归入候选商品（含规格/单位/冲突动作，默认 add）', () => {
+    const row = { id: 9, _sel: 88, _saveAlias: true, spec: '12 包/箱', unit: '箱' }
+    expect(mapPayload(row, 7)).toEqual({
+      item_id: 9, product_id: 88, save_alias: true, created_by: 7,
+      spec: '12 包/箱', unit: '箱', spec_action: 'add',
     })
+    expect(mapPayload({ id: 3, _sel: 5, _saveAlias: false, spec: 'S', unit: 'U' }, 0, { spec: 'S2', unit: 'U2', spec_action: 'use_existing' })).toEqual({
+      item_id: 3, product_id: 5, save_alias: false, created_by: 0,
+      spec: 'S2', unit: 'U2', spec_action: 'use_existing',
+    })
+  })
+
+  it('normSpec: 全角转半角、折叠空白、去首尾空格', () => {
+    expect(normSpec('  12　包／箱  ')).toBe('12 包/箱')
+    expect(normSpec('Ａ４ 纸')).toBe('A4 纸')
+    expect(normSpec(null)).toBe('')
+    expect(normSpec(undefined)).toBe('')
+  })
+
+  it('buildMapPlan: 名称/条线/分类强制取标准商品，规格默认取填报原值', () => {
+    const item = { item_name: 'a4 白纸', spec: '12 包/箱', unit: '箱' }
+    const product = { id: 5, name: 'a4 纸', brand: '晨光', spec: '8 包/箱', unit: '箱', line: '办公', category: '纸张' }
+    const p = buildMapPlan(item, product)
+    expect(p.name).toBe('a4 纸')
+    expect(p.brand).toBe('晨光')
+    expect(p.line).toBe('办公')
+    expect(p.category).toBe('纸张')
+    expect(p.spec).toBe('12 包/箱')
+    expect(p.unit).toBe('箱')
+    expect(p.unitMismatch).toBe(false)
+    expect(p.canSubmit).toBe(true)
+  })
+
+  it('buildMapPlan: 单位不一致时禁止提交，改一致后可提交', () => {
+    const item = { item_name: 'a4 白纸', spec: '12', unit: '包' }
+    const product = { id: 5, name: 'a4 纸', spec: '8 包/箱', unit: '箱' }
+    const bad = buildMapPlan(item, product)
+    expect(bad.unitMismatch).toBe(true)
+    expect(bad.canSubmit).toBe(false)
+    const fixed = buildMapPlan(item, product, { unit: '箱' })
+    expect(fixed.unitMismatch).toBe(false)
+    expect(fixed.canSubmit).toBe(true)
+  })
+
+  it('buildMapPlan: 规格为空或未选商品时禁止提交', () => {
+    const product = { id: 5, name: 'a4 纸', spec: '8 包/箱', unit: '箱' }
+    expect(buildMapPlan({ spec: '', unit: '箱' }, product).canSubmit).toBe(false)
+    expect(buildMapPlan({ spec: '12', unit: '箱' }, null).canSubmit).toBe(false)
   })
 
   it('saveCustomPayload: create 不带 product_id；merge 带 product_id', () => {

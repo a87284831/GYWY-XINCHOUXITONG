@@ -207,6 +207,7 @@ class PurchaseController extends ApiController
         if ($uri === 'admin/return-project' && $method === 'POST') return handle_admin_return_project();
         if ($uri === 'admin/confirm-batch' && $method === 'POST') return handle_admin_confirm_batch();
         if ($uri === 'admin/customs' && $method === 'GET') return handle_admin_customs();
+        if ($uri === 'admin/customs/map-preview' && $method === 'POST') return handle_admin_customs_map_preview();
         if ($uri === 'admin/customs/map' && $method === 'POST') return handle_admin_map_custom();
         if ($uri === 'admin/customs/check-duplicate' && $method === 'POST') return handle_admin_customs_check_duplicate();
         if ($uri === 'admin/customs/save' && $method === 'POST') return handle_admin_customs_save();

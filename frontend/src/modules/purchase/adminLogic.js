@@ -90,9 +90,44 @@ export function seedCustomForm(row) {
   }
 }
 
-// 「归入」候选商品请求体
-export function mapPayload(row, uid) {
-  return { item_id: row.id, product_id: row._sel, save_alias: row._saveAlias, created_by: uid }
+// 规格归一化：全角转半角 + 折叠空白 + 首尾去空格（与后端 norm_spec 口径一致）
+export function normSpec(s) {
+  if (s === null || s === undefined) return ''
+  const half = String(s).replace(/[\uFF01-\uFF5E]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  return half.replace(/\u3000/g, ' ').replace(/[ \t]+/g, ' ').trim()
+}
+
+// 归入标准商品弹窗的对照与校验（纯函数）：
+// 名称/条线/分类/品牌强制取标准商品；规格默认取填报原值；单位必须与标准商品一致才允许提交
+export function buildMapPlan(item, product, input = {}) {
+  const spec = normSpec(input.spec !== undefined ? input.spec : (item && item.spec))
+  const unit = normSpec(input.unit !== undefined ? input.unit : (item && item.unit))
+  const productUnit = normSpec(product && product.unit)
+  const unitMismatch = !!product && unit !== productUnit
+  return {
+    name: (product && product.name) || '',
+    brand: (product && product.brand) || '',
+    line: (product && product.line) || '',
+    category: (product && product.category) || '',
+    spec,
+    unit,
+    productUnit,
+    unitMismatch,
+    canSubmit: !!product && spec !== '' && !unitMismatch,
+  }
+}
+
+// 「归入」请求体：名称统一由后端强制，前端只提交规格与单位（供校验）及冲突处理动作
+export function mapPayload(row, uid, opts = {}) {
+  return {
+    item_id: row.id,
+    product_id: row._sel,
+    save_alias: row._saveAlias,
+    created_by: uid,
+    spec: opts.spec !== undefined ? opts.spec : row.spec,
+    unit: opts.unit !== undefined ? opts.unit : row.unit,
+    spec_action: opts.spec_action || 'add',
+  }
 }
 
 // 「保存入库」请求体：create 无 product_id；merge 带 product_id

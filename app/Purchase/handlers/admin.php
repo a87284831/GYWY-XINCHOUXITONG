@@ -267,40 +267,137 @@ function handle_admin_customs() {
     return ['ok' => true, 'data' => $items];
 }
 
-// 清单外归类：映射到标准商品（可选保存别名）
+// 清单外归入标准商品：预检（返回对照数据 + 单位/规格校验，供前端弹确认框）
+function handle_admin_customs_map_preview() {
+    require_admin();
+    $in = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $item_id = (int)($in['item_id'] ?? 0);
+    $product_id = (int)($in['product_id'] ?? 0);
+    if ($item_id <= 0 || $product_id <= 0) return ['ok' => false, 'msg' => '请选择要归入的商品'];
+    $item = fetch_item($item_id);
+    if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
+    if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
+    $pst = db()->prepare('SELECT id,line,category,name,brand,spec,unit FROM products WHERE id=? AND status=1');
+    $pst->execute([$product_id]);
+    $prod = $pst->fetch();
+    if (!$prod) return ['ok' => false, 'msg' => '目标商品不存在'];
+
+    $spec = norm_spec($in['spec'] ?? $item['spec']);
+    $unit = norm_spec($in['unit'] ?? $prod['unit']);
+    $existing = null;
+    if ($spec !== '') {
+        $dup = db()->prepare('SELECT id,spec,unit FROM products WHERE status=1 AND name=? AND brand=? AND spec=? AND unit=? LIMIT 1');
+        $dup->execute([$prod['name'], $prod['brand'], $spec, $prod['unit']]);
+        $existing = $dup->fetch() ?: null;
+    }
+    $guard = map_guard(['spec' => $spec, 'unit' => $unit], $prod, $existing);
+
+    $pname = '';
+    if ((int)($item['project_id'] ?? 0) > 0) {
+        $q = db()->prepare('SELECT name FROM payroll.payroll_projects WHERE id=?');
+        $q->execute([(int)$item['project_id']]);
+        $pname = (string)($q->fetchColumn() ?: '');
+    }
+    return ['ok' => true, 'data' => [
+        'item' => [
+            'id' => (int)$item['id'], 'month' => $item['month'], 'project_name' => $pname,
+            'item_name' => $item['item_name'], 'brand' => $item['brand'], 'spec' => $item['spec'],
+            'unit' => $item['unit'], 'quantity' => $item['quantity'],
+        ],
+        'product' => [
+            'id' => (int)$prod['id'], 'name' => $prod['name'], 'brand' => $prod['brand'],
+            'spec' => $prod['spec'], 'unit' => $prod['unit'], 'line' => $prod['line'], 'category' => $prod['category'],
+        ],
+        'plan' => [
+            'name' => $prod['name'], 'line' => $prod['line'], 'category' => $prod['category'],
+            'brand' => $prod['brand'], 'spec' => $spec, 'unit' => $unit,
+        ],
+        'guard' => $guard,
+    ]];
+}
+
+// 清单外归类：映射到标准商品。
+// 口径：名称/条线/分类/品牌强制与标准商品一致；员工填报的规格作为该商品的一个规格；
+// 单位必须与标准商品一致（不一致直接拒绝）；同规格已存在时由前端让管理员选择删除记录或改规格。
 function handle_admin_map_custom() {
     require_admin();
     $in = json_decode(file_get_contents('php://input'), true) ?? [];
     $item_id = (int)($in['item_id'] ?? 0);
     $product_id = (int)($in['product_id'] ?? 0);
     $save_alias = !empty($in['save_alias']);
+    $action = trim((string)($in['spec_action'] ?? 'add'));
     if ($item_id <= 0) return ['ok' => false, 'msg' => '参数缺失'];
     $item = fetch_item($item_id);
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
-    if ($product_id > 0) {
-        $pst = db()->prepare("SELECT * FROM products WHERE id=? AND status=1");
-        $pst->execute([$product_id]);
-        $prod = $pst->fetch();
-        if (!$prod) return ['ok' => false, 'msg' => '目标商品不存在'];
-        // 更新明细为标准商品
-        db()->prepare(
-            "UPDATE purchase_items SET product_id=?, item_name=?, brand=?, spec=?, unit=?, is_custom=0 WHERE id=?"
-        )->execute([$product_id, $prod['name'], $prod['brand'], $prod['spec'], $prod['unit'], $item_id]);
-        // 保存别名
+    if ($product_id <= 0) return ['ok' => false, 'msg' => '请选择要归入的商品'];
+    $pst = db()->prepare('SELECT * FROM products WHERE id=? AND status=1');
+    $pst->execute([$product_id]);
+    $prod = $pst->fetch();
+    if (!$prod) return ['ok' => false, 'msg' => '目标商品不存在'];
+    if (!in_array($action, ['add', 'use_existing', 'delete'], true)) return ['ok' => false, 'msg' => 'spec_action 参数错误（add/use_existing/delete）'];
+    $by = (int)($in['by'] ?? $in['created_by'] ?? 0);
+
+    // 管理员选择「删除此记录」：不归入，标记已审核并从清单外列表移除（保留 is_custom=1 用于统计）
+    if ($action === 'delete') {
+        db()->prepare('UPDATE purchase_items SET custom_reviewed=1 WHERE id=?')->execute([$item_id]);
+        db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
+            ->execute([$item_id, 0, 'ignore', 0, '归入时选择删除此清单外记录', $by]);
+        log_action('清单外删除', "{$item['month']} 项目{$item['project_id']} 删除清单外记录「{$item['item_name']}」");
+        return ['ok' => true, 'msg' => '已删除该清单外记录'];
+    }
+
+    $spec = norm_spec($in['spec'] ?? $item['spec']);
+    $unit = norm_spec($in['unit'] ?? $prod['unit']);
+    if ($spec === '') return ['ok' => false, 'msg' => '规格型号必填'];
+
+    $dup = db()->prepare('SELECT id,spec,unit FROM products WHERE status=1 AND name=? AND brand=? AND spec=? AND unit=? LIMIT 1');
+    $dup->execute([$prod['name'], $prod['brand'], $spec, $unit]);
+    $existing = $dup->fetch() ?: null;
+
+    if ($action === 'add') {
+        $guard = map_guard(['spec' => $spec, 'unit' => $unit], $prod, $existing);
+        if (!$guard['ok']) return ['ok' => false] + $guard;
+    } else {
+        // use_existing：规格已存在，明细直接指向该规格行，不新增商品
+        $guard = map_guard(['spec' => $spec, 'unit' => $unit], $prod, null);
+        if (!$guard['ok']) return ['ok' => false] + $guard;
+        if (!$existing) return ['ok' => false, 'msg' => '该规格不存在，无法归入已有规格'];
+    }
+
+    $tx = !db()->inTransaction();
+    if ($tx) db()->beginTransaction();
+    try {
+        if ($action === 'add') {
+            db()->prepare('INSERT INTO products (line, category, name, brand, spec, unit, status) VALUES (?,?,?,?,?,?,1)')
+                ->execute([$prod['line'], $prod['category'], $prod['name'], $prod['brand'], $spec, $unit]);
+            $target_id = (int) db()->lastInsertId();
+            $note = '清单外归入-新增规格「' . $spec . '」';
+        } else {
+            $target_id = (int)$existing['id'];
+            $note = '清单外归入-归入已有规格「' . $spec . '」';
+        }
+        db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, category=?, brand=?, spec=?, unit=?, is_custom=0 WHERE id=?')
+            ->execute([$target_id, $prod['name'], $prod['line'], $prod['category'], $prod['brand'], $spec, $unit, $item_id]);
+        $aliasSaved = 0;
         if ($save_alias && $item['item_name'] !== $prod['name']) {
+            $aliasSaved = 1;
             try {
-                db()->prepare("INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)")
-                    ->execute([$product_id, $item['item_name']]);
+                db()->prepare('INSERT IGNORE INTO product_synonyms (product_id, alias) VALUES (?,?)')
+                    ->execute([$target_id, $item['item_name']]);
             } catch (PDOException $e) {}
         }
-        db()->prepare("INSERT INTO audit_records (item_id, product_id, action, alias_saved, created_by) VALUES (?,?,?,?,?)")
-            ->execute([$item_id, $product_id, 'map', $save_alias ? 1 : 0, (int)($in['by'] ?? $in['created_by'] ?? 0)]);
-        log_action('清单外映射', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 标准商品「{$prod['name']}」" . ($save_alias ? '（并保存别名）' : ''));
-        return ['ok' => true, 'msg' => '已归入标准商品「' . $prod['name'] . '」'];
+        db()->prepare('INSERT INTO audit_records (item_id, product_id, action, alias_saved, note, created_by) VALUES (?,?,?,?,?,?)')
+            ->execute([$item_id, $target_id, 'map', $aliasSaved, $note, $by]);
+        log_action('清单外映射', "{$item['month']} 项目{$item['project_id']} 「{$item['item_name']}」→ 标准商品「{$prod['name']}」规格「{$spec}」" . ($aliasSaved ? '（并保存别名）' : ''));
+        if ($tx) db()->commit();
+    } catch (\Throwable $e) {
+        if ($tx) db()->rollBack();
+        throw $e;
     }
-    return ['ok' => false, 'msg' => '请选择要归入的商品'];
+    return ['ok' => true, 'msg' => '已归入标准商品「' . $prod['name'] . '」，规格「' . $spec . '」'];
 }
+
 
 
 // 清单外查重：按名称在标准库检索候选（纯名称双向包含匹配，供"编辑入库"前判断重名）

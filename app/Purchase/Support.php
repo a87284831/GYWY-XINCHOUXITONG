@@ -134,6 +134,43 @@ namespace {
         return $s === null ? '' : $s;
     }
 
+    /**
+     * 清单外「归入标准商品」前置校验（纯函数，不碰 DB，便于单元测试）：
+     *  - 单位必须与标准商品一致（不一致要求管理员先改）
+     *  - 同商品同规格已存在时返回 spec_exists，交由前端让管理员选择「删除此记录」或「修改规格型号」
+     * @param array      $item     采购明细行（需含 spec/unit）
+     * @param array      $prod     目标标准商品（需含 name/unit）
+     * @param array|null $existing 已存在的同规格商品行，null 表示不存在
+     */
+    function map_guard(array $item, array $prod, ?array $existing = null): array
+    {
+        $itemUnit = norm_spec($item['unit'] ?? '');
+        $prodUnit = norm_spec($prod['unit'] ?? '');
+        if ($itemUnit !== $prodUnit) {
+            return [
+                'ok' => false,
+                'code' => 'unit_mismatch',
+                'msg' => "填报单位「{$itemUnit}」与标准商品单位「{$prodUnit}」不一致，请先修改",
+                'item_unit' => $itemUnit,
+                'product_unit' => $prodUnit,
+            ];
+        }
+        if ($existing !== null) {
+            $spec = norm_spec($existing['spec'] ?? $item['spec'] ?? '');
+            return [
+                'ok' => false,
+                'code' => 'spec_exists',
+                'msg' => "标准商品「" . ($prod['name'] ?? '') . "」已存在规格「{$spec}」",
+                'existing' => [
+                    'id' => (int)($existing['id'] ?? 0),
+                    'spec' => $spec,
+                    'unit' => norm_spec($existing['unit'] ?? ''),
+                ],
+            ];
+        }
+        return ['ok' => true, 'code' => '', 'msg' => ''];
+    }
+
     /** 站内通知：插入 notifications（失败不影响主流程） */
     function notify_user(int $user_id, string $type, string $title, string $content = '', string $link = ''): void
     {
