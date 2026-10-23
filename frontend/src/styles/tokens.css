@@ -1,0 +1,93 @@
+/* ============================================================
+   设计令牌（Design Tokens）—— 全站唯一色源
+   方向 B：现代中性 · 石墨蓝
+   说明：新页面/改造页面直接引用变量；旧页面在 P0-P2 批次中逐步迁移
+   ============================================================ */
+:root {
+  /* 品牌 */
+  --brand-700: #0E42D2;
+  --brand-600: #165DFF;
+  --brand-500: #4080FF;
+  --brand-50: #E8F3FF;
+
+  /* 中性文字（替代 #1f2937 / #1e293b / #1f2329 / #262626） */
+  --text-1: #1D2129;
+  --text-2: #4E5969;
+  --text-3: #86909C;
+  --text-4: #C9CDD4;
+
+  /* 边框与背景 */
+  --border: #E5E6EB;
+  --divider: #F2F3F5;
+  --bg-page: #F7F8FA;
+  --bg-card: #FFFFFF;
+  --bg-subtle: #FAFBFC;
+
+  /* 语义色 */
+  --success: #00B42A;
+  --success-bg: #E9F7EC;
+  --warning: #FF7D00;
+  --warning-bg: #FFF3E8;
+  --danger: #F53F3F;
+  --danger-bg: #FFECEC;
+  --info: #165DFF;
+  --info-bg: #E8F3FF;
+
+  /* 圆角：只保留 3 档 */
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 14px;
+
+  /* 阴影：双层柔影 */
+  --sh-1: 0 1px 2px rgba(29, 33, 41, .04), 0 1px 6px rgba(29, 33, 41, .04);
+  --sh-2: 0 2px 4px rgba(29, 33, 41, .04), 0 10px 26px rgba(29, 33, 41, .08);
+  --sh-3: 0 8px 20px rgba(29, 33, 41, .10), 0 24px 56px rgba(29, 33, 41, .12);
+
+  /* 间距：4 的倍数 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 字号 */
+  --fs-xs: 11px;
+  --fs-s: 12px;
+  --fs-m: 13px;
+  --fs-l: 14px;
+  --fs-xl: 16px;
+  --fs-2xl: 21px;
+  --fs-3xl: 28px;
+
+  /* 字体栈：优先系统字体 */
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 深色主题（仅数据驾驶舱等大屏/演示场景使用） */
+[data-theme="dark"] {
+  --text-1: #E8EBF0;
+  --text-2: #A9B4C6;
+  --text-3: #71809A;
+  --text-4: #46536B;
+
+  --border: #232E42;
+  --divider: #1A2336;
+  --bg-page: #0B1220;
+  --bg-card: #131C2E;
+  --bg-subtle: #16223A;
+
+  --brand-600: #4A8BFF;
+  --brand-500: #7FA8FF;
+  --brand-50: rgba(74, 139, 255, .14);
+
+  --success-bg: rgba(0, 180, 42, .14);
+  --warning-bg: rgba(255, 125, 0, .14);
+  --danger-bg: rgba(245, 63, 63, .14);
+  --info-bg: rgba(74, 139, 255, .16);
+
+  --sh-1: none;
+  --sh-2: none;
+  --sh-3: 0 24px 56px rgba(0, 0, 0, .55);
+}
