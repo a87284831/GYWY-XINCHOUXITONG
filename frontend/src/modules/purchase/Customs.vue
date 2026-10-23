@@ -131,7 +131,6 @@ const compareRows = computed(() => {
     { field: '条线 / 分类', from: '-', to: ((p.plan.line || '-') + ' / ' + (p.plan.category || '-')) },
     { field: '规格', from: p.item.spec || '-', to: mapSpec.value || '-' },
     { field: '单位', from: p.item.unit || '-', to: mapUnit.value || '-' },
-    { field: '数量', from: p.item.quantity, to: p.item.quantity },
   ]
 })
 
