@@ -91,3 +91,51 @@
   --sh-2: none;
   --sh-3: 0 24px 56px rgba(0, 0, 0, .55);
 }
+
+/* ============================================================
+   Element Plus 主题变量映射
+   说明：tokens.css 在 element-plus/dist/index.css 之后引入，
+        这里的同名变量会覆盖 EP 默认值。
+   ============================================================ */
+:root {
+  --el-font-family: var(--font);
+
+  --el-color-primary: var(--brand-600);
+  --el-color-primary-light-3: #5C8EFF;
+  --el-color-primary-light-5: #8FB4FF;
+  --el-color-primary-light-7: #C2D8FF;
+  --el-color-primary-light-8: #D9E7FF;
+  --el-color-primary-light-9: var(--brand-50);
+  --el-color-primary-dark-2: #0E4ACC;
+
+  --el-color-success: var(--success);
+  --el-color-success-light-9: var(--success-bg);
+  --el-color-warning: var(--warning);
+  --el-color-warning-light-9: var(--warning-bg);
+  --el-color-danger: var(--danger);
+  --el-color-danger-light-9: var(--danger-bg);
+  --el-color-error: var(--danger);
+  --el-color-info: #86909C;
+  --el-color-info-light-9: var(--divider);
+
+  --el-text-color-primary: var(--text-1);
+  --el-text-color-regular: var(--text-2);
+  --el-text-color-secondary: var(--text-3);
+  --el-text-color-placeholder: var(--text-4);
+
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--divider);
+  --el-border-color-extra-light: var(--divider);
+  --el-fill-color-blank: var(--bg-card);
+  --el-fill-color-light: var(--bg-subtle);
+  --el-fill-color-lighter: var(--bg-subtle);
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-card);
+
+  --el-border-radius-base: var(--r-s);
+  --el-border-radius-small: var(--r-s);
+  --el-border-radius-round: 999px;
+}
+
