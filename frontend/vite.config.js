@@ -23,6 +23,15 @@ export default defineConfig({
   build: {
     outDir: '../public/app',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          'element-plus': ['element-plus'],
+          'chart-vendor': ['chart.js'],
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',
