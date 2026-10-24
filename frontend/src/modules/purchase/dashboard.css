@@ -118,17 +118,13 @@
   align-items: center;
   justify-content: center;
   background: var(--brand-50);
+  color: var(--brand-600);
   flex: none;
 }
 
-.dsh-kpi-ico svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: var(--brand-600);
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.dsh-kpi-ico .icon {
+  width: 13px;
+  height: 13px;
 }
 
 .dsh-kpi-v {
@@ -524,9 +520,7 @@
   box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(122,162,255,.07);
 }
 
-.dsh-page[data-theme="dark"] .dsh-kpi-ico { background: #1B2C4E; }
-
-.dsh-page[data-theme="dark"] .dsh-kpi-ico svg { stroke: #4A8BFF; }
+.dsh-page[data-theme="dark"] .dsh-kpi-ico { background: #1B2C4E; color: #4A8BFF; }
 
 .dsh-page[data-theme="dark"] .dsh-kpi-v { color: #F2F6FF; text-shadow: 0 0 24px rgba(74,139,255,.22); }
 
@@ -572,6 +566,36 @@
   background: #1B2C4E;
   color: #7FA8FF;
   box-shadow: none;
+}
+
+/* 深色 hover 交互 */
+.dsh-page[data-theme="dark"] .dsh-kpi {
+  transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.dsh-page[data-theme="dark"] .dsh-kpi:hover {
+  border-color: #3A5A9A;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45), 0 0 0 1px rgba(74,139,255,.18), inset 0 1px 0 rgba(122,162,255,.1);
+  transform: translateY(-1px);
+}
+
+.dsh-page[data-theme="dark"] .dsh-card {
+  transition: border-color .2s, box-shadow .2s;
+}
+.dsh-page[data-theme="dark"] .dsh-card:hover {
+  border-color: #2A3A5C;
+  box-shadow: 0 16px 36px rgba(0,0,0,.45), 0 0 0 1px rgba(74,139,255,.08);
+}
+
+/* 浅色 hover 交互 */
+.dsh-kpi, .dsh-card {
+  transition: box-shadow .18s, border-color .18s, transform .18s;
+}
+.dsh-kpi:hover {
+  box-shadow: var(--sh-2);
+  border-color: var(--border);
+}
+.dsh-card:hover {
+  box-shadow: var(--sh-2);
 }
 
 /* ---------- 响应式 ---------- */

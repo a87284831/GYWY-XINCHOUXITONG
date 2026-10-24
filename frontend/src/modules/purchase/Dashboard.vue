@@ -7,6 +7,7 @@ import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
 import { moneyOrDash } from '@/utils/format'
 import ChartBox from '@/components/ChartBox.vue'
+import Icon from '@/components/Icon.vue'
 import { prevMonth, sumRows, signedMoney, deltaInfo, topWindow, qs } from './purchaseLogic'
 import { linesPieOpt, annualTrendOpt, hbarOpt, priceTrendOpt } from './dashCharts'
 import '../finance/finance.css'
@@ -256,7 +257,7 @@ onMounted(() => {
       <div class="dsh-kpis">
         <div class="dsh-kpi">
           <div class="dsh-kpi-t">
-            <i class="dsh-kpi-ico"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 8v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" /><path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></i>
+            <i class="dsh-kpi-ico"><Icon name="receipt" :size="13" /></i>
             本月采购金额
           </div>
           <div class="dsh-kpi-v">{{ moneyOrDash(d.monthly.overview.amount) }}<small>元</small></div>
@@ -264,13 +265,13 @@ onMounted(() => {
             <span class="dsh-delta" :class="deltaCls(kpiDelta.up)">{{ kpiDelta.text }}</span>
           </div>
           <svg class="dsh-spark" viewBox="0 0 76 26" preserveAspectRatio="none">
-            <polyline :points="sparkA" fill="none" :stroke="dark ? '#FF8A8A' : '#FF8A8A'" stroke-width="1.6" />
+            <polyline :points="sparkA" fill="none" :stroke="dark ? '#4A8BFF' : '#165DFF'" stroke-width="1.6" />
           </svg>
         </div>
 
         <div class="dsh-kpi">
           <div class="dsh-kpi-t">
-            <i class="dsh-kpi-ico"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg></i>
+            <i class="dsh-kpi-ico"><Icon name="trend" :size="13" /></i>
             年度累计采购金额
           </div>
           <div class="dsh-kpi-v">{{ moneyOrDash(d.ytd.ytd) }}<small>元</small></div>
@@ -278,13 +279,13 @@ onMounted(() => {
             <span class="dsh-delta" :class="deltaCls(ytdSub.up)">{{ ytdSub.text }}</span>
           </div>
           <svg class="dsh-spark" viewBox="0 0 76 26" preserveAspectRatio="none">
-            <polyline :points="sparkB" fill="none" :stroke="dark ? '#7FA8FF' : '#165DFF'" stroke-width="1.6" />
+            <polyline :points="sparkB" fill="none" :stroke="dark ? '#FFB65C' : '#FF7D00'" stroke-width="1.6" />
           </svg>
         </div>
 
         <div class="dsh-kpi">
           <div class="dsh-kpi-t">
-            <i class="dsh-kpi-ico"><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z" /><path d="M8 7V4h8v3" /></svg></i>
+            <i class="dsh-kpi-ico"><Icon name="building" :size="13" /></i>
             本月采购项目
           </div>
           <div class="dsh-kpi-v">{{ d.monthly.overview.projects }}<small>个</small></div>
@@ -295,7 +296,7 @@ onMounted(() => {
 
         <div class="dsh-kpi">
           <div class="dsh-kpi-t">
-            <i class="dsh-kpi-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z" /><path d="M9 12h6M9 16h4" /></svg></i>
+            <i class="dsh-kpi-ico"><Icon name="clipboard" :size="13" /></i>
             本月采购条目
           </div>
           <div class="dsh-kpi-v">{{ d.monthly.overview.items }}<small>条</small></div>
