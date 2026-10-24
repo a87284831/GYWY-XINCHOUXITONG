@@ -369,7 +369,7 @@ onMounted(() => {
             <div class="dsh-bud-sum">
               <div class="dsh-bud-sum-i"><span>总预算</span><b>{{ wan(d.budget_exec.total_budget) }}<small>万</small></b></div>
               <div class="dsh-bud-sum-i"><span>总实际</span><b>{{ wan(d.budget_exec.total_actual) }}<small>万</small></b></div>
-              <div class="dsh-bud-sum-i"><span>整体执行率</span><b :class="{ over: d.budget_exec.total_rate > 100 }">{{ d.budget_exec.total_rate.toFixed(1) }}%</b></div>
+              <div class="dsh-bud-sum-i"><span>整体执行率</span><b :class="{ over: (d.budget_exec.total_rate || 0) > 100 }">{{ d.budget_exec.total_rate !== null ? d.budget_exec.total_rate.toFixed(1) : '—' }}%</b></div>
             </div>
             <div v-if="budRows.length" class="dsh-buds">
               <div v-for="r in budRows" :key="r.name">
