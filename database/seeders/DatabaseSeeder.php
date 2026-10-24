@@ -15,11 +15,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // 本项目不使用 Laravel 默认 User Model，通过业务 seeders 初始化
+        $this->command->info('DatabaseSeeder: 跳过默认 User 脚手架，使用业务 seeders');
     }
 }
