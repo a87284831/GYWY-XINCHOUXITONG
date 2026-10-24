@@ -8,42 +8,42 @@
     </div>
     <div style="max-width:900px">
       <div style="display:flex;align-items:center;gap:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 16px;margin-bottom:14px;font-size:13px;flex-wrap:wrap">
-        <span style="color:#1d4ed8;font-weight:600">🧑 发起人：{{ userName }}</span>
+        <span style="color:#1d4ed8;font-weight:600"><Icon name="user" /> 发起人：{{ userName }}</span>
         <span style="color:#6b7280;font-size:12px">账号 {{ userAcc }} · {{ userProj }}</span>
         <span style="margin-left:auto;font-size:11.5px;color:#2563eb;background:#dbeafe;border-radius:10px;padding:1px 10px">自动获取，无需填写</span>
       </div>
 
       <div v-if="personFlds.length" style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px;margin-bottom:14px">
         <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px">
-          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span>👤 人员信息</div>
+          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span><Icon name="user" /> 人员信息</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 20px">
           <div v-for="f in personFlds" :key="f.key" style="margin-bottom:12px"><FieldRow :f="f" :values="values" :sel="selPerson" :person-list="personList" :dept-list="deptList" :has-project="hasProject" :has-person="hasPerson" :proj-val="projVal" :perf-display="perfDisplay" @person-change="onPersonChange" @project-change="onProjectChange" @attach="onAttach" /></div>
         </div>
       </div>
       <div v-if="jobFlds.length" style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px;margin-bottom:14px">
         <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px">
-          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span>📋 入职信息</div>
+          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span><Icon name="clipboard" /> 入职信息</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 20px">
           <div v-for="f in jobFlds" :key="f.key" style="margin-bottom:12px"><FieldRow :f="f" :values="values" :sel="selPerson" :person-list="personList" :dept-list="deptList" :has-project="hasProject" :has-person="hasPerson" :proj-val="projVal" :perf-display="perfDisplay" @person-change="onPersonChange" @project-change="onProjectChange" @attach="onAttach" /></div>
         </div>
       </div>
       <div v-if="salFlds.length" style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px;margin-bottom:14px">
         <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px">
-          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span>💰 薪酬信息</div>
+          <span style="width:4px;height:15px;background:#2563eb;border-radius:2px;margin-right:8px"></span><Icon name="coins" /> 薪酬信息</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 20px">
           <div v-for="f in salFlds" :key="f.key" style="margin-bottom:12px"><FieldRow :f="f" :values="values" :sel="selPerson" :person-list="personList" :dept-list="deptList" :has-project="hasProject" :has-person="hasPerson" :proj-val="projVal" :perf-display="perfDisplay" @person-change="onPersonChange" @project-change="onProjectChange" @attach="onAttach" /></div>
         </div>
       </div>
       <div v-if="matFlds.length" style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px;margin-bottom:14px">
         <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:6px">
-          <span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span>📎 材料清单（材料须上传完成后提交）</div>
+          <span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span><Icon name="link" /> 材料清单（材料须上传完成后提交）</div>
         <div style="font-size:12px;color:#9ca3af;margin-bottom:8px">支持 pdf/jpg/png，单个不超过 5MB</div>
         <FieldRow v-for="f in matFlds" :key="f.key" :f="f" :values="values" :sel="selPerson" :person-list="personList" :dept-list="deptList" :has-project="hasProject" :has-person="hasPerson" :proj-val="projVal" :perf-display="perfDisplay" @person-change="onPersonChange" @project-change="onProjectChange" @attach="onAttach" />
       </div>
 
       <div class="row" style="margin-top:4px;padding-bottom:16px">
         <button class="btn primary" @click="submit">提交审批</button>
-        <button v-if="mode === 'create'" class="btn" @click="saveDraft">💾 保存草稿</button>
+        <button v-if="mode === 'create'" class="btn" @click="saveDraft"><Icon name="doc" /> 保存草稿</button>
         <button class="btn" @click="$emit('back')">{{ mode === 'resubmit' ? '取消' : '取消' }}</button>
       </div>
     </div>
@@ -60,6 +60,7 @@ import { collectForm, perfText, deptNameList } from './approvalLogic'
 import { staffOptions, staffMap } from './staffOptions'
 import { loadOrgTree, orgLeaves, orgProjectOf } from '@/modules/hr/orgStore'
 import FieldRow from './FieldRow.vue'
+import Icon from '@/components/Icon.vue'
 
 const props = defineProps({
   flow: { type: Object, required: true },

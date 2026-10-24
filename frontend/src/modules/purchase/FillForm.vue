@@ -6,6 +6,7 @@ import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessageBox } from 'element-plus'
+import Icon from '@/components/Icon.vue'
 import {
   FILL_LINES, newRow, isRowReadonly, canCopyRow, canRevokeRow, canDeleteRow,
   rowSaveable, validateRow, notInLibrary, rowPayload, saveSummary, freqCell, draftKey,
@@ -413,7 +414,7 @@ onUnmounted(() => clearTimeout(draftTimer))
             @select="(item) => selectName(row, item.value)" />
           <el-input v-else v-model="row.item_name" size="small" placeholder="清单外商品名称" :disabled="isRowReadonly(row, isAdmin)" />
           <div v-if="!isRowReadonly(row, isAdmin) && notInLibrary(row)" style="color:#e6a23c;font-size:12px;line-height:1.5;margin-top:2px;">
-            ⚠ 未匹配到清单内商品：请从联想下拉选择，或打开行尾「清单外」开关手填
+            <Icon name="warning" /> 未匹配到清单内商品：请从联想下拉选择，或打开行尾「清单外」开关手填
           </div>
         </template>
       </el-table-column>

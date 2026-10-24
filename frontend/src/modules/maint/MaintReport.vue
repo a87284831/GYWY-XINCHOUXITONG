@@ -1,6 +1,6 @@
 <template>
   <div class="card">
-    <h3>{{ isFire ? '🧯 消防维保报表' : '🛗 电梯维保报表' }}（{{ year }}年）</h3>
+    <h3 style="display:flex;align-items:center;gap:8px"><Icon :name="isFire ? 'flame' : 'lift'" :size="20" style="color:#f59e0b" />{{ isFire ? '消防维保报表' : '电梯维保报表' }}（{{ year }}年）</h3>
     <div class="row">
       <label class="fld">统计年度 <select v-model.number="year" @change="load">
         <option v-for="y in yearOpts" :key="y" :value="y">{{ y }} 年</option>
@@ -35,11 +35,11 @@
             <div v-else class="msg info" style="text-align:center;padding:30px">暂无数据</div>
           </RSection>
         </div>
-        <RSection title="⚡ 风险合同清单">
+        <RSection title="风险合同清单">
           <div class="table-wrap"><table class="tb">
             <thead><tr><th>项目名称</th><th>签约方</th><th>签约金额</th><th>到期日期</th><th>剩余天数</th><th>员工状态</th></tr></thead>
             <tbody>
-              <tr v-if="!d.risk_list.length"><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">✅ 本年度无临期/已过期合同</td></tr>
+              <tr v-if="!d.risk_list.length"><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px"><Icon name="check" /> 本年度无临期/已过期合同</td></tr>
               <tr v-for="(r, i) in d.risk_list" :key="i">
                 <td><b>{{ r.project }}</b></td><td>{{ r.party }}</td><td class="num">{{ rMoney(r.amount) }}</td><td>{{ r.end_date }}</td><td>{{ daysText(r.end_date) }}</td>
                 <td><span :class="r.status === 'expired' ? 'tag red' : 'tag orange'">{{ RISK_STATE_TEXT[r.status] || r.status }}</span></td>
@@ -61,6 +61,7 @@ import { rMoney } from '@/modules/report/reportLogic'
 import { createCharts, rBar, rHBar, rDoughnut, PALETTE } from '@/modules/report/chartKit'
 import RCard from '@/modules/report/RCard.vue'
 import RSection from '@/modules/report/RSection.vue'
+import Icon from '@/components/Icon.vue'
 
 const props = defineProps({ type: { type: String, default: 'fire' } })
 const router = useRouter()

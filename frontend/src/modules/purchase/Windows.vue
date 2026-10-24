@@ -5,6 +5,7 @@ import { ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { windowState } from './systemLogic'
+import Icon from '@/components/Icon.vue'
 
 const rows = ref([])
 const loading = ref(false)
@@ -157,7 +158,7 @@ onMounted(() => {
         style="width:110px;margin-right:8px" />
       <span style="font-size:13px;color:#999;margin-right:10px;">%</span>
       <el-button size="small" :loading="thresholdSaving" @click="saveThreshold">保存阈值</el-button>
-      <el-button :loading="genLoading" style="margin-left:8px" @click="genWindows">✨ 一键生成未来12个月窗口</el-button>
+      <el-button :loading="genLoading" style="margin-left:8px" @click="genWindows"><Icon name="sparkles" /> 一键生成未来12个月窗口</el-button>
       <el-button type="primary" @click="openCreate">新增窗口</el-button>
     </div>
 

@@ -90,14 +90,14 @@ export const SYM_FORMULA_CN = { personal: '事假', sick: '病假', maternity: '
 
 /* ---- 设置中心侧栏 tab（app.js:3780-3789） ---- */
 export const SETTINGS_TABS = [
-  { key: 'perm', label: '👤 权限管理', perm: 'users' },
-  { key: 'approvalFlow', label: '✅ 审批权责设置', perm: 'users' },
-  { key: 'salarySettings', label: '💰 薪酬设置', perm: 'rules' },
-  { key: 'company', label: '🏢 公司信息', perm: 'settings' },
-  { key: 'dingtalk', label: '🔔 钉钉同步', perm: 'settings' },
-  { key: 'security', label: '🔒 登录安全', perm: 'settings' },
-  { key: 'backup', label: '💾 数据备份', perm: 'backup' },
-  { key: 'logs', label: '📜 操作日志', perm: 'logs' },
+  { key: 'perm', label: '权限管理', icon: 'user', perm: 'users' },
+  { key: 'approvalFlow', label: '审批权责设置', icon: 'check', perm: 'users' },
+  { key: 'salarySettings', label: '薪酬设置', icon: 'coins', perm: 'rules' },
+  { key: 'company', label: '公司信息', icon: 'building', perm: 'settings' },
+  { key: 'dingtalk', label: '钉钉同步', icon: 'bell', perm: 'settings' },
+  { key: 'security', label: '登录安全', icon: 'lock', perm: 'settings' },
+  { key: 'backup', label: '数据备份', icon: 'box', perm: 'backup' },
+  { key: 'logs', label: '操作日志', icon: 'scroll', perm: 'logs' },
 ]
 export function visibleTabs(tabs, can) { return tabs.filter((t) => can(t.perm)) }
 

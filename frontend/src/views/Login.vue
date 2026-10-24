@@ -1,23 +1,23 @@
 <template>
   <div id="loginPage">
     <div class="login-brand">
-      <h1>昊轩云枢</h1>
-      <div class="sub">本地部署 · 数据存储于本机<br>多项目薪资核算 · 数据可视化驾驶舱</div>
-      <div class="copy" style="bottom:30px;left:8%;">
-        <div style="display:inline-block;background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.55);border-radius:12px;padding:10px 20px;font-size:15px;color:#fff;line-height:2;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,.18);">
-          <div style="font-size:12px;color:#b8c8e8;letter-spacing:2px;margin-bottom:2px;">原创开发</div>
-          <b style="font-size:16px;color:#fff;">原创开发人：李昊轩</b><br>
-          <b style="font-size:15px;color:#e8f0ff;">技术协作人：谢印良</b>
-        </div>
-        <div style="margin-top:10px;font-size:12px;color:#b8c8e8;">© 2026 昊轩云枢 v3.0</div>
+      <div class="glow"></div>
+      <div class="grid-bg"></div>
+      <div class="lb-top"><div class="logo-mark">昊</div><b>昊轩云枢</b></div>
+      <div class="lb-mid">
+        <h1>一个平台<br><em>管好人与钱</em></h1>
+        <p class="sub">薪酬核算 · 采购审批 · 财务台账<br>组织架构与考勤数据实时同步</p>
       </div>
+      <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩 · 技术协作人：谢印良</div>
     </div>
     <div class="login-side">
       <div class="login-card">
         <div class="welcome">欢迎登录</div>
-        <div class="welcome-sub">请输入您的账号信息</div>
-        <div class="input-wrap"><span class="ico">👤</span><input v-model="username" type="text" placeholder="用户名" autocomplete="off"></div>
-        <div class="input-wrap"><span class="ico">🔒</span><input v-model="password" type="password" placeholder="密码" @keydown.enter="doLogin"></div>
+        <div class="welcome-sub">请使用管理员或员工账号进入</div>
+        <div class="fld-label">账号</div>
+        <div class="input-wrap"><span class="ico"><Icon name="user" :size="15" /></span><input v-model="username" type="text" placeholder="请输入用户名" autocomplete="off"></div>
+        <div class="fld-label">密码</div>
+        <div class="input-wrap"><span class="ico"><Icon name="lock" :size="15" /></span><input v-model="password" type="password" placeholder="请输入密码" @keydown.enter="doLogin"></div>
         <button @click="doLogin">登 录</button>
         <div class="login-tip" :style="{ color: tipColor }">{{ tip }}</div>
       </div>
@@ -30,13 +30,14 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import Icon from '@/components/Icon.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const username = ref('')
 const password = ref('')
-const tip = ref('首次使用：admin / admin123')
+const tip = ref('遇到登录问题请联系系统管理员')
 const tipColor = ref('')
 
 async function doLogin() {

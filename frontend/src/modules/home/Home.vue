@@ -11,27 +11,27 @@
     <div class="home-sec-title">数据速览</div>
     <div class="home-kpi-row">
       <div class="home-kpi no-link">
-        <div class="hk-top"><span class="hk-ico" style="background:#dbeafe;color:#1d4ed8">👥</span>在职人数</div>
+        <div class="hk-top"><span class="hk-ico" style="background:#dbeafe;color:#1d4ed8"><Icon name="users" :size="15" /></span>在职人数</div>
         <div class="hk-num">{{ kpi.active }}</div>
         <div class="hk-sub">含试用，不含离职</div>
       </div>
       <div class="home-kpi" :class="{ 'no-link': !auth.can('payroll') }" @click="kpiGrossClick">
-        <div class="hk-top"><span class="hk-ico" style="background:#dcfce7;color:#15803d">💰</span>本月应发总额</div>
+        <div class="hk-top"><span class="hk-ico" style="background:#dcfce7;color:#15803d"><Icon name="coins" :size="15" /></span>本月应发总额</div>
         <div class="hk-num">{{ kpi.gross }}</div>
         <div class="hk-sub">{{ month }} 应发合计 · 点击查看</div>
       </div>
       <div class="home-kpi" :class="{ 'no-link': !auth.can('payroll') }" @click="kpiGrossClick">
-        <div class="hk-top"><span class="hk-ico" style="background:#fef3c7;color:#b45309">🧾</span>本月发放人数</div>
+        <div class="hk-top"><span class="hk-ico" style="background:#fef3c7;color:#b45309"><Icon name="receipt" :size="15" /></span>本月发放人数</div>
         <div class="hk-num">{{ kpi.head }}</div>
         <div class="hk-sub">有效考勤人数 · 点击查看</div>
       </div>
       <div v-if="auth.can('perf')" class="home-kpi" @click="auth.can('perf') && goPage('perfApprove')">
-        <div class="hk-top"><span class="hk-ico" style="background:#ede9fe;color:#6d28d9">✅</span>待我审批</div>
+        <div class="hk-top"><span class="hk-ico" style="background:#ede9fe;color:#6d28d9"><Icon name="check" :size="15" /></span>待我审批</div>
         <div class="hk-num">{{ kpi.approve }}</div>
         <div class="hk-sub">绩效考核单 · 点击处理</div>
       </div>
       <div v-if="auth.can('maint_fire') || auth.can('maint_elev')" class="home-kpi" @click="kpiMaintClick">
-        <div class="hk-top"><span class="hk-ico" style="background:#ffedd5;color:#c2410c">🔧</span>维保在管合同</div>
+        <div class="hk-top"><span class="hk-ico" style="background:#ffedd5;color:#c2410c"><Icon name="wrench" :size="15" /></span>维保在管合同</div>
         <div class="hk-num">{{ kpi.maint }}<span v-if="kpi.maintUnit" class="hk-unit">{{ kpi.maintUnit }}</span></div>
         <div class="hk-sub">{{ kpi.maintSub }}</div>
       </div>
@@ -47,7 +47,7 @@
         @click="goPage(c.page)"
       >
         <div class="hk-top">
-          <span class="hk-ico" :style="{ background: c.color + '22', color: c.color }">{{ c.icon }}</span>{{ c.title }}
+          <span class="hk-ico" :style="{ background: c.color + '22', color: c.color }"><Icon :name="c.icon" :size="15" /></span>{{ c.title }}
           <span v-if="c.num !== '' && c.num !== undefined && c.num !== null" :style="{ marginLeft: 'auto', background: c.color, color: '#fff', fontSize: '11px', padding: '1px 9px', borderRadius: '11px', fontWeight: 700 }">{{ c.num }}</span>
         </div>
         <div class="hk-sub" style="font-size:12.5px;color:#475569;margin:1px 0 7px">{{ c.sub }}</div>
@@ -67,7 +67,7 @@
         <div v-if="!HOME_BUILT.has(a.key)" class="ha-tag">建设中</div>
         <div v-else-if="!cardEnabled(a)" class="ha-tag">未授权</div>
         <div class="ha-head">
-          <div class="ha-ico" :style="{ background: cardEnabled(a) ? a.color : '#94a3b8' }">{{ a.icon }}</div>
+          <div class="ha-ico" :style="{ background: cardEnabled(a) ? a.color : '#94a3b8' }"><Icon :name="a.icon" :size="22" /></div>
           <div class="ha-name">{{ a.name }}</div>
         </div>
         <div class="ha-desc">{{ HOME_META[a.key]?.desc || '模块规划中，敬请期待' }}</div>
@@ -85,6 +85,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { APPS, HOME_BUILT, HOME_META, appEnabled, APP_ROUTE, goPage } from '@/nav/menus'
+import Icon from '@/components/Icon.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -196,34 +197,34 @@ async function homeLoadTodo() {
   if (auth.can('perf')) {
     try {
       const d = await api('/api/performance/plans?scope=approve')
-      cards.push(todoCard('✅', '待我审批', (d.plans || []).length, '绩效考核单等待您逐级审批确认', 'perfApprove', '#8b5cf6'))
+      cards.push(todoCard('check', '待我审批', (d.plans || []).length, '绩效考核单等待您逐级审批确认', 'perfApprove', '#8b5cf6'))
     } catch (e) {}
     try {
       const d = await api('/api/performance/plans?scope=report')
-      cards.push(todoCard('✍️', '待我填报', (d.plans || []).length, '考核单需要您填报相关数据', 'perfReport', '#f59e0b'))
+      cards.push(todoCard('pen', '待我填报', (d.plans || []).length, '考核单需要您填报相关数据', 'perfReport', '#f59e0b'))
     } catch (e) {}
     try {
       const d = await api('/api/performance/plans?scope=mine')
       const n = (d.plans || []).filter((p) => p.status !== 'done' && p.status !== 'draft').length
-      cards.push(todoCard('📋', '我的考核进行中', n, '本人考核流程当前进度', 'perfMine', '#2563eb', '查看我的考核 →'))
+      cards.push(todoCard('clipboard', '我的考核进行中', n, '本人考核流程当前进度', 'perfMine', '#2563eb', '查看我的考核 →'))
     } catch (e) {}
   }
-  if (auth.can('perf_admin')) cards.push(todoCard('🗂️', '考核记录管理', '', '全部考核流程、季度明细与项目得分排名', 'perfRecords', '#0ea5e9', '进入管理 →'))
+  if (auth.can('perf_admin')) cards.push(todoCard('folder', '考核记录管理', '', '全部考核流程、季度明细与项目得分排名', 'perfRecords', '#0ea5e9', '进入管理 →'))
   // 审批中心待办（对所有登录账号可见）
   try {
     const ad = await api('/api/approval/list?scope=approve')
     const an = (ad.items || []).length
-    if (an > 0) cards.unshift(todoCard('✅', '待我审批', an, '录用/转正/离职等审批单等待您处理', 'approvalCenter', '#8b5cf6'))
+    if (an > 0) cards.unshift(todoCard('check', '待我审批', an, '录用/转正/离职等审批单等待您处理', 'approvalCenter', '#8b5cf6'))
   } catch (e) {}
   if (auth.user && auth.user.role === 'admin') {
     try {
       const od = await api('/api/approval/onboard/list?status=pending')
       const on = (od.items || []).length
-      if (on > 0) cards.push(todoCard('🧳', '入职办理待办', on, '录用已通过，待完成入职办理清单', 'approvalCenter', '#0891b2'))
+      if (on > 0) cards.push(todoCard('briefcase', '入职办理待办', on, '录用已通过，待完成入职办理清单', 'approvalCenter', '#0891b2'))
     } catch (e) {}
   }
-  if (auth.can('payroll')) cards.push(todoCard('🧮', '薪资核算与微调', '', `进入 ${month.value} 薪资核算与人工微调`, 'payroll', '#16a34a', '去核算 →'))
-  if (auth.can('staff')) cards.push(todoCard('👥', '人员档案', '', '维护员工档案、入职转正与离职信息', 'staff', '#0891b2', '查看档案 →'))
+  if (auth.can('payroll')) cards.push(todoCard('calc', '薪资核算与微调', '', `进入 ${month.value} 薪资核算与人工微调`, 'payroll', '#16a34a', '去核算 →'))
+  if (auth.can('staff')) cards.push(todoCard('users', '人员档案', '', '维护员工档案、入职转正与离职信息', 'staff', '#0891b2', '查看档案 →'))
   todoCards.value = cards
 }
 

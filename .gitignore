@@ -30,3 +30,6 @@ deploy/
 
 # 前端构建产物（部署时本地构建，见 docs/联合开发指南.md）
 /public/app
+
+# 本地 storage:link 软链（Windows Junction，禁止入库）
+/public/storage

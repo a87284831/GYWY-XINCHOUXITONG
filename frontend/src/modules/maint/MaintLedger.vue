@@ -2,7 +2,7 @@
   <div class="card">
     <h3>{{ label }}维保台账</h3>
     <div class="row" style="flex-wrap:wrap;gap:8px">
-      <button class="btn primary sm" @click="openEdit(null)">＋ 新增合同</button>
+      <button class="btn primary sm" @click="openEdit(null)"><Icon name="plus" /> 新增合同</button>
       <input v-model="f.kw" placeholder="关键词(项目/签约方/备注)" style="width:180px">
       <input v-model="f.efrom" type="date">
       <input v-model="f.eto" type="date">
@@ -88,6 +88,7 @@ import { toast } from '@/utils/toast'
 import { maintFmtMoney, maintStatusOf, maintOverlapsYear, filterLedger, buildLedgerExportRows, buildCsv, priceAutoCalc } from './maintLogic'
 import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import MaintModal from './MaintModal.vue'
+import Icon from '@/components/Icon.vue'
 
 const props = defineProps({ type: { type: String, default: 'fire' } })
 const auth = useAuthStore()

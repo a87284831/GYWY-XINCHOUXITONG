@@ -4,6 +4,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { exportMonthName, exportYearName, overBudgetReason, batchSummary } from './systemLogic'
+import Icon from '@/components/Icon.vue'
 import { moneyOrDash } from '@/utils/format'
 
 const now = new Date()
@@ -219,7 +220,7 @@ onMounted(loadArchive)
             style="width:160px" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="exporting" @click="exportMonthXlsx">⬇ 导出 Excel（含各条线明细）</el-button>
+          <el-button type="primary" :loading="exporting" @click="exportMonthXlsx"><Icon name="down" /> 导出 Excel（含各条线明细）</el-button>
         </el-form-item>
       </el-form>
       <div style="color:#999;font-size:12px;line-height:1.8">
@@ -239,7 +240,7 @@ onMounted(loadArchive)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" plain :loading="yearExporting" @click="exportYearXlsx">⬇ 导出 {{ exportYear }} 年全部采购明细</el-button>
+          <el-button type="primary" plain :loading="yearExporting" @click="exportYearXlsx"><Icon name="down" /> 导出 {{ exportYear }} 年全部采购明细</el-button>
         </el-form-item>
       </el-form>
       <div style="color:#999;font-size:12px;line-height:1.8">
@@ -261,7 +262,7 @@ onMounted(loadArchive)
             @click="fileInput && fileInput.click()" />
         </el-form-item>
         <el-form-item>
-          <el-button type="success" :loading="importing" :disabled="!importFile" @click="doImport">⬆ 导入存档</el-button>
+          <el-button type="success" :loading="importing" :disabled="!importFile" @click="doImport"><Icon name="up" /> 导入存档</el-button>
         </el-form-item>
       </el-form>
       <el-alert type="warning" :closable="false" style="margin-top:8px"
@@ -282,7 +283,7 @@ onMounted(loadArchive)
         </el-form-item>
         <el-form-item>
           <el-button type="warning" :loading="batchLoading" :disabled="batchFiles.length === 0" @click="doBatchImport">
-            📂 批量导入
+            <Icon name="folder" /> 批量导入
           </el-button>
         </el-form-item>
       </el-form>

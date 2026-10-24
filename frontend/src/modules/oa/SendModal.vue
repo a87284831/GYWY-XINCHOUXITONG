@@ -1,5 +1,5 @@
 <template>
-  <Modal :show="show" :width="720" :title="'📤 发送流程（审批单 #' + id + '）'" @close="$emit('close')">
+  <Modal :show="show" :width="720" :title="'发送流程（审批单 #' + id + '）'" @close="$emit('close')">
     <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px">从人员档案中选择接收人，自动匹配其系统账号；接收人在「我的待办-收件」中查看（只读）</div>
     <div style="max-height:380px;overflow:auto;border:1px solid #eef0f3;border-radius:10px">
       <template v-if="groups.length">

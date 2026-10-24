@@ -3,7 +3,7 @@ export const FLOW_NAME = { hire_approval: '录用审批', regular_approval: '转
 export function flowNameOf(key) { return FLOW_NAME[key] || key }
 
 export const FLOW_ORDER = ['hire_approval', 'regular_approval', 'resign_approval']
-export const FLOW_ICON = { hire_approval: '📋', regular_approval: '✅', resign_approval: '🚪' }
+export const FLOW_ICON = { hire_approval: 'clipboard', regular_approval: 'check', resign_approval: 'logout' }
 export const FLOW_DESC = {
   hire_approval: '新员工录用审批，通过后进入入职办理',
   regular_approval: '试用期满转正审批，通过后更新档案转正日期',

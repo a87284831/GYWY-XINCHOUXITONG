@@ -6,6 +6,7 @@ import { toast } from '@/utils/toast'
 import { money, moneyOrDash } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { budgetStats, budgetRowState, budgetYears, hasBudgetMonth } from './adminLogic'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const now = new Date()
@@ -142,9 +143,9 @@ onMounted(() => {
               ? { background:'#e8f5e9', color:'#16a34a', borderColor:'#b7e3bb' }
               : {}),
         }">
-        {{ n }}月<span v-if="hasBudgetMonth(budgetMonths, Number(year), n)"> ✓</span>
+        {{ n }}月<span v-if="hasBudgetMonth(budgetMonths, Number(year), n)"> <Icon name="check" size="11" /></span>
       </div>
-      <span style="font-size:11px;color:#999;margin-left:4px;">✓ = 该月已设置预算，点击可直接切换填写</span>
+      <span style="font-size:11px;color:#999;margin-left:4px;"><Icon name="check" size="11" /> = 该月已设置预算，点击可直接切换填写</span>
     </div>
 
     <!-- KPI -->

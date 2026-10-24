@@ -7,6 +7,7 @@ import { toast } from '@/utils/toast'
 import { FILL_LINES } from './fillLogic'
 import { monthShort, lineTagType } from './adminLogic'
 import OverviewItems from './OverviewItems.vue'
+import Icon from '@/components/Icon.vue'
 
 const now = new Date()
 const month = ref(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'))
@@ -359,7 +360,7 @@ onMounted(load)
     <el-alert v-if="archived" type="success" :closable="false" show-icon style="margin-bottom:14px"
       title="本月已归档锁定（最终版）：员工只读，确认/退回/微调/删除/报价导入均不可用，导出不受影响">
       <div style="margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span style="color:#67c23a">✓ 最终版已锁定</span>
+        <span style="color:#67c23a"><Icon name="check" /> 最终版已锁定</span>
         <el-button size="small" plain type="warning" @click="doUnarchive">撤销归档（恢复编辑）</el-button>
       </div>
     </el-alert>

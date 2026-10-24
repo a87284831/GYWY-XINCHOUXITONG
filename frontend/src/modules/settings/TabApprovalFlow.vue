@@ -2,7 +2,7 @@
   <div :data-tick="tick">
     <div style="display:flex;gap:16px;flex-wrap:wrap">
       <div style="width:220px;flex:none">
-        <div class="row" style="margin-bottom:8px"><button class="btn success sm" @click="appFlowNew">＋ 新建流程</button></div>
+        <div class="row" style="margin-bottom:8px"><button class="btn success sm" @click="appFlowNew"><Icon name="plus" /> 新建流程</button></div>
         <div>
           <div v-for="f in S.flows" :key="f.flow_key" class="rt-tab" :class="{ active: S.flow && S.flow.flow_key === f.flow_key }" style="margin:0 0 6px;width:100%;text-align:left" @click="appFlowEdit(f.flow_key)">
             {{ f.name }}{{ f.enabled ? '' : '（停用）' }}</div>
@@ -22,8 +22,8 @@
             <div style="font-size:12px;color:#9ca3af">表单字段与审批流保存后对所有账号生效。内部字段标识由系统自动生成，无需填写英文。</div>
           </div>
           <div style="display:flex;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:10px;background:#fff">
-            <div class="af-tab" :class="{ active: S.tab === 'form' }" @click="setTab('form')">📝 表单设计</div>
-            <div class="af-tab" :class="{ active: S.tab === 'flow' }" @click="setTab('flow')">🔄 审批流设计</div>
+            <div class="af-tab" :class="{ active: S.tab === 'form' }" @click="setTab('form')"><Icon name="edit" /> 表单设计</div>
+            <div class="af-tab" :class="{ active: S.tab === 'flow' }" @click="setTab('flow')"><Icon name="refresh" /> 审批流设计</div>
           </div>
 
           <!-- Tab1：表单设计（所见即所得） -->
@@ -32,8 +32,8 @@
               <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:4px">字段添加面板</div>
               <div style="font-size:11.5px;color:#9ca3af;margin-bottom:10px">选择要加入的分组，点击「＋ 添加字段」；在右侧预览区可编辑/删除/移动字段。</div>
               <div v-for="g in APP_GROUPS" :key="g.key" style="margin-bottom:14px">
-                <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:7px">{{ g.icon }} {{ g.name }}<span v-if="g.key === 'material'" style="font-weight:400;font-size:11px;color:#9ca3af">（仅附件上传）</span></div>
-                <button class="btn sm" style="width:100%;border:1.5px dashed #bfdbfe;color:#2563eb;background:#fff" @click="openFldModal(-1, g.key)">＋ 添加字段</button>
+                <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:7px;display:flex;align-items:center;gap:6px"><Icon :name="g.icon" :size="14" style="color:#6b7280" />{{ g.name }}<span v-if="g.key === 'material'" style="font-weight:400;font-size:11px;color:#9ca3af">（仅附件上传）</span></div>
+                <button class="btn sm" style="width:100%;border:1.5px dashed #bfdbfe;color:#2563eb;background:#fff" @click="openFldModal(-1, g.key)"><Icon name="plus" /> 添加字段</button>
               </div>
             </div>
             <div style="flex:1;min-width:380px">
@@ -41,7 +41,7 @@
               <div style="border:1.5px solid #e5e7eb;border-radius:12px;background:#fff;overflow:hidden">
                 <div style="padding:10px 16px;font-size:14px;font-weight:700;color:#1f2937;border-bottom:1px solid #eee;background:#f8fafc">{{ S.flow.name }} · 发起表单预览</div>
                 <template v-for="g in APP_GROUPS" :key="g.key">
-                  <div class="app-sec-title" :style="{ marginTop: g.key === 'person' ? '0' : '14px' }">{{ g.icon }} {{ g.name }}</div>
+                  <div class="app-sec-title" :style="{ marginTop: g.key === 'person' ? '0' : '14px', display: 'flex', alignItems: 'center', gap: '6px' }"><Icon :name="g.icon" :size="14" />{{ g.name }}</div>
                   <div v-for="x in groupFields(g.key)" :key="x.f.key || x.i" class="fp-row" style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid #f7f7f7;position:relative">
                     <span style="width:120px;flex:none;font-size:13px;color:#374151">
                       <span v-if="x.f.required" style="color:#dc2626">*</span>{{ x.f.label }}<span v-if="x.f.hint" style="display:block;font-size:11px;color:#9ca3af;font-weight:400">{{ x.f.hint }}</span>
@@ -66,7 +66,7 @@
           <FlowDesign v-else :tick="tick" />
 
           <div class="row" style="margin-top:14px">
-            <button class="btn primary" @click="appFlowSave">💾 保存流程配置</button>
+            <button class="btn primary" @click="appFlowSave"><Icon name="doc" /> 保存流程配置</button>
             <button class="btn" @click="cancelEdit">取消</button>
           </div>
         </template>
@@ -137,7 +137,7 @@
           </div>
           <div v-if="!(curNodeFn().approvers || []).length" style="color:#9ca3af;font-size:12px">尚未配置审批人</div>
         </div>
-        <button class="btn success sm" style="margin-top:8px" @click="addRule">＋ 添加审批人规则</button>
+        <button class="btn success sm" style="margin-top:8px" @click="addRule"><Icon name="plus" /> 添加审批人规则</button>
       </div>
       <template #foot><button class="btn primary" @click="saveNode">保存节点</button><button class="btn" @click="closeNode">取消</button></template>
     </Modal>
@@ -149,7 +149,7 @@
         <div style="font-weight:600;font-size:12.5px;margin:6px 0">分支条件</div>
         <div v-for="(p, i) in curBranchFn().paths" :key="p.id" style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;padding:8px 10px;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <b style="font-size:12.5px;color:#15803d">{{ p.default ? '🔸 默认分支' : '✅ 条件分支' }}</b>
+            <b style="font-size:12.5px;color:#15803d">{{ p.default ? '默认分支' : '条件分支' }}</b>
             <input v-if="!p.default" v-model="p.label" placeholder="条件标签" style="border:1px solid #d1fae5;border-radius:6px;padding:4px 8px;font-size:12.5px;width:120px">
             <span style="flex:1"></span>
             <button v-if="!p.default" class="btn sm danger" @click="pathDel(i)">删</button>
@@ -178,13 +178,14 @@ import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { insertAfter, removeItemById, findNodeRefId, findBranchById, collectNodeIds, legacyToTree } from '@/modules/oa/approvalLogic'
 import Modal from '@/components/Modal.vue'
+import Icon from '@/components/Icon.vue'
 
 const S = MOD
 const APP_GROUPS = [
-  { key: 'person', name: '人员信息', icon: '👤' },
-  { key: 'job', name: '入职信息', icon: '📋' },
-  { key: 'salary', name: '薪酬信息', icon: '💰' },
-  { key: 'material', name: '材料清单', icon: '📎' },
+  { key: 'person', name: '人员信息', icon: 'user' },
+  { key: 'job', name: '入职信息', icon: 'clipboard' },
+  { key: 'salary', name: '薪酬信息', icon: 'coins' },
+  { key: 'material', name: '材料清单', icon: 'folder' },
 ]
 const APP_FLD_TYPES = [['text', '单行文本'], ['textarea', '多行文本'], ['number', '数字'], ['amount', '金额'], ['date', '日期'], ['select', '下拉选择'], ['radio', '单选'], ['multi', '多选'], ['person', '选择人员'], ['project', '选择项目'], ['department', '部门(按项目联动)'], ['attachment', '附件上传']]
 const BRANCH_OPS = [['eq', '等于'], ['neq', '不等于'], ['contains', '包含'], ['gt', '大于'], ['lt', '小于'], ['gte', '大于等于'], ['lte', '小于等于'], ['empty', '为空'], ['notempty', '不为空']]
@@ -334,8 +335,8 @@ function addBtnVn(refId) {
     h('button', { class: 'flow-add-btn', onClick: (e) => { e.stopPropagation(); S.addMenu = refId; rr() } }, [h('span', { style: 'font-size:15px;font-weight:700' }, '＋'), ' 添加']),
     S.addMenu === refId
       ? h('div', { class: 'flow-add-menu' }, [
-          h('div', { class: 'mi', onClick: () => appNodeAddAfter(refId) }, '👤 审批人'),
-          h('div', { class: 'mi', onClick: () => appBranchAddAfter(refId) }, '🔀 条件分支'),
+          h('div', { class: 'mi', onClick: () => appNodeAddAfter(refId) }, '审批人'),
+          h('div', { class: 'mi', onClick: () => appBranchAddAfter(refId) }, '条件分支'),
         ])
       : null,
   ])
@@ -343,13 +344,13 @@ function addBtnVn(refId) {
 function renderBranchVn(b) {
   return h('div', { style: 'position:relative;margin:8px 0;padding-left:26px;border-left:2px solid #86efac' }, [
     h('div', { style: 'display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:6px 14px;font-size:13px;color:#15803d;font-weight:600;margin-bottom:10px' }, [
-      '🔀 条件分支：' + branchCondText(b.cond || {}),
+      '条件分支：' + branchCondText(b.cond || {}),
       h('button', { class: 'btn sm', style: 'margin-left:auto', onClick: () => { S.branchId = b.id; rr() } }, '编辑条件'),
       h('button', { class: 'btn sm', style: 'color:#dc2626', onClick: () => appBranchDel(b.id) }, '删'),
     ]),
     h('div', { style: 'display:flex;align-items:flex-start;gap:10px' }, (b.paths || []).map((p) =>
       h('div', { style: 'flex:1;min-width:0;border-top:2px solid #86efac;position:relative' }, [
-        h('div', { style: 'display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #bbf7d0;color:#15803d;font-size:12px;padding:3px 11px;border-radius:13px;margin:2px 0 8px' }, p.default ? '🔸 默认' : '✅ ' + (p.label || '命中')),
+        h('div', { style: 'display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #bbf7d0;color:#15803d;font-size:12px;padding:3px 11px;border-radius:13px;margin:2px 0 8px' }, p.default ? '默认' : (p.label || '命中')),
         h('div', renderChainVn(p)),
         addBtnVn(p.id),
       ]))),

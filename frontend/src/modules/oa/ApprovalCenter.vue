@@ -2,7 +2,7 @@
   <div class="card" style="display:flex;gap:0;padding:0;overflow:hidden">
     <!-- 左侧导航（app.js:5758-5775） -->
     <div style="width:172px;flex-shrink:0;background:#f8fafc;border-right:1px solid #eef0f3;padding:8px 0 16px">
-      <div style="padding:12px 16px 6px;font-size:14px;font-weight:700;color:#111827">📋 审批中心</div>
+      <div style="padding:12px 16px 6px;font-size:14px;font-weight:700;color:#111827"><Icon name="clipboard" /> 审批中心</div>
       <div style="font-size:11px;color:#9ca3af;padding:10px 16px 4px;font-weight:600">我的工作</div>
       <div v-for="t in [['todo','我的待办',todoBadge],['approve','待我审批',0],['mine','我的审批',0]]" :key="t[0]" class="app-nav" :class="{ on: tab === t[0] }" @click="switchTab(t[0])">
         <span>{{ t[1] }}</span><span v-if="t[2]" class="app-nav-badge">{{ t[2] }}</span>
@@ -24,8 +24,8 @@
       <!-- ============ 我的待办：草稿/收件 ============ -->
       <template v-if="tab === 'todo'">
         <div style="display:flex;gap:10px;margin-bottom:12px">
-          <button class="btn sm" :class="todoTab === 'draft' ? 'primary' : ''" @click="todoTab = 'draft'">📝 草稿（保存未提交）</button>
-          <button class="btn sm" :class="todoTab === 'inbox' ? 'primary' : ''" @click="todoTab = 'inbox'">📥 收件（他人发送）</button>
+          <button class="btn sm" :class="todoTab === 'draft' ? 'primary' : ''" @click="todoTab = 'draft'"><Icon name="edit" /> 草稿（保存未提交）</button>
+          <button class="btn sm" :class="todoTab === 'inbox' ? 'primary' : ''" @click="todoTab = 'inbox'"><Icon name="down" /> 收件（他人发送）</button>
         </div>
         <!-- 草稿列表 -->
         <template v-if="todoTab === 'draft'">
@@ -93,7 +93,7 @@
               <td>{{ it.applicant }}</td><td>{{ fmtTime(it.time) }}</td>
               <td>
                 <button class="btn sm primary" @click="openDetail(it.id)">详情</button>
-                <button v-if="tab === 'flowmgt' && (it.status === 'approved' || it.status === 'rejected')" class="btn sm" style="margin-left:6px" @click="sendId = it.id">📤 发送</button>
+                <button v-if="tab === 'flowmgt' && (it.status === 'approved' || it.status === 'rejected')" class="btn sm" style="margin-left:6px" @click="sendId = it.id"><Icon name="up" /> 发送</button>
               </td>
             </tr>
           </tbody>
@@ -109,7 +109,7 @@
             <div class="page-sub" style="margin-bottom:12px">选择流程类型，发起对应审批</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap">
               <div v-for="f in pubFlows" :key="f.flow_key" class="home-app" style="width:250px;cursor:pointer;border:1px solid #eef0f3" @click="startNew(f.flow_key)">
-                <div class="ha-head"><div class="ha-ico" style="background:#8b5cf6">{{ FLOW_ICON[f.flow_key] || '📋' }}</div><div class="ha-name">{{ f.name }}</div></div>
+                <div class="ha-head"><div class="ha-ico" style="background:#8b5cf6"><Icon :name="FLOW_ICON[f.flow_key] || 'clipboard'" :size="20" /></div><div class="ha-name">{{ f.name }}</div></div>
                 <div class="ha-desc" style="min-height:36px">{{ FLOW_DESC[f.flow_key] || (f.form_schema.length + ' 个表单字段') }}</div>
                 <div class="ha-go" style="color:#8b5cf6">去发起 →</div>
               </div>
@@ -188,6 +188,7 @@ import DetailModal from './DetailModal.vue'
 import SendModal from './SendModal.vue'
 import OnboardModal from './OnboardModal.vue'
 import AppForm from './AppForm.vue'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user && auth.user.role === 'admin')

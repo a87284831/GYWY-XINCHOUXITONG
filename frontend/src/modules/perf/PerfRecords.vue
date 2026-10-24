@@ -4,7 +4,7 @@
     <div class="row" style="justify-content:space-between">
       <h3 style="margin:0;border:none;padding:0">考核记录管理</h3>
       <div class="row">
-        <button class="btn sm" @click="gradeSettings">⚙️ 考评等级与占比设置</button>
+        <button class="btn sm" @click="gradeSettings"><Icon name="gear" /> 考评等级与占比设置</button>
         <button class="btn sm" @click="load">刷新</button>
       </div>
     </div>
@@ -26,7 +26,7 @@
           <label style="font-size:13px">季度 <select v-model.number="quarter"><option :value="0">全部季度</option><option v-for="q in 4" :key="q" :value="q">第{{ q }}季度</option></select></label>
           <label style="font-size:13px">项目 <select v-model="project" style="max-width:170px"><option value="">全部项目</option><option v-for="x in projectOpts" :key="x" :value="x">{{ x }}</option></select></label>
           <input v-model="kwInput" type="text" placeholder="按姓名/条线/项目搜索…" style="width:170px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px" />
-          <button class="btn sm" @click="adminExport">📤 批量导出</button>
+          <button class="btn sm" @click="adminExport"><Icon name="up" /> 批量导出</button>
         </div>
         <!-- 排名 Tab -->
         <div v-if="tab === 'rank'">
@@ -64,7 +64,7 @@
                   <td style="white-space:nowrap">{{ p.periodStart || '' }} ~ {{ p.periodEnd || '' }}</td>
                   <td>
                     <span :class="`tag ${STATUS_COLOR[p.status] || 'gray'}`">{{ STATUS_LABEL[p.status] || p.status }}</span>
-                    <div v-if="p.rejectOpinion" class="hint" style="margin:0;color:#c2410c" :title="p.rejectOpinion">⚠ 有驳回</div>
+                    <div v-if="p.rejectOpinion" class="hint" style="margin:0;color:#c2410c" :title="p.rejectOpinion"><Icon name="warning" /> 有驳回</div>
                   </td>
                   <td class="num">{{ perfFmt(p.weightSum) }}</td>
                   <td class="num">{{ perfFmt(p.selfTotal) }}</td>
@@ -106,7 +106,7 @@
             <button class="btn sm danger" @click="gradeRules.splice(i, 1)">删</button>
           </div>
         </div>
-        <div class="row" style="margin-top:8px"><button class="btn sm" @click="gradeRules.push({ min: 0, label: '' })">＋ 增加等级</button></div>
+        <div class="row" style="margin-top:8px"><button class="btn sm" @click="gradeRules.push({ min: 0, label: '' })"><Icon name="plus" /> 增加等级</button></div>
         <div class="hint">按最低分数线从高到低匹配，如 ≥90=优秀、80~89.99=良好。最终总分落在哪个区间即取对应等级。</div>
         <div class="row end" style="margin-top:12px">
           <button class="btn" @click="gradeModal = false">取消</button>
@@ -123,6 +123,7 @@ import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { perfFmt } from './perfLogic'
 import PerfDetail from './PerfDetail.vue'
+import Icon from '@/components/Icon.vue'
 
 const STATUS_LABEL = { draft: '草稿', confirm: '待确认指标', ongoing: '考核进行中', report: '待数据填报', self: '待发起人自评', approve: '待逐级审批', done: '已归档' }
 const STATUS_COLOR = { draft: 'gray', confirm: 'orange', ongoing: 'blue', report: 'orange', self: 'orange', approve: 'purple', done: 'green' }

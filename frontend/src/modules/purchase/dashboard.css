@@ -13,6 +13,9 @@
 .dsh-page[data-theme="dark"] {
   --dash-line: #1F2A40;
   background: #0B1220;
+  background-image:
+    radial-gradient(760px 340px at 85% -90px, rgba(22,93,255,.26), transparent 70%),
+    radial-gradient(600px 320px at -8% 0%, rgba(74,139,255,.13), transparent 70%);
   min-height: calc(100vh - 120px);
   /* 与 .content 的 20px/22px 内边距对齐，让深色铺满内容区 */
   margin: -20px -22px 0;
@@ -510,6 +513,65 @@
 .dsh-page[data-theme="dark"] .el-button--primary {
   --el-button-bg-color: #165DFF;
   --el-button-border-color: #165DFF;
+}
+
+/* ---------- 深色辉光精修（方案 C） ---------- */
+.dsh-page[data-theme="dark"] .dsh-head h2 { color: #F2F6FF; }
+
+.dsh-page[data-theme="dark"] .dsh-kpi {
+  background: linear-gradient(180deg, #17233C, #131C2E);
+  border-color: #233154;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(122,162,255,.07);
+}
+
+.dsh-page[data-theme="dark"] .dsh-kpi-ico { background: #1B2C4E; }
+
+.dsh-page[data-theme="dark"] .dsh-kpi-ico svg { stroke: #4A8BFF; }
+
+.dsh-page[data-theme="dark"] .dsh-kpi-v { color: #F2F6FF; text-shadow: 0 0 24px rgba(74,139,255,.22); }
+
+.dsh-page[data-theme="dark"] .dsh-card {
+  background: #131C2E;
+  border-color: #1F2A40;
+  box-shadow: 0 12px 28px rgba(0,0,0,.38);
+}
+
+.dsh-page[data-theme="dark"] .dsh-sec::before,
+.dsh-page[data-theme="dark"] .dsh-card-h::before {
+  background: #4A8BFF;
+  box-shadow: 0 0 8px rgba(74,139,255,.85);
+}
+
+.dsh-page[data-theme="dark"] .dsh-hb-fill {
+  background: linear-gradient(90deg, #4A8BFF, #165DFF);
+  box-shadow: 0 0 10px rgba(38,102,255,.55);
+}
+
+.dsh-page[data-theme="dark"] .dsh-bu-fill {
+  background: linear-gradient(90deg, #4A8BFF, #165DFF);
+  box-shadow: 0 0 10px rgba(38,102,255,.55);
+}
+
+.dsh-page[data-theme="dark"] .dsh-bu-fill.warn {
+  background: linear-gradient(90deg, #FFC46B, #F59E0B);
+  box-shadow: 0 0 10px rgba(245,158,11,.5);
+}
+
+.dsh-page[data-theme="dark"] .dsh-bu-fill.over {
+  background: linear-gradient(90deg, #FF9A9A, #F53F3F);
+  box-shadow: 0 0 10px rgba(245,63,63,.5);
+}
+
+.dsh-page[data-theme="dark"] .dsh-bu-pc { color: #7FA8FF; }
+
+.dsh-page[data-theme="dark"] .dsh-tbl th { background: #16223A; }
+
+.dsh-page[data-theme="dark"] .dsh-tbl tbody tr:hover td { background: #16223A; }
+
+.dsh-page[data-theme="dark"] .dsh-seg button.on {
+  background: #1B2C4E;
+  color: #7FA8FF;
+  box-shadow: none;
 }
 
 /* ---------- 响应式 ---------- */

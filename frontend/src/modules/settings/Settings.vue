@@ -3,7 +3,7 @@
     <h3>系统设置</h3>
     <div class="settings-wrap">
       <div class="settings-side">
-        <div v-for="t in tabs" :key="t.key" class="settings-tab" :class="{ active: tab === t.key }" @click="tab = t.key">{{ t.label }}</div>
+        <div v-for="t in tabs" :key="t.key" class="settings-tab" :class="{ active: tab === t.key }" @click="tab = t.key"><Icon :name="t.icon" :size="14" style="margin-right:7px;vertical-align:-2px" />{{ t.label }}</div>
       </div>
       <div class="settings-content">
         <TabPerm v-if="tab === 'perm'" />
@@ -26,6 +26,7 @@
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { SETTINGS_TABS, visibleTabs } from './settingsLogic'
+import Icon from '@/components/Icon.vue'
 import TabPerm from './TabPerm.vue'
 import TabApprovalFlow from './TabApprovalFlow.vue'
 import SalarySettings from './SalarySettings.vue'

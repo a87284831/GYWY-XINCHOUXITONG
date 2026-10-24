@@ -108,7 +108,7 @@
       </div>
     </div>
     <div style="margin-top:10px">
-      <button class="btn success" @click="syncNow">🔄 立即从钉钉同步</button>
+      <button class="btn success" @click="syncNow"><Icon name="refresh" /> 立即从钉钉同步</button>
       <span class="hint" style="margin:0 0 0 10px">组织架构由钉钉自动同步，请勿手动修改。</span>
     </div>
   </div>
@@ -222,6 +222,7 @@ import { loadOrgTree, orgTree, orgFlat, orgLeaves, orgNode, orgProjectOf, orgSel
 import OrgTreeNode from './OrgTreeNode.vue'
 import OrgChartNode from './OrgChartNode.vue'
 import { fmtEmpty } from '@/utils/format'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const view = ref('list')

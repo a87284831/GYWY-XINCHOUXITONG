@@ -4,7 +4,7 @@
     <div v-if="!loadErr" class="print-bar no-print">
       <button class="btn sm" @click="$router.back()">← 返回</button>
       <span class="hint">建议使用浏览器「打印」选择 A4 纵向、边距默认，可另存为 PDF 后打印纸质签字。</span>
-      <button class="btn sm primary" style="margin-left:auto" :disabled="!p" @click="doPrint">🖨 打印 / 另存 PDF</button>
+      <button class="btn sm primary" style="margin-left:auto" :disabled="!p" @click="doPrint"><Icon name="printer" /> 打印 / 另存 PDF</button>
     </div>
 
     <div v-if="loadErr" class="msg err" style="margin:20px">{{ loadErr }}</div>
@@ -116,6 +116,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import { perfFmt, perfWeightSum, CALC_LABEL, OBJECTIVE_TYPES } from './perfLogic'
+import Icon from '@/components/Icon.vue'
 
 const route = useRoute()
 const p = ref(null)

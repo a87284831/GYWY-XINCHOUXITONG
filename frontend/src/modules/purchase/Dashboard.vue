@@ -21,8 +21,8 @@ const updatedAt = ref('')
 const isStaff = computed(() => !!auth.user && auth.user.role !== 'admin')
 const staffProject = computed(() => (auth.user && auth.user.project_name) || '')
 
-// —— 主题（仅本页，记忆到 localStorage）——
-const dark = ref(localStorage.getItem('dsh-theme') === 'dark')
+// —— 主题（仅本页，记忆到 localStorage；默认深色方案 C）——
+const dark = ref(localStorage.getItem('dsh-theme') !== 'light')
 function setDark(v) {
   dark.value = v
   localStorage.setItem('dsh-theme', v ? 'dark' : 'light')

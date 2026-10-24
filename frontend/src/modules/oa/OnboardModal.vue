@@ -6,7 +6,7 @@
         <span style="font-size:12.5px;color:#6b7280">{{ o.project }} · 创建于 {{ fmtTime(o.time) }}</span>
       </div>
 
-      <div class="app-sec-title">👤 员工信息（自动引用录用审批，如需修改请走人员档案编辑）</div>
+      <div class="app-sec-title"><Icon name="user" /> 员工信息（自动引用录用审批，如需修改请走人员档案编辑）</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         <div v-for="k in infoKeys" :key="k" style="flex:1 1 200px;min-width:180px;padding:8px 12px;background:#f8fafc;border-radius:8px">
           <div style="font-size:11.5px;color:#6b7280">{{ labelOf(k) }}</div>
@@ -14,12 +14,12 @@
         </div>
       </div>
 
-      <div class="app-sec-title" style="margin-top:14px">📋 办理清单（全部勾选后才可完成入职）</div>
+      <div class="app-sec-title" style="margin-top:14px"><Icon name="clipboard" /> 办理清单（全部勾选后才可完成入职）</div>
       <label v-for="(it, i) in items" :key="i" style="display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;border-bottom:1px dashed #eef0f3">
         <input v-model="it.done" type="checkbox"> {{ it.label }}
       </label>
 
-      <div class="app-sec-title" style="margin-top:14px">🪪 证件核验（录用时已上传材料自动带入，此处仅核验原件，无需重复上传）</div>
+      <div class="app-sec-title" style="margin-top:14px"><Icon name="id" /> 证件核验（录用时已上传材料自动带入，此处仅核验原件，无需重复上传）</div>
       <div v-if="!attFlds.length" style="font-size:12.5px;color:#6b7280">该流程无附件材料</div>
       <div v-for="f in attFlds" :key="f.key" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed #eef0f3;font-size:13px">
         <span style="font-weight:600">{{ f.label || f.key }}</span>
@@ -31,7 +31,7 @@
         <span v-else class="tag" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa">未上传</span>
       </div>
 
-      <div class="app-sec-title" style="margin-top:14px">📝 补录资料（建档到人事档案，与工资条/查询联动）</div>
+      <div class="app-sec-title" style="margin-top:14px"><Icon name="edit" /> 补录资料（建档到人事档案，与工资条/查询联动）</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <label style="font-size:12.5px">部门<select v-model="extra.department" style="width:150px"><option value="">请选择部门</option><option v-for="v in deptOpts" :key="v" :value="v">{{ v }}</option></select></label>
         <label style="font-size:12.5px">证件号码<input v-model="extra.id_card" type="text" style="width:180px"></label>
@@ -41,12 +41,12 @@
         <label style="font-size:12.5px">劳动合同结束日期<input v-model="extra.contract_end" type="date"></label>
       </div>
       <div style="margin-top:12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:#1d4ed8">
-        💡 开通系统账号将默认使用「普通员工」权限，初始密码 123456，由管理员在账号管理中后续调整。
+        <Icon name="info" /> 开通系统账号将默认使用「普通员工」权限，初始密码 123456，由管理员在账号管理中后续调整。
       </div>
       <div class="row" style="margin-top:16px;border-top:1px solid #eef0f3;padding-top:12px">
         <button class="btn" @click="save(false)">保存办理进度</button>
         <label style="font-size:12.5px;color:#374151"><input v-model="openAccount" type="checkbox"> 开通系统账号（初始密码123456）</label>
-        <button class="btn success" @click="save(true)">✓ 完成入职（建档）</button>
+        <button class="btn success" @click="save(true)"><Icon name="check" /> 完成入职（建档）</button>
       </div>
     </template>
   </Modal>
@@ -58,6 +58,7 @@ import { reactive, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import Modal from '@/components/Modal.vue'
+import Icon from '@/components/Icon.vue'
 import { deptNameList } from './approvalLogic'
 import { loadOrgTree, orgLeaves, orgProjectOf } from '@/modules/hr/orgStore'
 

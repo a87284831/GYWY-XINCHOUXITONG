@@ -1,11 +1,11 @@
 <template>
   <div class="card">
-    <h3>💰 薪酬设置</h3>
+    <h3><Icon name="coins" /> 薪酬设置</h3>
     <div v-if="loadErr" class="msg err">{{ loadErr }}</div>
     <div v-else-if="rules">
       <!-- 1. 自定义薪酬项 -->
       <div style="border:2px solid #10b981;border-radius:8px;padding:16px;margin-bottom:20px;background:#f0fdf4">
-        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#059669">📋 自定义薪酬项</div>
+        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#059669"><Icon name="clipboard" /> 自定义薪酬项</div>
         <div class="hint" style="margin-bottom:12px;color:#047857">在此定义的字段会出现在考勤模板和工资表中，字段名可直接在下方核算公式中引用。</div>
         <div v-if="!fields.length" class="hint" style="padding:16px;text-align:center;background:#f9fafb;border-radius:6px">暂无自定义薪酬项，点击"添加薪酬项"创建。</div>
         <table v-else class="tb"><thead><tr>
@@ -24,14 +24,14 @@
           </tr>
         </tbody></table>
         <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn primary" @click="cfAdd">＋ 添加薪酬项</button>
-          <button class="btn success" @click="cfSave">💾 保存薪酬项</button>
+          <button class="btn primary" @click="cfAdd"><Icon name="plus" /> 添加薪酬项</button>
+          <button class="btn success" @click="cfSave"><Icon name="dot" /> 保存薪酬项</button>
         </div>
       </div>
 
       <!-- 2. 基础计算参数 -->
       <details style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;padding:14px" open>
-        <summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:12px;color:#1e40af">📐 基础计算参数</summary>
+        <summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:12px;color:#1e40af"><Icon name="calc" /> 基础计算参数</summary>
         <div v-for="sec in paramSections" :key="sec" style="margin-bottom:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px">
           <div style="font-weight:600;margin-bottom:6px">{{ sec }}</div>
           <template v-if="sec === '① 应发基本工资'">
@@ -155,15 +155,15 @@
 
       <!-- 3. 核算公式 -->
       <div style="border:2px solid #6366f1;border-radius:8px;padding:16px;margin-bottom:16px;background:#f8f9ff">
-        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#4f46e5">🧮 核算公式</div>
+        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;color:#4f46e5"><Icon name="calc" /> 核算公式</div>
         <div class="hint" style="margin-bottom:12px;color:#4338ca">计算流程：基本工资 → 绩效 → 病假 → 补贴 → 奖惩 → <b>应发合计</b> → 五险一金 → 个税 → <b>实发工资</b></div>
         <div style="margin-bottom:12px"><label style="font-weight:600;display:block;margin-bottom:4px">公式一：应发合计</label>
           <input ref="grossIn" type="text" v-model="fm.gross" style="width:100%;font-size:13px;padding:8px;border:1px solid #c7d2fe;border-radius:4px"></div>
         <div style="margin-bottom:12px"><label style="font-weight:600;display:block;margin-bottom:4px">公式二：实发工资</label>
           <input ref="netIn" type="text" v-model="fm.net" style="width:100%;font-size:13px;padding:8px;border:1px solid #c7d2fe;border-radius:4px"></div>
         <div style="margin-bottom:12px">
-          <button class="btn sm" @click="formulaTest">✓ 验证公式</button>
-          <button class="btn sm" @click="formulaReset">↺ 恢复默认</button>
+          <button class="btn sm" @click="formulaTest"><Icon name="check" /> 验证公式</button>
+          <button class="btn sm" @click="formulaReset"><Icon name="refresh" /> 恢复默认</button>
           <span :style="{ marginLeft: '10px', fontSize: '13px', color: testRes.ok ? '#16a34a' : '#dc2626' }">{{ testRes.text }}</span>
         </div>
         <div style="padding:10px;background:#f0f0ff;border-radius:6px">
@@ -179,7 +179,7 @@
 
       <!-- 4. 符号库 -->
       <details style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;padding:14px">
-        <summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:10px;color:#7c3aed">🔣 符号库（考勤符号定义）</summary>
+        <summary style="font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:10px;color:#7c3aed"><Icon name="list" /> 符号库（考勤符号定义）</summary>
         <div v-if="symErr" class="msg err">{{ symErr }}</div>
         <div v-else-if="symbols">
           <div class="table-wrap"><table class="tb"><thead><tr>
@@ -198,14 +198,14 @@
             <div v-for="(v, k) in symFormulas" :key="k"><b>{{ SYM_FORMULA_CN[k] || k }}</b> = {{ v === '0' ? '0' : '=' + v }}</div>
           </div>
           <div style="margin-top:12px;text-align:right">
-            <button class="btn primary" @click="symSave">💾 保存符号库</button>
+            <button class="btn primary" @click="symSave"><Icon name="dot" /> 保存符号库</button>
           </div>
         </div>
         <div v-else class="hint">加载中...</div>
       </details>
 
       <!-- 5. 保存 -->
-      <div class="row" style="margin-top:20px"><button class="btn primary lg" @click="saveAll">💾 保存所有设置</button></div>
+      <div class="row" style="margin-top:20px"><button class="btn primary lg" @click="saveAll"><Icon name="dot" /> 保存所有设置</button></div>
     </div>
     <div v-else class="hint">加载中...</div>
   </div>
@@ -217,6 +217,7 @@ import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { cnFormula, enFormula, GROSS_DEFAULT, NET_DEFAULT, BUILTIN_VARS, STD_TAX_BRACKETS, taxRatePct, taxAddBracket, taxNormalize, evalFormulaSafe, normalizeCustomFields, SYM_CATEGORIES, SYM_FORMULA_CN, PAY_GRADES, payRuleToDraft, draftToPayRule } from './settingsLogic'
+import Icon from '@/components/Icon.vue'
 
 const rules = ref(null)
 const fields = ref([])

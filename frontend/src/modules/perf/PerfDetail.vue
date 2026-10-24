@@ -8,9 +8,9 @@
         <h3 style="margin:0;border:none;padding:0">{{ p.employeeName }}（{{ p.line || '' }}）绩效考核</h3>
         <span :class="`tag ${stCol}`">{{ statusLabel }}</span>
         <span style="margin-left:auto;display:flex;gap:8px">
-          <button v-if="p.status === 'done'" class="btn sm primary" @click="gotoPrint">🖨 打印考核表（A4）</button>
-          <button v-if="p.status === 'done' && isAdmin" class="btn sm danger" @click="actReopen">↩ 撤销归档</button>
-          <button class="btn sm" @click="exportPlan">📤 导出考核表</button>
+          <button v-if="p.status === 'done'" class="btn sm primary" @click="gotoPrint"><Icon name="printer" /> 打印考核表（A4）</button>
+          <button v-if="p.status === 'done' && isAdmin" class="btn sm danger" @click="actReopen"><Icon name="back" /> 撤销归档</button>
+          <button class="btn sm" @click="exportPlan"><Icon name="up" /> 导出考核表</button>
         </span>
       </div>
       <!-- 流程步骤 -->
@@ -29,7 +29,7 @@
           <span>考核周期：<b>{{ p.periodStart || '-' }} ~ {{ p.periodEnd || '-' }}</b>（第{{ p.quarter || '-' }}季度）</span><span>发起人：{{ p.founderName || '-' }}</span>
           <span>审批链：{{ chainText }}</span>
         </div>
-        <div v-if="p.rejectOpinion" class="msg err" style="margin-top:8px">⚠ 最近一次驳回意见：{{ p.rejectOpinion }}</div>
+        <div v-if="p.rejectOpinion" class="msg err" style="margin-top:8px"><Icon name="warning" /> 最近一次驳回意见：{{ p.rejectOpinion }}</div>
       </div>
       <!-- 状态操作区 -->
       <div v-if="p.status === 'draft' && (isFounder || isAdmin)" class="msg info">
@@ -38,25 +38,25 @@
       <div v-else-if="p.status === 'confirm' && canActApproval" class="card perf-action">
         <b>① 请核对指标设置与权重，并确认员工提交的考核周期</b>
         <div v-if="editingConfirm" class="msg warn" style="margin-top:8px">
-          ✏ 指标修改模式：可直接调整下方指标内容、权重、算分方式与核查/填报人，保存即生效并留痕；员工与周期不可改。
+          <Icon name="pen" /> 指标修改模式：可直接调整下方指标内容、权重、算分方式与核查/填报人，保存即生效并留痕；员工与周期不可改。
           <div class="row end" style="margin-top:8px;gap:8px">
             <button class="btn sm" :disabled="savingConfirm" @click="reload">取消修改</button>
-            <button class="btn sm primary" :disabled="savingConfirm" @click="saveConfirmEdit">💾 保存指标修改</button>
+            <button class="btn sm primary" :disabled="savingConfirm" @click="saveConfirmEdit"><Icon name="doc" /> 保存指标修改</button>
           </div>
         </div>
         <div class="row" style="margin-top:8px;gap:12px;align-items:center;flex-wrap:wrap">
           <span class="tag blue" style="font-size:14px">考核周期：{{ p.periodStart || '-' }} ~ {{ p.periodEnd || '-' }}</span>
           <span class="tag gray">权重合计 {{ perfWeightSum(p) }}</span>
           <span style="font-size:12px;color:#64748b">周期由发起人提交，审核人直接核对确认即可，无需再选择年度/季度。</span>
-          <button class="btn sm warn" @click="editingConfirm = true">✏ 直接修改指标</button>
-          <button class="btn success" @click="actConfirm">✔ 确认通过（进入考核周期）</button>
+          <button class="btn sm warn" @click="editingConfirm = true"><Icon name="pen" /> 直接修改指标</button>
+          <button class="btn success" @click="actConfirm"><Icon name="check" /> 确认通过（进入考核周期）</button>
           <button class="btn danger" @click="openReject('reject_confirm')">驳回修改</button>
         </div>
       </div>
       <div v-else-if="p.status === 'ongoing'" class="msg info">
         考核周期进行中（{{ p.periodStart }} ~ {{ p.periodEnd }}），周期结束次日将自动转入数据填报。
         <div v-if="isFounder || isAdmin" class="row" style="margin-top:10px;gap:10px;align-items:center">
-          <button class="btn warn" @click="actStartReport">⏭ 提前结束周期，立即转入数据填报</button>
+          <button class="btn warn" @click="actStartReport"><Icon name="chev-right" /> 提前结束周期，立即转入数据填报</button>
           <span class="hint" style="margin:0">仅管理员/发起人可操作，用于需提前启动填报的特殊情况</span>
         </div>
       </div>
@@ -64,8 +64,8 @@
         <b>③ 数据填报阶段</b>：各指标填报人填写实际完成值，全部填齐后自动转入发起人自评。
         <div class="row" style="margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
           <template v-if="isFounder || isAdmin">
-            <button class="btn warn" @click="actUrge">📢 一键催办未填报人</button>
-            <button class="btn primary" @click="actFinishReport">✔ 完成填报，进入发起人自评{{ repPending ? `（还差 ${repPending} 项）` : '' }}</button>
+            <button class="btn warn" @click="actUrge"><Icon name="megaphone" /> 一键催办未填报人</button>
+            <button class="btn primary" @click="actFinishReport"><Icon name="check" /> 完成填报，进入发起人自评{{ repPending ? `（还差 ${repPending} 项）` : '' }}</button>
           </template>
           <span v-if="isAdmin" class="hint" style="margin:0">管理员可代填任意项</span>
         </div>
@@ -76,10 +76,10 @@
       </div>
       <div v-else-if="p.status === 'approve' && canActApproval" class="card perf-action">
         <b>⑤ 逐级审批（第 {{ (p.currentStep || 0) + 1 }} / {{ (p.approvers || []).length }} 级 · 当前：{{ curAp ? curAp.name : '' }}）</b>
-        <div class="hint" style="margin:4px 0 0">仅「主观评分」项需要填写<b>上级评分</b>，系统按「自评{{ sw.self }}% + 上级{{ sw.approver }}%」计算该项最终分（可微调）；客观项已锁定（🔒），不可评分。</div>
+        <div class="hint" style="margin:4px 0 0">仅「主观评分」项需要填写<b>上级评分</b>，系统按「自评{{ sw.self }}% + 上级{{ sw.approver }}%」计算该项最终分（可微调）；客观项已锁定（<Icon name="lock" />），不可评分。</div>
         <div class="row end" style="margin-top:8px">
           <button class="btn danger" @click="openReject('reject_approve')">驳回</button>
-          <button class="btn success" @click="openApprove">✔ {{ (p.currentStep || 0) + 1 >= p.approvers.length ? '终审通过并归档' : '审批通过，送下一级' }}</button>
+          <button class="btn success" @click="openApprove"><Icon name="check" /> {{ (p.currentStep || 0) + 1 >= p.approvers.length ? '终审通过并归档' : '审批通过，送下一级' }}</button>
         </div>
       </div>
       <div v-else-if="p.status === 'done'" class="msg ok">已归档：最终总分 <b>{{ perfFmt(p.finalTotal) }}</b>，考评等级 <b>{{ p.grade || '' }}</b></div>
@@ -129,7 +129,7 @@
                       </select>
                     </template>
                     <template v-else>
-                      <span :title="CALC_HELP[it.calcType] || ''" style="cursor:help;border-bottom:1px dashed #94a3b8">{{ CALC_LABEL[it.calcType] || it.calcType }} ⓘ</span>
+                      <span :title="CALC_HELP[it.calcType] || ''" style="cursor:help;border-bottom:1px dashed #94a3b8">{{ CALC_LABEL[it.calcType] || it.calcType }} <Icon name="info" /></span>
                       <div class="hint" style="margin:0">{{ it.sourceDept || '' }}<br />{{ it.calcType === 'check' ? '核查人' : '填报' }}:{{ it.reporterName || '-' }}{{ it.reporterId ? '' : ' ·未指派→自动跳过' }}</div>
                     </template>
                   </td>
@@ -155,7 +155,7 @@
                       <template v-if="it.calcType === 'check'">{{ it.checkScore != null && it.checkScore !== '' ? `核查定分：${it.checkScore}` : '-' }}<span v-if="it.actualText">（{{ it.actualText }}）</span></template>
                       <template v-else>{{ it.actualText || it.actualValue || '-' }}</template>
                     </template>
-                    <div v-if="it.reportBy" class="hint" style="margin:0;color:#16a34a">✔ 已提交：{{ it.reportBy }}</div>
+                    <div v-if="it.reportBy" class="hint" style="margin:0;color:#16a34a"><Icon name="check" /> 已提交：{{ it.reportBy }}</div>
                   </td>
                   <td class="num">
                     <template v-if="it.calcType === 'check'">{{ perfFmt(it.checkScore) }}</template>
@@ -166,7 +166,7 @@
                       <input v-if="p.status === 'self' && canSelf" v-model.number="it._selfScore" type="number" style="width:64px" step="0.01" min="0" :max="Number(it.weight)" :title="`评分范围 0~${it.weight} 分（该项权重）`" :placeholder="`0~${it.weight}`" />
                       <template v-else>{{ perfFmt(it.selfScore) }}</template>
                     </template>
-                    <template v-else><span title="客观项锁定，本人不可评分">🔒</span></template>
+                    <template v-else><span title="客观项锁定，本人不可评分"><Icon name="lock" /></span></template>
                     <!-- 自评依据附件 -->
                     <div v-if="it.calcType === 'manual' && ((it.attachments && it.attachments.length) || canManageAtt)" style="margin-top:4px;display:flex;flex-direction:column;gap:3px;min-width:150px;text-align:left;font-weight:400">
                       <div v-for="att in it.attachments || []" :key="att.file"
@@ -174,7 +174,7 @@
                            :title="`${att.uploaderName || ''} 上传于 ${att.ts || ''}，${fmtSize(att.size)}`">
                         <img v-if="isImageAtt(att) && att._url" :src="att._url" alt="" @click="previewAtt(att)"
                              style="width:26px;height:26px;object-fit:cover;border-radius:4px;cursor:pointer" />
-                        <span v-else @click="previewAtt(att)" style="font-size:15px;cursor:pointer">📄</span>
+                        <span v-else @click="previewAtt(att)" style="font-size:15px;cursor:pointer"><Icon name="file" /></span>
                         <span @click="previewAtt(att)" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">{{ att.name }}</span>
                         <button v-if="canManageAtt" class="btn sm danger" style="padding:0 5px" @click="removeAtt(it, att)">×</button>
                       </div>
@@ -189,7 +189,7 @@
                       <input v-if="p.status === 'approve' && canActApproval" v-model.number="it._approverScore" type="number" style="width:64px" step="0.01" min="0" :max="Number(it.weight)" :title="`评分范围 0~${it.weight} 分（该项权重）`" placeholder="上级分" @input="mixFinalOf(it)" />
                       <template v-else>{{ perfFmt(it.approverScore) }}</template>
                     </template>
-                    <template v-else><span title="客观项锁定，上级不可评分">🔒</span></template>
+                    <template v-else><span title="客观项锁定，上级不可评分"><Icon name="lock" /></span></template>
                   </td>
                   <td class="num">
                     <template v-if="it.calcType === 'manual'">
@@ -197,7 +197,7 @@
                       <template v-else>{{ perfFmt(it.finalScore) }}</template>
                     </template>
                     <template v-else>
-                      <span v-if="p.status === 'approve' && canActApproval" title="客观项已锁定">🔒{{ perfFmt(lockedScore(it)) }}</span>
+                      <span v-if="p.status === 'approve' && canActApproval" title="客观项已锁定"><Icon name="lock" />{{ perfFmt(lockedScore(it)) }}</span>
                       <template v-else>{{ perfFmt(it.finalScore) }}</template>
                     </template>
                     <div v-for="(o, oi) in it.overrides || []" :key="oi" class="hint" style="margin:0;color:#c2410c">改:{{ perfFmt(o.from) }}→{{ perfFmt(o.to) }} {{ o.by }}</div>
@@ -274,6 +274,7 @@ import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
 import { perfFmt, perfNum, perfWeightSum, mixFinal, perfApId, defaultCalcParams, CALC_LABEL, CALC_HELP, OBJECTIVE_TYPES } from './perfLogic'
+import Icon from '@/components/Icon.vue'
 
 const PERF_FLOW = ['draft', 'confirm', 'ongoing', 'report', 'self', 'approve', 'done']
 const PERF_FLOW_NAME = ['制表', '确认指标', '周期进行', '数据填报', '发起人自评', '逐级审批', '归档']

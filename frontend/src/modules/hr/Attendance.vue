@@ -31,7 +31,7 @@
           <span class="tag blue">{{ projLabel }} {{ ui.month }}</span>
           <span class="tag green">{{ names.length }} 人</span>
           <span class="tag gray">上传：{{ view.meta.uploaded_by || '' }} {{ view.meta.uploaded_at || '' }}</span>
-          <span v-if="view.locked" class="tag" style="background:#fef2f2;color:#dc2626;border-color:#fecaca">🔒 已锁定</span>
+          <span v-if="view.locked" class="tag" style="background:#fef2f2;color:#dc2626;border-color:#fecaca"><Icon name="lock" /> 已锁定</span>
           <span v-else class="tag">未锁定</span>
         </div>
         <div class="table-wrap">
@@ -82,6 +82,7 @@ import { useUiStore } from '@/stores/ui'
 import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { VIRTUAL_ATT_GROUPS, isVirtualAttGroup, attProjectLabel, attBlockedAction, pickProjectStatus } from './attendanceGroups'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const ui = useUiStore()

@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { FILL_LINES } from './fillLogic'
 import { myYearList, monthCardTag } from './systemLogic'
 import { moneyOrDash } from '@/utils/format'
+import Icon from '@/components/Icon.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -113,7 +114,7 @@ onMounted(async () => {
   <div v-if="detailMonth">
     <div style="background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <el-button size="small" @click="back">← 返回</el-button>
+        <el-button size="small" @click="back"><Icon name="back" /> 返回</el-button>
         <span>{{ monthTitle(detailMonth) }} · 填报明细</span>
         <el-select v-model="lineFilter" style="width:130px">
           <el-option label="全部条线" value="" />
@@ -214,7 +215,7 @@ onMounted(async () => {
             <template v-if="card.confirmed_count > 0"> · 已确认 {{ card.confirmed_count }}</template>
           </div>
           <div v-if="card.returned_count > 0" style="color:#e64646;font-weight:600">
-            ⚠ {{ card.returned_count }} 条被退回需修改
+            <Icon name="warning" /> {{ card.returned_count }} 条被退回需修改
             <div v-if="card.return_reason" style="color:#c0392b;font-weight:400;margin-top:2px">
               退回原因：{{ card.return_reason }}
             </div>

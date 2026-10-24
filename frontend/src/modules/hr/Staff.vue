@@ -37,13 +37,13 @@
       </select></label>
       <input type="text" v-model="fKw" placeholder="姓名/职位搜索" @keydown.enter="load" />
       <button class="btn primary" @click="load">查询</button>
-      <button class="btn success" @click="syncNow">🔄 立即钉钉同步</button>
+      <button class="btn success" @click="syncNow"><Icon name="refresh" /> 立即钉钉同步</button>
     </div>
     <div class="row" style="margin-top:8px">
       <span class="tag blue">已选 {{ sel.size }} 人</span>
       <button class="btn warn" @click="openBulkDeduct">批量附加扣除设置</button>
       <button class="btn warn" @click="openBulkTaxMode">批量个税模式</button>
-      <button class="btn" @click="exportFiltered">📤 导出当前筛选</button>
+      <button class="btn" @click="exportFiltered"><Icon name="up" /> 导出当前筛选</button>
     </div>
     <div v-if="loadErr" class="msg err" style="margin-top:12px">{{ loadErr }}</div>
     <div v-else style="margin-top:12px">
@@ -195,6 +195,7 @@ import { moneyOrDash } from '@/utils/format'
 import { dingtalkSyncNow } from '@/utils/dingtalk'
 import { maskBankCard, maskIdCard } from './staffLogic'
 import { loadOrgTree, orgLeaves, orgProjectOf } from './orgStore'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const CAT_DEFS = [['在职', '#16a34a'], ['离职', '#64748b'], ['黑名单', '#dc2626']]

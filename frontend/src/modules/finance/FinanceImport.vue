@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
+import Icon from '@/components/Icon.vue'
 import './finance.css'
 
 const imFile = ref(null)
@@ -45,7 +46,7 @@ async function run() {
       ② 如需按模板重新导入：先下载模板填写（第一行表头，第二行起为数据），小文件（≤20MB）可直接上传；超大原表（>20MB，含签批图片）请走服务器通道（CLI 导入）。<br />
       ③ 重新导入会覆盖该范围内的存量数据，请谨慎操作。
     </div>
-    <div style="margin-top:14px;"><a class="fbtn ghost" style="text-decoration:none;display:inline-block;" href="/finance/template/财务管理导入模板.xlsx" download>📥 下载导入模板</a></div>
+    <div style="margin-top:14px;"><a class="fbtn ghost" style="text-decoration:none;display:inline-block;" href="/finance/template/财务管理导入模板.xlsx" download><Icon name="down" /> 下载导入模板</a></div>
     <div style="margin-top:14px;">
       <input ref="imFile" type="file" accept=".xlsx" />
       <button class="fbtn" @click="parse">上传并导入</button>

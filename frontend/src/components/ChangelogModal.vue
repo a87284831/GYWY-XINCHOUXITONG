@@ -1,7 +1,7 @@
 <template>
   <div class="modal-mask" @mousedown.self="$emit('close')">
     <div class="modal" style="width:560px">
-      <h3>📋 系统更新啦（{{ entries.length }} 个版本）</h3>
+      <h3><Icon name="clipboard" /> 系统更新啦（{{ entries.length }} 个版本）</h3>
       <div class="cl-list">
         <div v-for="e in entries" :key="e.version" class="cl-entry">
           <div class="cl-head">
@@ -22,6 +22,8 @@
 </template>
 
 <script setup>
+import Icon from '@/components/Icon.vue'
+
 defineProps({ entries: { type: Array, default: () => [] } })
 defineEmits(['close'])
 

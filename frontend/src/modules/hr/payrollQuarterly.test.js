@@ -38,10 +38,10 @@ describe('periodKeys（周期标识，1月归上年）', () => {
 
 describe('coefEntryLabel（录入按钮文案）', () => {
   it('纯季度末月只显示季度', () => {
-    expect(coefEntryLabel('2026-04')).toBe('📊 录入 2026-Q1 季度系数')
+    expect(coefEntryLabel('2026-04')).toBe('录入 2026-Q1 季度系数')
   })
   it('半年度末月显示季度+半年度', () => {
-    expect(coefEntryLabel('2026-07')).toBe('📊 录入 2026-Q2 季度 + 2026-H1 半年度系数')
+    expect(coefEntryLabel('2026-07')).toBe('录入 2026-Q2 季度 + 2026-H1 半年度系数')
   })
   it('非季度末月返回空串（按钮不显示）', () => {
     expect(coefEntryLabel('2026-05')).toBe('')

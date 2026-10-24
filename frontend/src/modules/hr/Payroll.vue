@@ -259,7 +259,7 @@
     <!-- 微调弹窗（复刻 openAdjust） -->
     <div v-if="adjRow" class="modal-mask" @mousedown.self="closeAdjust">
       <div class="modal" v-disable-wheel style="width:780px;position:relative">
-        <div @click="closeAdjust" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <div @click="closeAdjust" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff"><Icon name="close" /></div>
         <h3>薪资微调 — {{ adjRow.name }}（{{ adjRow.project }}）</h3>
         <div class="msg info">修改后系统自动重算应发合计、个税累计预扣与实发工资；所有修改留存日志。</div>
         <div class="form-grid">
@@ -304,7 +304,7 @@
     <!-- 季度/半年度绩效系数录入弹窗 -->
     <div v-if="coefDialog.show" class="modal-mask" @mousedown.self="closeCoefDialog">
       <div class="modal" style="width:860px;position:relative">
-        <div @click="closeCoefDialog" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <div @click="closeCoefDialog" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff"><Icon name="close" /></div>
         <h3>绩效系数录入 — {{ ui.month }}</h3>
         <div class="msg info">
           本季度周期：<b>{{ coefDialog.period }}</b>
@@ -327,7 +327,7 @@
                   <td>{{ it.name }}</td><td>{{ it.project }}</td><td>{{ it.position || '' }}</td>
                   <td>
                     <span v-if="it.pay_grade">{{ it.pay_grade }}</span>
-                    <span v-else class="tag orange">⚠ 未同步</span>
+                    <span v-else class="tag orange"><Icon name="warning" /> 未同步</span>
                   </td>
                   <td>{{ it.person_type === 'manager' ? '管理' : '总部' }}</td>
                   <td><input type="number" step="0.01" v-model="it.coef" style="width:90px" /></td>
@@ -355,9 +355,9 @@
     <!-- 删除当月薪资数据确认弹窗（按当前维度） -->
     <div v-if="deleteDialog.show" class="modal-mask" @mousedown.self="deleteDialog.show = false">
       <div class="modal" style="width:520px;position:relative">
-        <div @click="deleteDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <div @click="deleteDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff"><Icon name="close" /></div>
         <h3 style="color:#dc2626">删除 {{ ui.month }} {{ deleteDialog.typeLabel }}薪资数据</h3>
-        <div class="msg err">⚠ 该操作不可恢复！仅删除该月{{ deleteDialog.typeLabel }}薪资核算结果及这些人员的微调日志，其他维度（员工/管理/案场/总部）数据不受影响。</div>
+        <div class="msg err"><Icon name="warning" /> 该操作不可恢复！仅删除该月{{ deleteDialog.typeLabel }}薪资核算结果及这些人员的微调日志，其他维度（员工/管理/案场/总部）数据不受影响。</div>
         <div v-if="deleteDialog.loading" class="msg info">查询删除范围…</div>
         <div v-else-if="deleteDialog.err" class="msg err">{{ deleteDialog.err }}</div>
         <template v-else-if="deleteDialog.scope">
@@ -384,7 +384,7 @@
     <!-- 删除日志弹窗 -->
     <div v-if="deleteLogsDialog.show" class="modal-mask" @mousedown.self="deleteLogsDialog.show = false">
       <div class="modal" style="width:880px;position:relative">
-        <div @click="deleteLogsDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff">×</div>
+        <div @click="deleteLogsDialog.show = false" title="关闭" style="position:absolute;top:10px;right:14px;width:30px;height:30px;line-height:30px;text-align:center;border-radius:50%;background:#f1f3f6;color:#6b7280;font-size:16px;font-weight:600;cursor:pointer;z-index:20;box-shadow:0 0 0 4px #fff"><Icon name="close" /></div>
         <h3>薪资删除日志<button class="btn sm" style="margin-left:8px" @click="exportDeleteLogs">导出日志</button></h3>
         <div v-if="deleteLogsDialog.loading" class="msg info">加载中…</div>
         <div v-else-if="!deleteLogsDialog.logs.length" class="msg info">暂无删除日志。</div>
@@ -423,6 +423,7 @@ import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
 import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
 import CalcNotice from './CalcNotice.vue'
+import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
 const ui = useUiStore()

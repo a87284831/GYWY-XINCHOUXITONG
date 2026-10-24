@@ -120,7 +120,7 @@ export function periodKeys(ym) {
 export function coefEntryLabel(ym) {
   const { q, h } = periodKeys(ym)
   if (!q) return ''
-  return h ? `📊 录入 ${q} 季度 + ${h} 半年度系数` : `📊 录入 ${q} 季度系数`
+  return h ? `录入 ${q} 季度 + ${h} 半年度系数` : `录入 ${q} 季度系数`
 }
 
 /**

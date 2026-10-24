@@ -2,19 +2,19 @@
 import router from '@/router'
 
 export const APPS = [
-  { key: 'hr', name: '人力资源', icon: '👥', color: '#2563eb' },
-  { key: 'contract', name: '合同管理', icon: '📄', color: '#e74c3c' },
-  { key: 'admin', name: '行政管理', icon: '🏢', color: '#8b5cf6' },
-  { key: 'oa', name: 'OA审批', icon: '✅', color: '#3b82f6' },
-  { key: 'property', name: '房产管理', icon: '🏠', color: '#1e40af' },
-  { key: 'maintain', name: '工程维保', icon: '🔧', color: '#f59e0b' },
-  { key: 'security', name: '安保管理', icon: '🛡️', color: '#16a34a' },
-  { key: 'cleaning', name: '保洁绿化', icon: '🧹', color: '#14b8a6' },
-  { key: 'purchase', name: '采购管理', icon: '📦', color: '#6366f1' },
-  { key: 'finance', name: '财务管理', icon: '💰', color: '#0d9488' },
-  { key: 'report', name: '报表中心', icon: '📊', color: '#0ea5e9' },
-  { key: 'notice', name: '公告通知', icon: '📢', color: '#ef4444' },
-  { key: 'setting', name: '系统设置', icon: '⚙️', color: '#64748b' },
+  { key: 'hr', name: '人力资源', icon: 'users', color: '#2563eb' },
+  { key: 'contract', name: '合同管理', icon: 'file', color: '#e74c3c' },
+  { key: 'admin', name: '行政管理', icon: 'building', color: '#8b5cf6' },
+  { key: 'oa', name: 'OA审批', icon: 'check', color: '#3b82f6' },
+  { key: 'property', name: '房产管理', icon: 'home', color: '#1e40af' },
+  { key: 'maintain', name: '工程维保', icon: 'wrench', color: '#f59e0b' },
+  { key: 'security', name: '安保管理', icon: 'shield', color: '#16a34a' },
+  { key: 'cleaning', name: '保洁绿化', icon: 'sparkles', color: '#14b8a6' },
+  { key: 'purchase', name: '采购管理', icon: 'briefcase', color: '#6366f1' },
+  { key: 'finance', name: '财务管理', icon: 'coins', color: '#0d9488' },
+  { key: 'report', name: '报表中心', icon: 'chart', color: '#0ea5e9' },
+  { key: 'notice', name: '公告通知', icon: 'megaphone', color: '#ef4444' },
+  { key: 'setting', name: '系统设置', icon: 'gear', color: '#64748b' },
 ]
 
 export const HOME_BUILT = new Set(['hr', 'maintain', 'report', 'setting', 'oa', 'purchase', 'finance'])
@@ -55,67 +55,67 @@ export const PAGE_TITLES = {
 }
 
 export const ALL_MENUS = [
-  { top: true, fixed: true, always: true, key: 'home', label: '工作台主页', icon: '🏠' },
-  { top: true, fixed: true, always: true, key: 'changelog', label: '更新日志', icon: '📋' },
-  { section: '采购系统', icon: '📦', app: 'purchase', items: [
-    { key: 'purchaseDashboard', label: '📊 数据驾驶舱', perm: 'purchase_view' },
-    { key: 'purchaseFill', label: '📝 员工填报（代填）', staffLabel: '📝 采购填报', perm: 'purchase_view' },
-    { key: 'purchaseOverview', label: '📋 填报进度确认', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseCustoms', label: '🧾 清单外审核', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseBudget', label: '💰 预算管理', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseSummary', label: '📈 采购汇总查看', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseExportImport', label: '📤 导出报价 / 导入存档', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseProducts', label: '📦 标准商品库', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseWindows', label: '📅 填报窗口设置', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseOplogs', label: '📜 操作日志', perm: 'purchase_view', adminOnly: true },
-    { key: 'purchaseMyItems', label: '📋 我的填报记录', perm: 'purchase_view', staffOnly: true },
+  { top: true, fixed: true, always: true, key: 'home', label: '工作台主页', icon: 'home' },
+  { top: true, fixed: true, always: true, key: 'changelog', label: '更新日志', icon: 'doc' },
+  { section: '采购系统', icon: 'briefcase', app: 'purchase', items: [
+    { key: 'purchaseDashboard', label: '数据驾驶舱', icon: 'chart', perm: 'purchase_view' },
+    { key: 'purchaseFill', label: '员工填报（代填）', icon: 'edit', staffLabel: '采购填报', perm: 'purchase_view' },
+    { key: 'purchaseOverview', label: '填报进度确认', icon: 'clipboard', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseCustoms', label: '清单外审核', icon: 'receipt', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseBudget', label: '预算管理', icon: 'coins', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseSummary', label: '采购汇总查看', icon: 'trend', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseExportImport', label: '导出报价 / 导入存档', icon: 'up', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseProducts', label: '标准商品库', icon: 'box', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseWindows', label: '填报窗口设置', icon: 'calendar', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseOplogs', label: '操作日志', icon: 'scroll', perm: 'purchase_view', adminOnly: true },
+    { key: 'purchaseMyItems', label: '我的填报记录', icon: 'list', perm: 'purchase_view', staffOnly: true },
   ]},
-  { section: '审批中心', icon: '✅', app: 'oa', items: [
-    { key: 'approvalCenter', label: '📋 审批中心', perm: '' },
+  { section: '审批中心', icon: 'check', app: 'oa', items: [
+    { key: 'approvalCenter', label: '审批中心', icon: 'clipboard', perm: '' },
   ]},
-  { section: '报表中心', icon: '📊', app: 'report', items: [
-    { key: 'reportHome', label: '🏠 报表总览', perm: 'hr_report' },
-    { key: 'hrReport', label: '👥 人力资源报表', perm: 'hr_report' },
-    { key: 'salaryReport', label: '💰 薪酬报表', perm: 'salary_report' },
-    { key: 'attReport', label: '📅 考勤报表', perm: 'attendance_report' },
+  { section: '报表中心', icon: 'chart', app: 'report', items: [
+    { key: 'reportHome', label: '报表总览', icon: 'pie', perm: 'hr_report' },
+    { key: 'hrReport', label: '人力资源报表', icon: 'users', perm: 'hr_report' },
+    { key: 'salaryReport', label: '薪酬报表', icon: 'coins', perm: 'salary_report' },
+    { key: 'attReport', label: '考勤报表', icon: 'calendar', perm: 'attendance_report' },
   ]},
-  { section: '薪资模块', icon: '💰', app: 'hr', items: [
-    { key: 'summary', label: '📊 汇总展示', perm: 'payroll' },
-    { key: 'payroll', label: '🧮 薪资核算与微调', perm: 'payroll' },
-    { key: 'taxMode', label: '🧮 个税扣除模式设置', perm: 'payroll' },
-    { key: 'export', label: '📤 数据导出', perm: 'export' },
+  { section: '薪资模块', icon: 'coins', app: 'hr', items: [
+    { key: 'summary', label: '汇总展示', icon: 'bar', perm: 'payroll' },
+    { key: 'payroll', label: '薪资核算与微调', icon: 'calc', perm: 'payroll' },
+    { key: 'taxMode', label: '个税扣除模式设置', icon: 'receipt', perm: 'payroll' },
+    { key: 'export', label: '数据导出', icon: 'up', perm: 'export' },
   ]},
-  { section: '考勤模块', icon: '📅', app: 'hr', items: [
-    { key: 'attendance', label: '📅 考勤管理', perm: 'attendance' },
+  { section: '考勤模块', icon: 'calendar', app: 'hr', items: [
+    { key: 'attendance', label: '考勤管理', icon: 'calendar', perm: 'attendance' },
   ]},
-  { section: '项目与人事模块', icon: '👥', app: 'hr', items: [
-    { key: 'org', label: '🏢 组织架构', perm: 'projects' },
-    { key: 'staff', label: '👥 人员档案', perm: 'staff' },
-    { key: 'adjust', label: '📝 调薪与记录', perm: 'staff' },
+  { section: '项目与人事模块', icon: 'users', app: 'hr', items: [
+    { key: 'org', label: '组织架构', icon: 'building', perm: 'projects' },
+    { key: 'staff', label: '人员档案', icon: 'id', perm: 'staff' },
+    { key: 'adjust', label: '调薪与记录', icon: 'edit', perm: 'staff' },
   ]},
-  { section: '预算模块', icon: '📊', app: 'hr', items: [
-    { key: 'budget', label: '💰 预算管理', perm: 'budget' },
+  { section: '预算模块', icon: 'target', app: 'hr', items: [
+    { key: 'budget', label: '预算管理', icon: 'coins', perm: 'budget' },
   ]},
-  { section: '绩效考核', icon: '🎯', app: 'hr', items: [
-    { key: 'perfCreate', label: '📝 发起考核', perm: 'perf' },
-    { key: 'perfApprove', label: '✅ 待我审批', perm: 'perf' },
-    { key: 'perfReport', label: '✍️ 待我填报', perm: 'perf' },
-    { key: 'perfMine', label: '📋 我的考核', perm: 'perf' },
-    { key: 'perfRecords', label: '🗂️ 考核记录管理', perm: 'perf_admin' },
+  { section: '绩效考核', icon: 'target', app: 'hr', items: [
+    { key: 'perfCreate', label: '发起考核', icon: 'pen', perm: 'perf' },
+    { key: 'perfApprove', label: '待我审批', icon: 'check', perm: 'perf' },
+    { key: 'perfReport', label: '待我填报', icon: 'edit', perm: 'perf' },
+    { key: 'perfMine', label: '我的考核', icon: 'list', perm: 'perf' },
+    { key: 'perfRecords', label: '考核记录管理', icon: 'folder', perm: 'perf_admin' },
   ]},
-  { section: '财务管理', icon: '💰', app: 'finance', items: [
-    { key: 'financeDashboard', label: '📊 数据驾驶舱', perm: 'finance_view' },
-    { key: 'financeLedger', label: '📋 应收费用台账', perm: 'finance_view' },
-    { key: 'financePayments', label: '💰 付款记录', perm: 'finance_view' },
-    { key: 'financeSummary', label: '📈 汇总分析', perm: 'finance_view' },
-    { key: 'financeImport', label: '📤 历史数据导入', perm: 'finance_admin' },
+  { section: '财务管理', icon: 'coins', app: 'finance', items: [
+    { key: 'financeDashboard', label: '数据驾驶舱', icon: 'chart', perm: 'finance_view' },
+    { key: 'financeLedger', label: '应收费用台账', icon: 'book', perm: 'finance_view' },
+    { key: 'financePayments', label: '付款记录', icon: 'wallet', perm: 'finance_view' },
+    { key: 'financeSummary', label: '汇总分析', icon: 'trend', perm: 'finance_view' },
+    { key: 'financeImport', label: '历史数据导入', icon: 'down', perm: 'finance_admin' },
   ]},
-  { section: '工程维保模块', icon: '🔧', app: 'maintain', items: [
-    { key: 'fireReport', label: '🧯 消防维保报表', perm: 'maint_fire' },
-    { key: 'elevReport', label: '🛗 电梯维保报表', perm: 'maint_elev' },
-    { key: 'maintFire', label: '📒 消防维保台账', perm: 'maint_fire' },
-    { key: 'maintElev', label: '📒 电梯维保台账', perm: 'maint_elev' },
-    { key: 'maintPartners', label: '🤝 签约方维护', perm: 'maint_partners' },
+  { section: '工程维保模块', icon: 'wrench', app: 'maintain', items: [
+    { key: 'fireReport', label: '消防维保报表', icon: 'flame', perm: 'maint_fire' },
+    { key: 'elevReport', label: '电梯维保报表', icon: 'lift', perm: 'maint_elev' },
+    { key: 'maintFire', label: '消防维保台账', icon: 'book', perm: 'maint_fire' },
+    { key: 'maintElev', label: '电梯维保台账', icon: 'book', perm: 'maint_elev' },
+    { key: 'maintPartners', label: '签约方维护', icon: 'link', perm: 'maint_partners' },
   ]},
 ]
 

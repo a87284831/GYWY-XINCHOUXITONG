@@ -5,6 +5,7 @@ import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
 import { FIN, ensureMeta } from './meta'
 import { fmtMoney, ledgerMonthSum, ledgerSaveItems, defaultProjId, qs, defaultYears } from './financeLogic'
+import Icon from '@/components/Icon.vue'
 import './finance.css'
 
 const year = ref(new Date().getFullYear())
@@ -181,7 +182,7 @@ onMounted(async () => {
             <td style="white-space:nowrap;">
               <button :class="m.attachments ? 'att-tag has' : 'att-tag none'" @click="openAtt(m)"
                 :title="m.attachments ? '点击查看/上传凭证附件' : ''">
-                {{ m.attachments ? `📎${m.attachments}份` : '无附件' }}
+                {{ m.attachments ? `${m.attachments} 个附件` : '无附件' }}
               </button>
             </td>
             <td style="position:sticky;right:0;background:#fff;">
@@ -193,10 +194,10 @@ onMounted(async () => {
     </div>
 
     <div v-if="att.month" style="margin-top:16px;background:#fff;border:1px solid #e4e3dd;border-radius:12px;padding:16px;">
-      <div style="font-weight:600;margin-bottom:8px;">📎 {{ att.month }} 凭证附件（{{ att.list.length }}）</div>
+      <div style="font-weight:600;margin-bottom:8px;"><Icon name="folder" /> {{ att.month }} 凭证附件（{{ att.list.length }}）</div>
       <div v-if="att.list.length" style="display:flex;gap:8px;flex-wrap:wrap;">
         <div v-for="a in att.list" :key="a.id" style="border:1px solid #e4e3dd;border-radius:8px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;">
-          <span>📄 {{ a.file_name }}</span><span style="color:#999;">{{ Math.round(a.file_size / 1024) }}KB</span>
+          <span><Icon name="file" /> {{ a.file_name }}</span><span style="color:#999;">{{ Math.round(a.file_size / 1024) }}KB</span>
           <button class="fbtn sm ghost" @click="delAtt(a)">删除</button>
         </div>
       </div>

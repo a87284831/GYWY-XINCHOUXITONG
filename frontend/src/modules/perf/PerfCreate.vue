@@ -72,17 +72,17 @@
                     <template v-else-if="it.calcType === 'check'"><span class="tag" style="background:#fff7ed;color:#c2410c;border:1px solid #fdba74">核查人定分，无算分参数</span></template>
                     <template v-else><span class="tag gray">主观评分，无算分参数</span></template>
                   </div>
-                  <div class="hint" style="margin:4px 0 0;color:#475569;line-height:1.45">💡 {{ CALC_HELP[it.calcType] || '' }}</div>
+                  <div class="hint" style="margin:4px 0 0;color:#475569;line-height:1.45"><Icon name="info" /> {{ CALC_HELP[it.calcType] || '' }}</div>
                 </td>
                 <td><button class="btn sm danger" @click="delItem(ci, ii)">删</button></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <button class="btn sm" style="margin-top:6px" @click="addItem(ci)">＋ 添加指标项</button>
+        <button class="btn sm" style="margin-top:6px" @click="addItem(ci)"><Icon name="plus" /> 添加指标项</button>
       </div>
       <div class="row" style="margin:10px 0">
-        <button class="btn" @click="addCat">＋ 添加指标类别</button>
+        <button class="btn" @click="addCat"><Icon name="plus" /> 添加指标类别</button>
         <span class="hint" style="margin:0">每项权重即该项满分；上方实时显示全部指标权重合计。</span>
       </div>
       <!-- 多级审批人 -->
@@ -93,7 +93,7 @@
             <option value="">选择审批人员…</option>
             <option v-for="s in staffOpts" :key="s.id" :value="String(s.id)" :disabled="!s.hasAccount">{{ s.label }}</option>
           </select>
-          <button class="btn success sm" @click="addApprover">＋ 添加为审批人</button>
+          <button class="btn success sm" @click="addApprover"><Icon name="plus" /> 添加为审批人</button>
         </div>
         <div class="hint" style="margin:6px 0 0">只能选择「已在人事档案中且已绑定启用账号」的人员作为审批人；未绑定账号的人员已置灰不可选（判定顺序：先查档案是否存在，再查是否绑定账号）。</div>
         <div v-if="leaderTip" class="msg" :class="leaderTip.hasAccount ? 'ok' : 'err'" style="margin:4px 0">{{ leaderTip.text }}</div>
@@ -109,8 +109,8 @@
       </div>
       <div class="row end" style="margin-top:16px">
         <button class="btn" @click="$router.push('/perfMine')">返回</button>
-        <button class="btn" @click="save(false)">💾 保存草稿</button>
-        <button class="btn primary" @click="save(true)">✅ 提交（进入上级确认）</button>
+        <button class="btn" @click="save(false)"><Icon name="doc" /> 保存草稿</button>
+        <button class="btn primary" @click="save(true)"><Icon name="check" /> 提交（进入上级确认）</button>
       </div>
     </template>
   </div>
@@ -123,6 +123,7 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { toast } from '@/utils/toast'
 import { perfNum, perfWeightSum, defaultPeriod, defaultCalcParams, CALC_LABEL, CALC_HELP } from './perfLogic'
+import Icon from '@/components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()

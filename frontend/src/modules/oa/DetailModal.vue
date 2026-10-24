@@ -7,7 +7,7 @@
           <span class="tag" :style="'color:' + st[1] + ';border-color:' + st[1]">{{ st[0] }}</span>
         </div>
         <div style="font-size:12px;color:#9ca3af;margin-bottom:4px">流程号：<b style="color:#2563eb">{{ inst.flow_no || '-' }}</b> · 流程：{{ inst.flow_name }} · {{ inst.project || '' }}</div>
-        <div style="font-size:12px;color:#9ca3af;margin-bottom:12px">🧑 发起人：{{ inst.applicant }} · 发起时间：{{ fmtTime(inst.time) }}</div>
+        <div style="font-size:12px;color:#9ca3af;margin-bottom:12px"><Icon name="user" /> 发起人：{{ inst.applicant }} · 发起时间：{{ fmtTime(inst.time) }}</div>
 
         <div style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:10px 18px;margin-bottom:14px">
           <div class="appsteps">
@@ -21,7 +21,7 @@
 
         <div v-for="g in groups" :key="g.key" style="background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px;margin-bottom:12px">
           <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px">
-            <span :style="'width:4px;height:15px;background:' + g.bar + ';border-radius:2px;margin-right:8px'"></span>{{ g.icon }} {{ g.title }}</div>
+            <span :style="'width:4px;height:15px;background:' + g.bar + ';border-radius:2px;margin-right:8px'"></span><Icon :name="g.icon" :size="15" style="margin-right:6px;color:#2563eb" />{{ g.title }}</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px 20px;background:#fafbfc;border:1px solid #eef1f5;border-radius:10px;padding:14px 18px;margin-bottom:12px">
             <div v-for="fld in g.flds" :key="fld.key" style="display:flex;min-width:0">
               <div style="width:86px;color:#8a93a3;font-size:12.5px;padding-top:2px;flex-shrink:0">{{ fld.label || fld.key }}</div>
@@ -36,7 +36,7 @@
 
         <div style="display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap">
           <div style="flex:1;min-width:300px;background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px">
-            <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px"><span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span>📎 材料清单</div>
+            <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px"><span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span><Icon name="link" /> 材料清单</div>
             <div v-if="!matFlds.length" style="color:#9ca3af;font-size:12.5px;padding:8px 4px">本流程无需上传材料</div>
             <div v-for="fld in matFlds" :key="fld.key" style="display:flex;justify-content:space-between;align-items:center;padding:11px 4px;border-bottom:1px solid #f0f2f6">
               <div style="min-width:0;padding-right:8px">
@@ -53,7 +53,7 @@
             </div>
           </div>
           <div style="flex:1;min-width:300px;background:#fff;border:1px solid #eef0f3;border-radius:12px;padding:14px 18px">
-            <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px"><span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span>📝 审批记录</div>
+            <div style="display:flex;align-items:center;font-size:14px;font-weight:600;color:#111827;margin-bottom:12px"><span style="width:4px;height:15px;background:#6366f1;border-radius:2px;margin-right:8px"></span><Icon name="edit" /> 审批记录</div>
             <div v-if="!records.length" style="color:#9ca3af;font-size:12.5px">暂无审批记录</div>
             <div v-for="(it, i) in records" :key="i" style="position:relative;padding:0 0 16px 20px;margin-left:5px;border-left:2px solid #e5e9f0">
               <div :style="'position:absolute;left:-5px;top:4px;width:12px;height:12px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px ' + (it.state === 'approved' ? '#b5e6cc' : '#c7d2fe') + ';background:' + (it.state === 'approved' ? '#16a34a' : '#6366f1')"></div>
@@ -71,19 +71,19 @@
             <textarea v-model="opinion" rows="2" placeholder="填写审批意见（驳回时必填）" style="width:100%"></textarea>
           </div>
           <div class="row" style="margin:0">
-            <button class="btn success" @click="act('approve')">✓ 通过</button>
-            <button class="btn" style="background:#fff;color:#dc2626;border-color:#f3c1c2" @click="act('reject')">✕ 驳回</button>
+            <button class="btn success" @click="act('approve')"><Icon name="check" /> 通过</button>
+            <button class="btn" style="background:#fff;color:#dc2626;border-color:#f3c1c2" @click="act('reject')"><Icon name="close" /> 驳回</button>
           </div>
         </div>
         <!-- 发起人操作 -->
         <div v-if="isApplicant && (inst.status === 'pending' || inst.status === 'rejected')" class="row" style="margin-top:14px;border-top:1px solid #eef0f3;padding-top:12px">
-          <button v-if="inst.status === 'pending' && canWithdraw" class="btn warn" @click="voidOr('withdraw')">↩ 撤回</button>
-          <button v-if="inst.status === 'rejected'" class="btn primary" @click="$emit('reopen', inst)">✎ 修改并重新提交</button>
-          <button class="btn" @click="voidOr('void')">🗑 作废</button>
+          <button v-if="inst.status === 'pending' && canWithdraw" class="btn warn" @click="voidOr('withdraw')"><Icon name="back" /> 撤回</button>
+          <button v-if="inst.status === 'rejected'" class="btn primary" @click="$emit('reopen', inst)"><Icon name="pen" /> 修改并重新提交</button>
+          <button class="btn" @click="voidOr('void')"><Icon name="close" /> 作废</button>
         </div>
         <!-- 发送给人员查看 -->
         <div v-if="inst.status === 'approved' || inst.status === 'rejected'" class="row" style="margin-top:14px;border-top:1px solid #eef0f3;padding-top:12px">
-          <button class="btn" style="background:#fff;color:#7c3aed;border-color:#c4b5fd" @click="$emit('send', inst.id)">📤 发送给人员查看</button>
+          <button class="btn" style="background:#fff;color:#7c3aed;border-color:#c4b5fd" @click="$emit('send', inst.id)"><Icon name="up" /> 发送给人员查看</button>
           <span style="font-size:12px;color:#9ca3af">可将此已完结流程发送给人员（自动匹配账号），对方在我的待办-收件中查看</span>
         </div>
       </div>
@@ -97,6 +97,7 @@ import { computed, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
 import Modal from '@/components/Modal.vue'
+import Icon from '@/components/Icon.vue'
 import { DETAIL_STATUS, stepList, approvalRecords, perfText } from './approvalLogic'
 
 const props = defineProps({ instanceId: { type: Number, default: 0 }, readonly: Boolean })
@@ -113,9 +114,9 @@ const fd = computed(() => (inst.value ? (inst.value.form_data || {}) : {}))
 const schema = computed(() => (inst.value ? (inst.value.form_schema || []) : []))
 const byGroup = (g) => schema.value.filter((f) => f.group === g)
 const groups = computed(() => [
-  { key: 'person', bar: '#2563eb', icon: '👤', title: '人员信息', flds: byGroup('person') },
-  { key: 'job', bar: '#2563eb', icon: '📋', title: '入职信息', flds: byGroup('job') },
-  { key: 'salary', bar: '#2563eb', icon: '💰', title: '薪酬信息', flds: byGroup('salary') },
+  { key: 'person', bar: '#2563eb', icon: 'user', title: '人员信息', flds: byGroup('person') },
+  { key: 'job', bar: '#2563eb', icon: 'clipboard', title: '入职信息', flds: byGroup('job') },
+  { key: 'salary', bar: '#2563eb', icon: 'coins', title: '薪酬信息', flds: byGroup('salary') },
 ].filter((g) => g.flds.length))
 const matFlds = computed(() => byGroup('material'))
 const perfV = computed(() => (parseFloat(fd.value.fixed_monthly) || 0) - (parseFloat(fd.value.base_salary) || 0))

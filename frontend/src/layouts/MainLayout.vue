@@ -1,7 +1,7 @@
 <template>
   <div style="display:flex; height:100vh;">
     <div class="sidebar">
-      <div class="logo">昊轩云枢<small>原创开发人：李昊轩<br>技术协作人：谢印良</small></div>
+      <div class="logo"><div class="logo-mark">昊</div><div>昊轩云枢<small>HAOXUAN CLOUD</small></div></div>
       <div class="menu" id="menu">
         <template v-for="(m, mi) in visibleMenus" :key="m.section || m.key || mi">
           <div
@@ -10,11 +10,11 @@
             :class="{ active: currentKey === m.key }"
             @click="goPage(m.key)"
           >
-            <span class="ms-ico">{{ m.icon }}</span><span class="ms-name">{{ m.label }}</span>
+            <span class="ms-ico"><Icon :name="m.icon" :size="16" /></span><span class="ms-name">{{ m.label }}</span>
           </div>
           <template v-else>
             <div class="menu-section" :class="{ collapsed: !openSections.has(m.section) }" @click="toggleSection(m.section)">
-              <span class="ms-ico">{{ m.icon }}</span><span class="ms-name">{{ m.section }}</span><span class="arrow">▾</span>
+              <span class="ms-ico"><Icon :name="m.icon" :size="16" /></span><span class="ms-name">{{ m.section }}</span><span class="arrow">▾</span>
             </div>
             <div class="menu-sub" :class="{ collapsed: !openSections.has(m.section) }">
               <div
@@ -23,7 +23,7 @@
                 class="menu-sub-item"
                 :class="{ active: currentKey === it.key }"
                 @click="goPage(it.key)"
-              >{{ itemLabel(it) }}</div>
+              ><Icon :name="it.icon" :size="14" />{{ itemLabel(it) }}</div>
             </div>
           </template>
         </template>
@@ -32,13 +32,14 @@
         <div class="u" v-html="userLabel"></div>
         <a style="cursor:pointer" @click="showChangePw = true">修改密码</a>
         <a style="cursor:pointer" @click="onLogout">退出登录</a>
-        <div v-if="currentVersion" class="ver-line" title="查看更新日志" @click="goPage('changelog')">📋 {{ currentVersion }}</div>
+        <div v-if="currentVersion" class="ver-line" title="查看更新日志" @click="goPage('changelog')"><Icon name="doc" :size="12" /> {{ currentVersion }}</div>
+        <div class="credit-line">原创开发人：李昊轩 · 技术协作人：谢印良</div>
       </div>
     </div>
     <div class="main">
       <div class="topbar">
         <div class="app-launcher" :class="{ open: launcherOpen }" @click.stop>
-          <div class="al-btn" @click="launcherOpen = !launcherOpen"><span class="grid-ico">⊡</span>全部模块</div>
+          <div class="al-btn" @click="launcherOpen = !launcherOpen"><span class="grid-ico"><Icon name="grid" :size="15" /></span>全部模块</div>
           <div class="al-panel">
             <div class="al-title">昊轩云枢 · 全部应用</div>
             <div class="al-grid">
@@ -49,15 +50,16 @@
                 :class="{ current: currentApp === a.key, disabled: !isEnabled(a) }"
                 @click="launchApp(a)"
               >
-                <div class="ai-ico" :style="{ background: isEnabled(a) ? a.color : '#94a3b8' }">{{ a.icon }}</div>
+                <div class="ai-ico" :style="{ background: isEnabled(a) ? a.color : '#94a3b8' }"><Icon :name="a.icon" :size="22" /></div>
                 <div class="ai-name">{{ a.name }}</div>
               </div>
             </div>
           </div>
         </div>
+        <span v-if="crumbApp" class="crumb">{{ crumbApp }} /</span>
         <div class="title" id="pageTitle">{{ pageTitle }}</div>
         <div class="bell-wrap" @click.stop>
-          <button class="bell-btn" @click="toggleBell" title="消息通知">🔔<span v-if="unread > 0" class="bell-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
+          <button class="bell-btn" @click="toggleBell" title="消息通知"><Icon name="bell" :size="18" /><span v-if="unread > 0" class="bell-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
           <div class="bell-panel" v-if="bellOpen">
             <div class="bell-head">消息通知 <span class="bell-act" style="cursor:pointer" @click="onMarkAllRead">全部已读</span></div>
             <div class="bell-list">
@@ -70,7 +72,7 @@
                 :class="{ unread: !m.read }"
                 @click="openMsg(m)"
               >
-                <div class="bell-ico" :style="{ background: msgMeta(m.type).c + '22', color: msgMeta(m.type).c }">{{ msgMeta(m.type).i }}</div>
+                <div class="bell-ico" :style="{ background: msgMeta(m.type).c + '22', color: msgMeta(m.type).c }"><Icon :name="msgMeta(m.type).i" :size="15" /></div>
                 <div class="bell-body">
                   <div class="bell-t">{{ m.title }}</div>
                   <div v-if="m.content" class="bell-c">{{ m.content }}</div>
@@ -81,6 +83,7 @@
             <div class="bell-foot">仅保留最近 50 条</div>
           </div>
         </div>
+        <div class="avatar" :title="dispName">{{ avatarChar }}</div>
       </div>
       <div class="content" id="content">
         <router-view />
@@ -112,6 +115,7 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { APPS, ALL_MENUS, PAGE_TITLES, appOfPage, pageKeyOfPath, pagePath, goPage, appEnabled, APP_ROUTE } from '@/nav/menus'
 import ChangelogModal from '@/components/ChangelogModal.vue'
+import Icon from '@/components/Icon.vue'
 import { unreadEntries, latestVersion, getReadVersion, markRead } from '@/modules/home/changelogLogic'
 
 const route = useRoute()
@@ -133,16 +137,25 @@ const openSections = reactive(new Set())
 let unreadTimer = null
 
 const MSG_ICON = {
-  approval: { i: '✅', c: '#8b5cf6' },
-  remind: { i: '⏰', c: '#f59e0b' },
-  notice: { i: '📢', c: '#0ea5e9' },
-  salary: { i: '💰', c: '#16a34a' },
+  approval: { i: 'check', c: '#8b5cf6' },
+  remind: { i: 'clock', c: '#f59e0b' },
+  notice: { i: 'megaphone', c: '#0ea5e9' },
+  salary: { i: 'coins', c: '#16a34a' },
 }
-const msgMeta = (type) => MSG_ICON[type] || { i: '🔔', c: '#64748b' }
+const msgMeta = (type) => MSG_ICON[type] || { i: 'bell', c: '#64748b' }
 
 const currentKey = computed(() => pageKeyOfPath(route.path))
 const currentApp = computed(() => appOfPage(currentKey.value))
 const pageTitle = computed(() => PAGE_TITLES[currentKey.value] || '')
+const crumbApp = computed(() => {
+  const a = APPS.find((x) => x.key === currentApp.value)
+  return a ? a.name : ''
+})
+const dispName = computed(() => {
+  const u = auth.user || {}
+  return u.name || u.username || ''
+})
+const avatarChar = computed(() => (dispName.value || '·').slice(0, 1))
 
 const roleLabel = computed(() => {
   const u = auth.user || {}
@@ -338,6 +351,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.ver-line { margin-top: 6px; color: #8fa3cc; font-size: 11.5px; cursor: pointer; }
-.ver-line:hover { color: #fff; }
+.ver-line { margin-top: 8px; color: var(--text-3); font-size: 11.5px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.ver-line:hover { color: var(--brand-600); }
+.credit-line { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--divider); font-size: 10px; color: var(--text-4); line-height: 1.6; }
+.crumb { font-size: var(--fs-m); color: var(--text-3); }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--brand-50); color: var(--brand-600); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex: none; }
+.grid-ico { display: inline-flex; align-items: center; line-height: 1; }
 </style>
