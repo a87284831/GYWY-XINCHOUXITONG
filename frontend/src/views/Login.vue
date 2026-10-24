@@ -1,8 +1,8 @@
 <template>
   <div id="loginPage">
+    <div class="glow"></div>
+    <div class="grid-bg"></div>
     <div class="login-brand">
-      <div class="glow"></div>
-      <div class="grid-bg"></div>
       <div class="lb-top"><div class="logo-mark">昊</div><b>昊轩云枢</b></div>
       <div class="lb-mid">
         <h1>一个平台<br><em>管好人与钱</em></h1>
