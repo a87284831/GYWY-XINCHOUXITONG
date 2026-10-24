@@ -399,6 +399,156 @@
 .dsh-bu-pc.over { color: var(--danger); }
 .dsh-bu-pc.none { color: var(--text-3); font-weight: 500; font-size: 10.5px; }
 
+/* ---------- 预算总览 KPI ---------- */
+.dsh-bud-sum {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dsh-bud-sum-i {
+  background: var(--bg-subtle);
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  padding: 9px 12px;
+  text-align: center;
+}
+
+.dsh-bud-sum-i span {
+  display: block;
+  font-size: 10px;
+  color: var(--text-3);
+  margin-bottom: 3px;
+}
+
+.dsh-bud-sum-i b {
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-bud-sum-i b small {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+.dsh-bud-sum-i b.over {
+  color: var(--danger);
+}
+
+.dsh-page[data-theme="dark"] .dsh-bud-sum-i {
+  background: #16223A;
+  border-color: #1F2A40;
+}
+
+.dsh-page[data-theme="dark"] .dsh-bud-sum-i b {
+  color: #F2F6FF;
+}
+
+/* ---------- 填报进度卡 ---------- */
+.dsh-fills {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dsh-fill-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 40px 64px;
+  align-items: center;
+  gap: 10px;
+}
+
+.dsh-fill-n {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dsh-fill-track {
+  display: block;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--divider);
+  overflow: hidden;
+}
+
+.dsh-fill-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--brand-500), var(--brand-600));
+}
+
+.dsh-fill-fill.ok {
+  background: linear-gradient(90deg, #5BD07C, var(--success));
+}
+
+.dsh-fill-fill.no {
+  background: linear-gradient(90deg, #FF9A9A, var(--danger));
+}
+
+.dsh-fill-pct {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-fill-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--divider);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.dsh-fill-legend .no {
+  color: var(--danger);
+}
+
+.dsh-page[data-theme="dark"] .dsh-fill-fill {
+  background: linear-gradient(90deg, #4A8BFF, #165DFF);
+  box-shadow: 0 0 8px rgba(38,102,255,.45);
+}
+
+.dsh-page[data-theme="dark"] .dsh-fill-fill.ok {
+  background: linear-gradient(90deg, #5BD07C, #00B42A);
+  box-shadow: 0 0 8px rgba(0,180,42,.45);
+}
+
+.dsh-page[data-theme="dark"] .dsh-fill-fill.no {
+  background: linear-gradient(90deg, #FF9A9A, #F53F3F);
+  box-shadow: 0 0 8px rgba(245,63,63,.45);
+}
+
+/* ---------- 价格异常行着色 ---------- */
+.dsh-tbl tbody tr.row-up td {
+  background: rgba(245, 63, 63, 0.05);
+}
+
+.dsh-tbl tbody tr.row-down td {
+  background: rgba(0, 180, 42, 0.04);
+}
+
+.dsh-page[data-theme="dark"] .dsh-tbl tbody tr.row-up td {
+  background: rgba(245, 63, 63, 0.10);
+}
+
+.dsh-page[data-theme="dark"] .dsh-tbl tbody tr.row-down td {
+  background: rgba(0, 180, 42, 0.08);
+}
+
 /* ---------- 表格 ---------- */
 .dsh-tbl {
   width: 100%;

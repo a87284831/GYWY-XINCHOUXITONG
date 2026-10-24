@@ -39,6 +39,50 @@ export function linesPieOpt(rows, dark = false) {
   }
 }
 
+/** 条线占比：横向条形图（金额+百分比），替代环形图，条线多时更易读 */
+export function linesBarOpt(rows, dark = false) {
+  const t = tone(dark)
+  const list = (rows || []).slice()
+  const total = list.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+  const sorted = list.sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))
+  return {
+    tooltip: {
+      trigger: 'axis', confine: true,
+      formatter: (ps) => {
+        const r = sorted[ps[0].dataIndex]
+        const pct = total > 0 ? ((Number(r.amount) || 0) / total * 100).toFixed(1) : '0'
+        return r.line + '：' + money(r.amount) + ' 元（' + pct + '%）'
+      },
+    },
+    grid: { left: 8, right: 56, top: 6, bottom: 6, containLabel: true },
+    xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { show: false }, axisLine: { show: false } },
+    yAxis: {
+      type: 'category',
+      data: sorted.map((r) => r.line).reverse(),
+      axisLabel: { fontSize: 11, color: t.text, width: 100, overflow: 'truncate' },
+      axisTick: { show: false },
+      axisLine: { show: false },
+    },
+    series: [{
+      type: 'bar', barWidth: 14,
+      itemStyle: { borderRadius: [0, 6, 6, 0], color: t.brand },
+      label: {
+        show: true, position: 'right', fontSize: 10, color: t.muted,
+        formatter: (p) => {
+          const r = sorted[p.dataIndex]
+          const pct = total > 0 ? ((Number(r.amount) || 0) / total * 100).toFixed(1) : '0'
+          return wanLabel(r.amount) + '万 (' + pct + '%)'
+        },
+      },
+      data: sorted.map((r) => round2(r.amount || 0)).reverse(),
+    }],
+  }
+}
+
+function wanLabel(v) {
+  return ((Number(v) || 0) / 10000).toFixed(1)
+}
+
 /** 年度逐月：柱（月度金额）+ 面积线（累计金额），单轴，避免双轴误读 */
 export function annualTrendOpt(rows, dark = false) {
   const t = tone(dark)

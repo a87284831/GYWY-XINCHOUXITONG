@@ -9,7 +9,7 @@ import { moneyOrDash } from '@/utils/format'
 import ChartBox from '@/components/ChartBox.vue'
 import Icon from '@/components/Icon.vue'
 import { prevMonth, sumRows, signedMoney, deltaInfo, topWindow, qs } from './purchaseLogic'
-import { linesPieOpt, annualTrendOpt, hbarOpt, priceTrendOpt } from './dashCharts'
+import { linesBarOpt, annualTrendOpt, hbarOpt, priceTrendOpt } from './dashCharts'
 import '../finance/finance.css'
 import './dashboard.css'
 
@@ -74,6 +74,8 @@ const sparkB = computed(() => {
 
 // —— 各项目金额 + 环比/同比 ——
 const cmpMode = ref('mom')
+const topSort = ref('amount')
+const projRange = ref('month')
 const cmpRows = computed(() => {
   if (!d.value) return []
   return cmpMode.value === 'mom' ? d.value.compare.rows || [] : d.value.yoy.rows || []
@@ -313,32 +315,48 @@ onMounted(() => {
             各项目采购金额
             <span class="dsh-note">单位：万元</span>
             <div class="dsh-seg" style="margin-left:auto">
+              <button :class="{ on: projRange === 'month' }" @click="projRange = 'month'">月度</button>
+              <button :class="{ on: projRange === 'annual' }" @click="projRange = 'annual'">年度</button>
+            </div>
+            <div v-if="projRange === 'month'" class="dsh-seg">
               <button :class="{ on: cmpMode === 'mom' }" @click="cmpMode = 'mom'">环比</button>
               <button :class="{ on: cmpMode === 'yoy' }" @click="cmpMode = 'yoy'">同比</button>
             </div>
           </div>
           <div class="dsh-card-b">
-            <div v-if="projRows.length" class="dsh-hbars">
-              <div v-for="r in projRows" :key="r.name" class="dsh-hb">
-                <span class="dsh-hb-n">{{ r.name }}</span>
-                <span class="dsh-hb-track"><span class="dsh-hb-fill" :style="{ width: Math.max(2, r.pct) + '%' }"></span></span>
-                <span class="dsh-hb-v">
-                  {{ wan(r.amount) }}
-                  <span v-if="r.rate !== null" class="dsh-delta" :class="r.dir">{{ r.rate > 0 ? '+' : '' }}{{ r.rate.toFixed(1) }}%</span>
-                </span>
+            <template v-if="projRange === 'month'">
+              <div v-if="projRows.length" class="dsh-hbars">
+                <div v-for="r in projRows" :key="r.name" class="dsh-hb">
+                  <span class="dsh-hb-n">{{ r.name }}</span>
+                  <span class="dsh-hb-track"><span class="dsh-hb-fill" :style="{ width: Math.max(2, r.pct) + '%' }"></span></span>
+                  <span class="dsh-hb-v">
+                    {{ wan(r.amount) }}
+                    <span v-if="r.rate !== null" class="dsh-delta" :class="r.dir">{{ r.rate > 0 ? '+' : '' }}{{ r.rate.toFixed(1) }}%</span>
+                  </span>
+                </div>
               </div>
-            </div>
-            <div v-else class="dsh-empty">本月暂无采购项目</div>
+              <div v-else class="dsh-empty">本月暂无采购项目</div>
+            </template>
+            <template v-else>
+              <div v-if="annualProjRows.length" class="dsh-hbars">
+                <div v-for="r in annualProjRows" :key="r.name" class="dsh-hb">
+                  <span class="dsh-hb-n">{{ r.name }}</span>
+                  <span class="dsh-hb-track"><span class="dsh-hb-fill" :style="{ width: Math.max(2, r.pct) + '%' }"></span></span>
+                  <span class="dsh-hb-v">{{ wan(r.amount) }}</span>
+                </div>
+              </div>
+              <div v-else class="dsh-empty">暂无年度数据</div>
+            </template>
           </div>
         </div>
 
         <div class="dsh-card">
           <div class="dsh-card-h">
-            各条线采购金额占比
+            各条线采购金额
             <span class="dsh-note">清单外 {{ moneyOrDash(d.custom_ratio.custom_amount) }} 元</span>
           </div>
           <div class="dsh-card-b">
-            <ChartBox :option="linesPieOpt(d.monthly.lines, dark)" :height="286" />
+            <ChartBox :option="linesBarOpt(d.monthly.lines, dark)" :height="286" />
           </div>
         </div>
       </div>
@@ -348,6 +366,11 @@ onMounted(() => {
         <div class="dsh-card">
           <div class="dsh-card-h">预算执行<span class="dsh-note">超 100% 标红 · 低于 75% 标橙</span></div>
           <div class="dsh-card-b">
+            <div class="dsh-bud-sum">
+              <div class="dsh-bud-sum-i"><span>总预算</span><b>{{ wan(d.budget_exec.total_budget) }}<small>万</small></b></div>
+              <div class="dsh-bud-sum-i"><span>总实际</span><b>{{ wan(d.budget_exec.total_actual) }}<small>万</small></b></div>
+              <div class="dsh-bud-sum-i"><span>整体执行率</span><b :class="{ over: d.budget_exec.total_rate > 100 }">{{ d.budget_exec.total_rate.toFixed(1) }}%</b></div>
+            </div>
             <div v-if="budRows.length" class="dsh-buds">
               <div v-for="r in budRows" :key="r.name">
                 <div class="dsh-bu-l">
@@ -375,24 +398,23 @@ onMounted(() => {
               条目 {{ d.fill_progress.items_submitted }}/{{ d.fill_progress.items_total }} 已提交
             </span>
           </div>
-          <table class="dsh-tbl">
-            <thead>
-              <tr>
-                <th>项目</th><th>总条目</th><th>已提交</th><th>已确认</th><th>已退回</th><th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!fillRows.length"><td colspan="6" class="dsh-empty" style="padding:24px 0;">本月暂无填报记录</td></tr>
-              <tr v-for="r in fillRows" :key="r.project_id">
-                <td>{{ r.project_name }}</td>
-                <td class="n">{{ r.total }}</td>
-                <td class="n">{{ r.submitted }}</td>
-                <td class="n">{{ r.confirmed }}</td>
-                <td class="n">{{ r.returned }}</td>
-                <td><span class="dsh-pill" :class="r.cls"><s></s>{{ r.status }}</span></td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="dsh-card-b">
+            <div v-if="fillRows.length" class="dsh-fills">
+              <div v-for="r in fillRows" :key="r.project_id" class="dsh-fill-row">
+                <span class="dsh-fill-n">{{ r.project_name }}</span>
+                <span class="dsh-fill-track">
+                  <span class="dsh-fill-fill" :class="r.cls" :style="{ width: Math.min(100, r.total > 0 ? (r.submitted / r.total * 100) : 0) + '%' }"></span>
+                </span>
+                <span class="dsh-fill-pct">{{ r.total > 0 ? Math.round(r.submitted / r.total * 100) : 0 }}%</span>
+                <span class="dsh-pill" :class="r.cls"><s></s>{{ r.status }}</span>
+              </div>
+              <div class="dsh-fill-legend">
+                <span>已确认 {{ d.fill_progress.items_confirmed }} 条</span>
+                <span class="no">已退回 {{ d.fill_progress.items_returned }} 条</span>
+              </div>
+            </div>
+            <div v-else class="dsh-empty">本月暂无填报记录</div>
+          </div>
         </div>
       </div>
 
@@ -407,31 +429,19 @@ onMounted(() => {
         <div class="dsh-card">
           <div class="dsh-card-h">
             高频采购商品 TOP10
-            <span class="dsh-note">按采购次数<span v-if="topWindow(d.top)"> · {{ topWindow(d.top) }}</span></span>
+            <span class="dsh-note" v-if="topWindow(d.top)">· {{ topWindow(d.top) }}</span>
+            <div class="dsh-seg" style="margin-left:auto">
+              <button :class="{ on: topSort === 'amount' }" @click="topSort = 'amount'">按金额</button>
+              <button :class="{ on: topSort === 'times' }" @click="topSort = 'times'">按次数</button>
+            </div>
           </div>
           <div class="dsh-card-b">
             <ChartBox v-if="d.top.rows && d.top.rows.length"
-              :option="hbarOpt(d.top.rows, 'item_name', 'times', dark ? '#7FA8FF' : '#165DFF', '次', dark, 10)"
+              :option="topSort === 'amount'
+                ? hbarOpt(d.top.rows, 'item_name', 'amount', dark ? '#7FA8FF' : '#165DFF', '元', dark, 10)
+                : hbarOpt(d.top.rows, 'item_name', 'times', dark ? '#7FA8FF' : '#165DFF', '次', dark, 10)"
               :height="300" />
             <div v-else class="dsh-empty">暂无采购记录</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="dsh-grid" style="grid-template-columns:minmax(0,1fr);">
-        <div class="dsh-card">
-          <div class="dsh-card-h">年度各项目采购金额<span class="dsh-note">单位：万元</span></div>
-          <div class="dsh-card-b">
-            <div v-if="annualProjRows.length" class="dsh-hbars">
-              <div v-for="r in annualProjRows" :key="r.name" class="dsh-hb">
-                <span class="dsh-hb-n">{{ r.name }}</span>
-                <span class="dsh-hb-track">
-                  <span class="dsh-hb-fill" :style="{ width: Math.max(2, r.pct) + '%' }"></span>
-                </span>
-                <span class="dsh-hb-v">{{ wan(r.amount) }}</span>
-              </div>
-            </div>
-            <div v-else class="dsh-empty">暂无年度数据</div>
           </div>
         </div>
       </div>
@@ -449,7 +459,7 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-if="!pa.rows.length"><td colspan="5" class="dsh-empty" style="padding:24px 0;">本月无价格异常商品</td></tr>
-              <tr v-for="r in pa.rows" :key="r.item_name">
+              <tr v-for="r in pa.rows" :key="r.item_name" :class="r.trend === 'up' ? 'row-up' : 'row-down'">
                 <td>{{ r.item_name }}</td>
                 <td class="n">{{ moneyOrDash(r.cur_price) }} 元</td>
                 <td class="n">{{ moneyOrDash(r.prev_price) }} 元</td>
