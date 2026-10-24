@@ -4,11 +4,7 @@
       <div class="glow"></div>
       <div class="grid-bg"></div>
       <div class="lb-top"><div class="logo-mark">昊</div><b>昊轩云枢</b></div>
-      <div class="lb-mid">
-        <h1>一个平台<br><em>管好人与钱</em></h1>
-        <p class="sub">薪酬核算 · 采购审批 · 财务台账<br>组织架构与考勤数据实时同步</p>
-      </div>
-      <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩 · 技术协作人：谢印良</div>
+      <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩</div>
     </div>
     <div class="login-side">
       <div class="login-card">

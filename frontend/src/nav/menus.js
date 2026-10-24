@@ -48,6 +48,7 @@ export const PAGE_TITLES = {
   purchaseWindows: '填报窗口设置', purchaseOplogs: '操作日志',
   purchaseMyItems: '我的填报记录',
   financeDashboard: '财务数据驾驶舱', financeLedger: '应收费用台账',
+  financeMaint: '维保管理',
   financePayments: '付款记录', financeSummary: '汇总分析',
   financeImport: '历史数据导入',
   rules: '工资计算规则设置', symbols: '考勤符号库设置',
@@ -56,7 +57,6 @@ export const PAGE_TITLES = {
 
 export const ALL_MENUS = [
   { top: true, fixed: true, always: true, key: 'home', label: '工作台主页', icon: 'home' },
-  { top: true, fixed: true, always: true, key: 'changelog', label: '更新日志', icon: 'doc' },
   { section: '采购系统', icon: 'briefcase', app: 'purchase', items: [
     { key: 'purchaseDashboard', label: '数据驾驶舱', icon: 'chart', perm: 'purchase_view' },
     { key: 'purchaseFill', label: '员工填报（代填）', icon: 'edit', staffLabel: '采购填报', perm: 'purchase_view' },
@@ -106,6 +106,7 @@ export const ALL_MENUS = [
   { section: '财务管理', icon: 'coins', app: 'finance', items: [
     { key: 'financeDashboard', label: '数据驾驶舱', icon: 'chart', perm: 'finance_view' },
     { key: 'financeLedger', label: '应收费用台账', icon: 'book', perm: 'finance_view' },
+    { key: 'financeMaint', label: '维保管理', icon: 'wrench', perm: 'finance_view' },
     { key: 'financePayments', label: '付款记录', icon: 'wallet', perm: 'finance_view' },
     { key: 'financeSummary', label: '汇总分析', icon: 'trend', perm: 'finance_view' },
     { key: 'financeImport', label: '历史数据导入', icon: 'down', perm: 'finance_admin' },
@@ -158,6 +159,7 @@ const PURCHASE_PATH = {
 }
 export function pagePath(key) {
   if (!key || key === 'home') return '/'
+  if (key === 'financeMaint') return '/fireReport'
   if (PURCHASE_PATH[key]) return PURCHASE_PATH[key]
   return '/' + key
 }

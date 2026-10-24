@@ -33,3 +33,16 @@ deploy/
 
 # 本地 storage:link 软链（Windows Junction，禁止入库）
 /public/storage
+
+# 部署打包与临时脚本（禁止入库）
+*.tar.gz
+deploy_*.sh
+_check_now.sh
+_deploy_v*.sh
+
+# TRAE 临时产物
+.trae-html-share-packages/
+docs/_design_preview/
+docs/report-compare.html
+docs/报表中心改版前后对比.html
+docs/驾驶舱改版前后对比.html

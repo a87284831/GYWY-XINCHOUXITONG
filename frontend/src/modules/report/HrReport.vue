@@ -48,9 +48,9 @@
             <div v-if="d.edu_dist.length" style="height:240px"><canvas :ref="(el) => setEl('hrEdu', el)"></canvas></div>
             <div v-else class="msg info" style="text-align:center;padding:30px">暂未录入学历信息</div>
           </RSection>
-          <RSection title="籍贯分布 Top10（按市）">
-            <div v-if="d.hometown_top.length" :style="{ height: Math.max(180, d.hometown_top.length * 30) + 'px' }"><canvas :ref="(el) => setEl('hrHome', el)"></canvas></div>
-            <div v-else class="msg info" style="text-align:center;padding:30px">暂未录入籍贯信息</div>
+          <RSection title="人力成本按项目分布">
+            <div v-if="d.cost_by_project.length" :style="{ height: Math.max(180, d.cost_by_project.length * 36) + 'px' }"><canvas :ref="(el) => setEl('hrCost', el)"></canvas></div>
+            <div v-else class="msg info" style="text-align:center;padding:30px">暂无成本数据</div>
           </RSection>
         </div>
         <div class="rpt-grid-2">
@@ -68,7 +68,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { api } from '@/api/client'
 import { useReportStore } from '@/stores/report'
 import { rMoneyOrDash } from './reportLogic'
-import { createCharts, rBar, rHBar, rLine } from './chartKit'
+import { createCharts, rBar, rHBar, rLine, rDoughnut, PALETTE } from './chartKit'
 import RCard from './RCard.vue'
 import RSection from './RSection.vue'
 
@@ -97,20 +97,42 @@ async function draw() {
   const x = d.value
   if (!x) return
   if (x.structure.length) rHBar(charts, 'hrStruct', els.hrStruct, x.structure.map(rLabel), x.structure.map(rValue), '#2563eb')
+  // 人员趋势：只展示在职人数
   if (x.trend.length) rLine(charts, 'hrTrend', els.hrTrend, x.trend.map((t) => t.month), [
-    { label: '在职人数', data: x.trend.map((t) => t.active), color: '#2563eb' },
-    { label: '入职', data: x.trend.map((t) => t.in), color: '#16a34a' },
-    { label: '离职', data: x.trend.map((t) => t.out), color: '#dc2626' },
+    { label: '在职人数', data: x.trend.map((t) => t.active), color: '#2563eb', fill: true },
   ])
   rBar(charts, 'hrAge', els.hrAge, x.age_dist.map(rLabel), x.age_dist.map(rValue), { label: '人数', color: '#8b5cf6' })
   rBar(charts, 'hrTenure', els.hrTenure, x.tenure_dist.map(rLabel), x.tenure_dist.map(rValue), { label: '人数', color: '#0ea5e9' })
   if (x.edu_dist.length) rHBar(charts, 'hrEdu', els.hrEdu, x.edu_dist.map(rLabel), x.edu_dist.map(rValue), '#16a34a')
-  if (x.hometown_top.length) rHBar(charts, 'hrHome', els.hrHome, x.hometown_top.map(rLabel), x.hometown_top.map(rValue), '#f59e0b')
-  rLine(charts, 'hrInOut', els.hrInOut, x.trend.map((t) => t.month), [
-    { label: '入职', data: x.trend.map((t) => t.in), color: '#16a34a' },
-    { label: '离职', data: x.trend.map((t) => t.out), color: '#dc2626' },
-  ])
-  rBar(charts, 'hrStatus', els.hrStatus, x.status_dist.map(rLabel), x.status_dist.map(rValue), { label: '人数', color: '#64748b' })
+  // 人力成本按项目分布（金额+占比）
+  if (x.cost_by_project.length) {
+    const total = x.cost_by_project.reduce((s, r) => s + Number(rValue(r) || 0), 0)
+    rHBar(charts, 'hrCost', els.hrCost, x.cost_by_project.map(rLabel), x.cost_by_project.map(rValue), '#f59e0b', (v) => {
+      const pct = total > 0 ? ((v / total) * 100).toFixed(1) : '0'
+      return (v / 10000).toFixed(1) + '万 (' + pct + '%)'
+    })
+  }
+  // 入离职分析：分组柱状图
+  if (x.trend.length) {
+    charts.render('hrInOut', els.hrInOut, {
+      type: 'bar',
+      data: {
+        labels: x.trend.map((t) => t.month),
+        datasets: [
+          { label: '入职', data: x.trend.map((t) => t.in), backgroundColor: '#16a34a', borderRadius: 4, barThickness: 14 },
+          { label: '离职', data: x.trend.map((t) => t.out), backgroundColor: '#dc2626', borderRadius: 4, barThickness: 14 },
+        ],
+      },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 }, color: '#475569' } } },
+        scales: { x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,.15)' } } } },
+    })
+  }
+  // 人员状态分布：环形图
+  const sLabels = x.status_dist.map(rLabel)
+  const sValues = x.status_dist.map(rValue)
+  const sTotal = sValues.reduce((a, b) => a + Number(b || 0), 0)
+  rDoughnut(charts, 'hrStatus', els.hrStatus, sLabels, sValues, PALETTE, '在职', sTotal, (v) => v + ' 人')
 }
 
 async function load() {

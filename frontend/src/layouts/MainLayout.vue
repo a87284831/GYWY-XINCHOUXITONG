@@ -33,7 +33,7 @@
         <a style="cursor:pointer" @click="showChangePw = true">修改密码</a>
         <a style="cursor:pointer" @click="onLogout">退出登录</a>
         <div v-if="currentVersion" class="ver-line" title="查看更新日志" @click="goPage('changelog')"><Icon name="doc" :size="12" /> {{ currentVersion }}</div>
-        <div class="credit-line">原创开发人：李昊轩 · 技术协作人：谢印良</div>
+        <div class="credit-line">原创开发人：李昊轩</div>
       </div>
     </div>
     <div class="main">

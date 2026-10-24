@@ -17,7 +17,13 @@
       <div v-else-if="!d">加载中...</div>
       <template v-else>
         <div class="rpt-kpi-row">
-          <RCard v-for="k in d.kpis" :key="k.key" :label="k.label"
+          <RCard v-for="k in coreKpis" :key="k.key" :label="k.label"
+            :value="k.money ? rMoneyOrDash(k.value) : (k.unit === '%' ? k.value + '%' : k.value)"
+            :delta="k.delta !== null && k.delta !== undefined ? k.delta : null"
+            :color="colorOf(k.key)" />
+        </div>
+        <div class="rpt-kpi-row">
+          <RCard v-for="k in ytdKpis" :key="k.key" :label="k.label"
             :value="k.money ? rMoneyOrDash(k.value) : (k.unit === '%' ? k.value + '%' : k.value)"
             :delta="k.delta !== null && k.delta !== undefined ? k.delta : null"
             :color="colorOf(k.key)" />
@@ -69,6 +75,12 @@ const KCOLOR = { active: '#2563eb', count: '#0ea5e9', gross: '#16a34a', net: '#1
   ytd_gross: '#8b5cf6', ytd_net: '#6366f1', tax: '#ef4444', soc: '#f97316', ytd_tax: '#dc2626', ytd_soc: '#d97706', budget: '#14b8a6', budget_rate: '#e11d48' }
 const colorOf = (k) => KCOLOR[k] || '#2563eb'
 
+// KPI 分两组：核心4 + 累计与预算4
+const CORE_KEYS = ['gross', 'net', 'avg', 'count']
+const YTD_KEYS = ['ytd_gross', 'ytd_net', 'budget', 'budget_rate']
+const coreKpis = computed(() => (d.value?.kpis || []).filter((k) => CORE_KEYS.includes(k.key)))
+const ytdKpis = computed(() => (d.value?.kpis || []).filter((k) => YTD_KEYS.includes(k.key)))
+
 async function draw() {
   await nextTick()
   const x = d.value
@@ -99,10 +111,44 @@ async function draw() {
     { label: '五险一金', data: x.monthly_trend.map((t) => t.soc), color: '#f97316' },
     { label: '个税', data: x.monthly_trend.map((t) => t.tax), color: '#ef4444' },
   ], { fmt: fmtWan })
-  rLine(charts, 'salBudget', els.salBudget, x.budget_trend.map((t) => t.month), [
-    { label: '当月应发', data: x.budget_trend.map((t) => t.gross), color: '#16a34a' },
-    { label: '当月预算', data: x.budget_trend.map((t) => t.budget), color: '#94a3b8' },
-  ], { fmt: fmtWan })
+  // 月度预算执行率：柱状图 + 100%参考线，超支标红
+  if (x.budget_trend.length) {
+    const rates = x.budget_trend.map((t) => (t.budget > 0 ? (t.gross / t.budget) * 100 : 0))
+    const bgColors = rates.map((r) => (r > 100 ? '#dc2626' : '#165DFF'))
+    const yMax = Math.max(120, ...rates.map((r) => r * 1.15))
+    const refLinePlugin = {
+      id: 'refLine',
+      afterDraw: function (chart) {
+        var ctx = chart.ctx
+        var xScale = chart.scales.x
+        var yScale = chart.scales.y
+        var y100 = yScale.getPixelForValue(100)
+        ctx.save()
+        ctx.strokeStyle = '#dc2626'
+        ctx.setLineDash([6, 4])
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(xScale.left, y100)
+        ctx.lineTo(xScale.right, y100)
+        ctx.stroke()
+        ctx.fillStyle = '#dc2626'
+        ctx.font = '600 10px "Microsoft YaHei"'
+        ctx.textAlign = 'right'
+        ctx.fillText('100% 基准', xScale.right - 6, y100 - 5)
+        ctx.restore()
+      },
+    }
+    charts.render('salBudget', els.salBudget, {
+      type: 'bar',
+      data: { labels: x.budget_trend.map((t) => t.month), datasets: [{ label: '执行率', data: rates, backgroundColor: bgColors, borderRadius: 4, barThickness: 16 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return ' 执行率：' + c.parsed.y.toFixed(1) + '%' } } } },
+        scales: { x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
+          y: { beginAtZero: true, max: yMax, ticks: { color: '#64748b', font: { size: 10 }, callback: function (v) { return v + '%' } }, grid: { color: 'rgba(148,163,184,.15)' } } },
+      },
+      plugins: [refLinePlugin],
+    })
+  }
   rBar(charts, 'salPerf', els.salPerf, x.perf_dist.map((v) => (v && typeof v === 'object' ? v.label : v)), x.perf_dist.map((v) => (v && typeof v === 'object' ? v.value : v)), { label: '人数', color: '#14b8a6' })
 }
 

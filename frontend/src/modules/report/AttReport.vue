@@ -17,21 +17,18 @@
       <div v-else-if="!d">加载中...</div>
       <template v-else>
         <div class="rpt-kpi-row">
+          <RCard label="整体出勤率" :value="overallRate + '%'" :color="overallRate >= 90 ? '#16a34a' : overallRate >= 80 ? '#f59e0b' : '#dc2626'" />
           <RCard v-for="(v, k) in d.anomaly_totals" :key="k" :label="k + '（次）'" :value="v" :color="ACOLOR[k] || '#64748b'" />
         </div>
         <RSection :title="`出勤率汇总（${d.ym} · 各项目）`">
-          <div class="table-wrap">
-            <table class="tb">
-              <thead><tr><th>项目</th><th>人数</th><th>应出勤(天)</th><th>实际出勤(天)</th><th>出勤率</th></tr></thead>
-              <tbody>
-                <tr v-if="!d.projects.length"><td colspan="5" style="text-align:center;color:#94a3b8;padding:20px">该月份暂无考勤数据</td></tr>
-                <tr v-for="p in d.projects" :key="p.project">
-                  <td><b>{{ p.project }}</b></td><td>{{ p.headcount }}</td><td>{{ p.required }}</td><td>{{ p.actual }}</td>
-                  <td><b :style="{ color: p.rate >= 90 ? '#16a34a' : p.rate >= 80 ? '#f59e0b' : '#dc2626' }">{{ p.rate }}%</b></td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-if="d.projects.length" class="att-prog-list">
+            <div v-for="p in d.projects" :key="p.project" class="att-prog-row">
+              <span class="att-proj">{{ p.project }}</span>
+              <span class="att-track"><span class="att-fill" :class="rateCls(p.rate)" :style="{ width: Math.min(100, p.rate) + '%' }"></span></span>
+              <span class="att-pct" :class="rateCls(p.rate)">{{ p.rate }}%</span>
+            </div>
           </div>
+          <div v-else class="msg info" style="text-align:center;padding:20px">该月份暂无考勤数据</div>
         </RSection>
         <div class="rpt-grid-2">
           <RSection title="异常趋势（近6月）"><div style="height:260px"><canvas :ref="(el) => setEl('attTrend', el)"></canvas></div></RSection>
@@ -43,18 +40,7 @@
         <div class="rpt-grid-2">
           <RSection title="出勤符号构成"><div style="height:260px"><canvas :ref="(el) => setEl('attSymbol', el)"></canvas></div></RSection>
           <RSection title="异常人员 Top10">
-            <div v-if="d.top.length" class="table-wrap">
-              <table class="tb">
-                <thead><tr><th>#</th><th>姓名</th><th>项目</th><th>异常次数</th><th>异常类型</th></tr></thead>
-                <tbody>
-                  <tr v-for="(t, i) in d.top" :key="i">
-                    <td>{{ i + 1 }}</td><td><b>{{ t.name }}</b></td><td>{{ t.project }}</td>
-                    <td style="color:#dc2626;font-weight:700">{{ t.anomalyCount }}</td>
-                    <td>{{ (t.anomalies || []).join('、') || '-' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <div v-if="d.top.length" :style="{ height: Math.max(180, d.top.length * 32) + 'px' }"><canvas :ref="(el) => setEl('attTop', el)"></canvas></div>
             <div v-else class="msg info" style="text-align:center;padding:30px">本月无异常记录</div>
           </RSection>
         </div>
@@ -90,6 +76,17 @@ const monthNum = computed({
 const rLabel = (v) => (v && typeof v === 'object' ? v.label : v)
 const rValue = (v) => (v && typeof v === 'object' ? v.value : v)
 
+// 整体出勤率 = 所有项目加权平均（sum(actual) / sum(required)）
+const overallRate = computed(() => {
+  const ps = d.value?.projects || []
+  const totReq = ps.reduce((s, p) => s + Number(p.required || 0), 0)
+  const totAct = ps.reduce((s, p) => s + Number(p.actual || 0), 0)
+  return totReq > 0 ? +((totAct / totReq) * 100).toFixed(1) : 0
+})
+
+// 出勤率颜色分级
+const rateCls = (r) => (r >= 90 ? 'ok' : r >= 80 ? 'warn' : 'over')
+
 async function draw() {
   await nextTick()
   const x = d.value
@@ -98,6 +95,14 @@ async function draw() {
     TREND_KEYS.filter((k) => x.anomaly_trend.some((t) => t[k] > 0)).map((k) => ({ label: k, data: x.anomaly_trend.map((t) => t[k] || 0), color: ACOLOR[k] })))
   if (x.projects.length) rHBar(charts, 'attRate', els.attRate, x.projects.map((p) => p.project), x.projects.map((p) => p.rate), '#f59e0b', (v) => v + '%')
   if (x.symbol_dist.length) rHBar(charts, 'attSymbol', els.attSymbol, x.symbol_dist.map(rLabel), x.symbol_dist.map(rValue), '#0ea5e9')
+  // 异常人员 Top10：横向条形图
+  if (x.top.length) {
+    const top = x.top.slice().sort((a, b) => a.anomalyCount - b.anomalyCount)
+    rHBar(charts, 'attTop', els.attTop,
+      top.map((t) => t.name + '（' + (t.anomalies || []).join('/') + '）'),
+      top.map((t) => t.anomalyCount),
+      '#dc2626', (v) => v + ' 次')
+  }
 }
 
 async function load() {
@@ -111,3 +116,18 @@ async function load() {
 onMounted(load)
 onBeforeUnmount(() => charts.destroyAll())
 </script>
+
+<style scoped>
+.att-prog-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.att-prog-row { display: grid; grid-template-columns: 80px 1fr 56px; align-items: center; gap: 10px; }
+.att-proj { font-size: 12px; font-weight: 600; color: #1D2129; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-track { display: block; height: 10px; border-radius: 99px; background: #F2F3F5; overflow: hidden; }
+.att-fill { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #4080FF, #165DFF); }
+.att-fill.ok { background: linear-gradient(90deg, #5BD07C, #16a34a); }
+.att-fill.warn { background: linear-gradient(90deg, #FFC46B, #f59e0b); }
+.att-fill.over { background: linear-gradient(90deg, #FF9A9A, #dc2626); }
+.att-pct { font-size: 12px; font-weight: 700; text-align: right; color: #1D2129; font-variant-numeric: tabular-nums; }
+.att-pct.ok { color: #16a34a; }
+.att-pct.warn { color: #f59e0b; }
+.att-pct.over { color: #dc2626; }
+</style>
