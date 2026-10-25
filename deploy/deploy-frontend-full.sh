@@ -91,4 +91,16 @@ fi
 
 echo "=== 5. 首页状态 ==="
 curl -sk -o /dev/null -w "GET /app/ -> %{http_code}\n" https://oa.haoxuanyunshu.cn/app/
+
+echo "=== 6. 重置 storage / bootstrap/cache 权限（防 artisan 以 root 运行污染属主） ==="
+# 2026-10-25 登录 500 事故：php artisan migrate/cache:clear/route:cache 等以 root 身份运行后，
+# 新生成的缓存文件属主为 root，PHP-FPM (www-data) 无法写入 →
+# 登录时 Cache::put 触发 file_put_contents 失败 → Laravel 异常处理器又尝试写 laravel.log 同样失败 →
+# 递归异常，返回 500 "Server Error"。
+# 修复：部署末尾必须强制重置这两个目录的属主与权限。
+chown -R www-data:www-data $REMOTE/storage $REMOTE/bootstrap/cache
+chmod -R 775 $REMOTE/storage $REMOTE/bootstrap/cache
+mkdir -p $REMOTE/storage/framework/cache/data
+chown -R www-data:www-data $REMOTE/storage/framework/cache/data
+
 echo "=== 部署完成 ==="
