@@ -3,17 +3,11 @@ import router from '@/router'
 
 export const APPS = [
   { key: 'hr', name: '人力资源', icon: 'users', color: '#2563eb' },
-  { key: 'contract', name: '合同管理', icon: 'file', color: '#e74c3c' },
-  { key: 'admin', name: '行政管理', icon: 'building', color: '#8b5cf6' },
   { key: 'oa', name: 'OA审批', icon: 'check', color: '#3b82f6' },
-  { key: 'property', name: '房产管理', icon: 'home', color: '#1e40af' },
   { key: 'maintain', name: '工程维保', icon: 'wrench', color: '#f59e0b' },
-  { key: 'security', name: '安保管理', icon: 'shield', color: '#16a34a' },
-  { key: 'cleaning', name: '保洁绿化', icon: 'sparkles', color: '#14b8a6' },
   { key: 'purchase', name: '采购管理', icon: 'briefcase', color: '#6366f1' },
   { key: 'finance', name: '财务管理', icon: 'coins', color: '#0d9488' },
   { key: 'report', name: '报表中心', icon: 'chart', color: '#0ea5e9' },
-  { key: 'notice', name: '公告通知', icon: 'megaphone', color: '#ef4444' },
   { key: 'setting', name: '系统设置', icon: 'gear', color: '#64748b' },
 ]
 
