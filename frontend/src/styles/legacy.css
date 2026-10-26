@@ -71,7 +71,7 @@ body { font-family:var(--font); background:var(--bg-page); color:var(--text-1); 
 .menu-item.active::before { content:""; position:absolute; left:-10px; top:8px; bottom:8px; width:3px; border-radius:0 3px 3px 0; background:var(--brand-600); }
 .menu-group { padding:14px 16px 6px; font-size:11px; color:var(--text-4); font-weight:700; letter-spacing:.08em; }
 /* 二级菜单（一级菜单风格） */
-.menu-section { margin:2px 10px; padding:9px 12px; cursor:pointer; font-size:var(--fs-l); color:var(--text-2); display:flex; align-items:center; gap:10px; user-select:none; border-radius:8px; font-weight:500; transition:background .15s, color .15s; }
+.menu-section { margin:2px 10px; padding:9px 12px; cursor:pointer; font-size:var(--fs-l); color:var(--text-1); display:flex; align-items:center; gap:10px; user-select:none; border-radius:8px; font-weight:600; transition:background .15s, color .15s; }
 .menu-section .ms-ico { width:18px; display:flex; align-items:center; justify-content:center; color:var(--text-3); flex:none; }
 .menu-item .ms-ico { width:18px; display:flex; align-items:center; justify-content:center; color:var(--text-3); flex:none; }
 .menu-item.active .ms-ico { color:var(--brand-600); }
@@ -81,9 +81,9 @@ body { font-family:var(--font); background:var(--bg-page); color:var(--text-1); 
 .menu-section.collapsed .arrow { transform:rotate(-90deg); }
 .menu-sub { overflow:hidden; }
 .menu-sub.collapsed { display:none; }
-.menu-sub-item { margin:1px 10px 1px 16px; padding:8px 12px; cursor:pointer; font-size:13.5px; color:var(--text-2); display:flex; align-items:center; gap:9px; border-radius:8px; transition:background .15s, color .15s; }
-.menu-sub-item:hover { background:var(--bg-subtle); color:var(--text-1); }
-.menu-sub-item .icon { color:var(--text-3); flex:none; }
+.menu-sub-item { margin:1px 10px 1px 36px; padding:8px 12px; cursor:pointer; font-size:13px; color:var(--text-3); display:flex; align-items:center; gap:9px; border-radius:8px; transition:background .15s, color .15s; }
+.menu-sub-item:hover { background:var(--bg-subtle); color:var(--text-2); }
+.menu-sub-item .icon { color:var(--text-4); flex:none; }
 .menu-sub-item.active { background:var(--brand-50); color:var(--brand-600); font-weight:600; }
 .menu-sub-item.active .icon { color:var(--brand-600); }
 .sidebar .userbox { padding:12px 16px; border-top:1px solid var(--divider); font-size:var(--fs-s); }
