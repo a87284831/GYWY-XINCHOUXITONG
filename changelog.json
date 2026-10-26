@@ -1,5 +1,13 @@
 [
   {
+    "version": "v2026.10.26.2",
+    "date": "2026-10-26",
+    "commit": "4a45bfa",
+    "items": [
+      { "category": "修复", "text": "修复考勤表上传 xlsx 被误拒问题：WPS 等工具生成的 xlsx 会被服务器识别为 zip 格式而报错，现改为按文件扩展名校验，xls / xlsx 均可正常上传" }
+    ]
+  },
+  {
     "version": "v2026.10.26.1",
     "date": "2026-10-26",
     "commit": "9a92be4",
