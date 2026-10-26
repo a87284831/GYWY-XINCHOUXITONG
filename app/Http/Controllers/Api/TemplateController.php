@@ -570,8 +570,9 @@ class TemplateController extends ApiController
         foreach ($statWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $i))->setWidth($w);
         }
-        // 奖惩/补贴/五险一金/扣款区列宽（13列：奖励8 福利8 扣罚8 餐补6 夜班8 职称8 养老8 医疗8 失业8 公积金7 大病6 其他7 工装7）
-        $moneyWidths = [8, 8, 8, 6, 8, 8, 8, 8, 8, 7, 6, 7, 7];
+        // 奖惩/补贴/五险一金/扣款区列宽（13列：奖励9 福利10 扣罚9 餐补6 夜班10 职称10 养老10 医疗10 失业10 公积金11 大病8 其他8 工装8）
+        // 社保公积金列加宽：原 8/7 数值稍大即显示 ###，用户反馈显示不全
+        $moneyWidths = [9, 10, 9, 6, 10, 10, 10, 10, 10, 11, 8, 8, 8];
         foreach ($moneyWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $i))->setWidth($w);
         }
