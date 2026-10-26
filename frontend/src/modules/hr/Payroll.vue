@@ -27,6 +27,7 @@
             <span style="flex:1"></span>
             <button class="btn danger" @click="openDeleteDialog('staff')">删除当月员工薪资数据</button>
             <button class="btn" @click="openDeleteLogs">删除日志</button>
+            <button class="btn" @click="openSnapshots('staff')">版本历史</button>
           </div>
           <div class="checkbox-list" style="margin-top:10px">
             <label v-for="p in projChecks" :key="p">
@@ -152,6 +153,7 @@
           <span v-html="typeArchiveHtml[tp]"></span>
           <span style="flex:1"></span>
           <button class="btn danger" @click="openDeleteDialog(tp)">删除当月{{ TP_META[tp].noun }}薪资数据</button>
+          <button class="btn" @click="openSnapshots(tp)">版本历史</button>
         </div>
         <div class="hint">{{ TP_META[tp].hint }}</div>
         <div v-if="typeErr[tp]" class="msg err">{{ typeErr[tp] }}</div>
@@ -409,6 +411,70 @@
         </div>
       </div>
     </div>
+
+    <!-- 导入预览 - 列匹配确认对话框 -->
+    <div v-if="previewVisible" class="modal-mask" @click.self="previewVisible = false">
+      <div class="modal" style="max-width:760px;max-height:82vh;overflow:auto">
+        <h3>确认列匹配（{{ previewSheets.length }} 个Sheet）</h3>
+        <p style="margin:8px 0;color:#666">检查每列对应的系统字段，匹配错误的可手动修改；<span style="color:#d93025">标红为必需字段</span>（姓名、应发工资合计、本月个税）。</p>
+        <div v-for="(s, si) in previewSheets" :key="si" style="margin-bottom:16px;border:1px solid #eee;padding:10px;border-radius:6px">
+          <div style="font-weight:600;margin-bottom:8px">
+            Sheet：{{ s.sheet_name }} <span style="color:#1a73e8">→ {{ s.ym || '无法识别月份' }}</span>
+            <span style="color:#999;font-weight:400">（{{ s.data_rows }} 行数据）</span>
+          </div>
+          <table class="tb" style="width:100%;font-size:13px">
+            <thead><tr><th style="width:40%">Excel列名</th><th style="width:50%">对应系统字段</th><th style="width:10%"></th></tr></thead>
+            <tbody>
+              <tr v-for="(col, ci) in s.columns" :key="ci">
+                <td>{{ col.excel_name }}</td>
+                <td>
+                  <select v-model="col.matched_field" style="width:100%;padding:4px;border:1px solid #ddd;border-radius:4px">
+                    <option value="">— 不导入 —</option>
+                    <option v-for="(label, key) in previewFieldLabels" :key="key" :value="key">
+                      {{ label }}<span v-if="previewRequired.includes(key)" style="color:#d93025"> *</span>
+                    </option>
+                  </select>
+                </td>
+                <td>
+                  <span v-if="previewRequired.includes(col.matched_field)" style="color:#d93025;font-size:16px">●</span>
+                  <span v-else-if="col.matched_field" style="color:#188038;font-size:16px">●</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="text-align:right;margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" @click="previewVisible = false">取消</button>
+          <button class="btn primary" @click="confirmImport">确认导入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 核算版本历史对话框 -->
+    <div v-if="snapVisible" class="modal-mask" @click.self="snapVisible = false">
+      <div class="modal" style="max-width:680px">
+        <h3>{{ ui.month }} {{ TP_META[snapType]?.noun || '员工' }}核算版本历史</h3>
+        <p style="margin:8px 0;color:#666">每次核算自动生成版本快照，可回退到任意历史版本。</p>
+        <div v-if="snapList.length === 0" class="msg info">暂无历史版本</div>
+        <table v-else class="tb" style="width:100%;font-size:13px">
+          <thead><tr><th>版本</th><th>人数</th><th>应发合计</th><th>实发合计</th><th>操作人</th><th>时间</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="s in snapList" :key="s.id">
+              <td>v{{ s.version }}</td>
+              <td>{{ s.headcount }}</td>
+              <td>{{ money(s.gross_total) }}</td>
+              <td>{{ money(s.net_total) }}</td>
+              <td>{{ s.operator || '-' }}</td>
+              <td>{{ formatLogTime(s.created_at) }}</td>
+              <td><button class="btn sm danger" @click="revertSnapshot(s)">回退</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="text-align:right;margin-top:12px">
+          <button class="btn" @click="snapVisible = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -469,6 +535,16 @@ const calcProjects = ref(auth.projects.slice())
 const calcMsg = ref('')
 const calcNotice = ref(null)
 const histFile = ref(null)
+// 导入预览相关
+const previewVisible = ref(false)
+const previewSheets = ref([])
+const previewFieldLabels = ref({})
+const previewRequired = ref([])
+const pendingImportFile = ref(null)
+// 版本历史相关
+const snapVisible = ref(false)
+const snapType = ref('staff')
+const snapList = ref([])
 const empRows = ref([])
 const empMeta = ref({})
 const empErr = ref('')
@@ -729,6 +805,47 @@ async function importHistory(e) {
   const form = new FormData()
   form.append('file', f)
   try {
+    const r = await api('/api/payroll/import-preview', { form })
+    if (!r.ok) { calcMsg.value = `<div class="msg err">${r.error}</div>`; return }
+    previewSheets.value = r.sheets || []
+    previewFieldLabels.value = r.field_labels || {}
+    previewRequired.value = r.required_fields || []
+    pendingImportFile.value = f
+    previewVisible.value = true
+  } catch (err) { calcMsg.value = `<div class="msg err">${err.message}</div>` }
+  finally { e.target.value = '' }
+}
+
+async function confirmImport() {
+  // 校验必需字段
+  const required = previewRequired.value
+  const missing = []
+  for (const s of previewSheets.value) {
+    const matched = new Set((s.columns || []).map(c => c.matched_field).filter(Boolean))
+    for (const fld of required) {
+      if (!matched.has(fld)) {
+        missing.push(`${s.ym || s.sheet_name} 缺少「${previewFieldLabels.value[fld] || fld}」`)
+      }
+    }
+  }
+  if (missing.length) {
+    alert('以下必需字段未匹配：\n' + missing.join('\n'))
+    return
+  }
+  // 构建用户确认的列映射：{ sheetName: { excelName: fieldKey } }
+  const colMapping = {}
+  for (const s of previewSheets.value) {
+    const map = {}
+    for (const col of (s.columns || [])) {
+      if (col.matched_field) map[col.excel_name] = col.matched_field
+    }
+    colMapping[s.sheet_name] = map
+  }
+  const form = new FormData()
+  form.append('file', pendingImportFile.value)
+  form.append('col_mapping', JSON.stringify(colMapping))
+  previewVisible.value = false
+  try {
     const r = await api('/api/payroll/import-history', { form })
     let msg = `导入完成：处理 ${r.sheets} 个月份，新增 ${r.inserted} 行，更新 ${r.updated} 行`
     if (r.skipped_before_hire) msg += `，跳过入职前 ${r.skipped_before_hire} 行`
@@ -742,14 +859,36 @@ async function importHistory(e) {
     }
     calcMsg.value = `<div class="msg ${r.errors && r.errors.length ? 'info' : 'ok'}">${msgHtml}</div>`
     if (r.error_file) {
-      // v-html 内无法绑定事件，渲染后手动挂下载按钮
       nextTick(() => {
         document.getElementById('dlImpErrBtn')?.addEventListener('click', () =>
           download(`/api/payroll/import-history/error-report/${r.error_file}`, '历史工资导入错误报告.xlsx'))
       })
     }
+    loadPayroll()
   } catch (err) { calcMsg.value = `<div class="msg err">${err.message}</div>` }
-  finally { e.target.value = '' }
+  finally { pendingImportFile.value = null }
+}
+
+// ===== 版本历史 =====
+async function openSnapshots(tp) {
+  snapType.value = tp
+  try {
+    const r = await api(`/api/payroll/snapshots?ym=${ui.month}&person_type=${tp}`)
+    snapList.value = r.list || []
+    snapVisible.value = true
+  } catch (e) { alert('加载版本历史失败：' + e.message) }
+}
+
+async function revertSnapshot(s) {
+  if (!confirm(`确认回退到 ${ui.month} 第 v${s.version} 版？\n当前数据将被该版本覆盖，此操作不可撤销。`)) return
+  try {
+    const r = await api('/api/payroll/revert-snapshot', { body: { snapshot_id: s.id } })
+    alert(`回退成功：删除 ${r.deleted} 行，恢复 ${r.restored} 行`)
+    snapVisible.value = false
+    // 刷新当前tab数据
+    if (snapType.value === 'staff') loadPayroll()
+    else loadType(snapType.value)
+  } catch (e) { alert('回退失败：' + e.message) }
 }
 
 async function doCalcType(tp) {

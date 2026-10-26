@@ -47,6 +47,7 @@ class PayrollWriteController extends ApiController
             if (!empty($result['skipped'])) {
                 \Illuminate\Support\Facades\Log::info('payroll.calc.skipped', ['ym' => $ym, 'projects' => $projects, 'reason' => $result['skipped']]);
             }
+            $this->saveSnapshot($ym, 'staff', $account->name ?? $account->username);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'] ?? [], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
@@ -74,6 +75,7 @@ class PayrollWriteController extends ApiController
         if ($blocked) return $blocked;
         try {
             $result = $calc->calculateManagers($ym);
+            $this->saveSnapshot($ym, 'mgr', $account->name ?? $account->username);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
@@ -101,6 +103,7 @@ class PayrollWriteController extends ApiController
         if ($blocked) return $blocked;
         try {
             $result = $calc->calculateCaseStaff($ym);
+            $this->saveSnapshot($ym, 'case', $account->name ?? $account->username);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
@@ -128,6 +131,7 @@ class PayrollWriteController extends ApiController
         if ($blocked) return $blocked;
         try {
             $result = $calc->calculateHq($ym);
+            $this->saveSnapshot($ym, 'hq', $account->name ?? $account->username);
             return response()->json(['ok' => true, 'count' => $result['count'], 'skipped' => $result['skipped'], 'missing' => $result['missing'] ?? [], 'warnings' => $result['warnings'] ?? []]);
         } catch (\Throwable $e) {
             report($e);
@@ -417,10 +421,134 @@ class PayrollWriteController extends ApiController
     }
 
     /**
+     * 系统工资字段的中文名称（用于导入预览的下拉选项）
+     */
+    private const FIELD_LABELS = [
+        'project' => '项目', 'department' => '部门', 'position' => '岗位', 'name' => '姓名',
+        'status' => '人员状态', 'fixed' => '固定月薪', 'base' => '基本工资',
+        'req_att' => '应出勤', 'act_att' => '实际出勤', 'coef' => '绩效系数',
+        'base_pay' => '应发基本工资', 'perf_pay' => '应发绩效工资', 'sick_pay' => '病假工资',
+        'night' => '夜班/话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴',
+        'reward' => '月度奖励', 'welfare' => '已发福利', 'punish' => '月度扣罚',
+        'late_d' => '迟到早退扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款',
+        'uniform_d' => '工装扣款', 'gross' => '应发工资合计',
+        'pen' => '养老保险', 'med' => '医疗保险', 'une' => '失业保险',
+        'house' => '住房公积金', 'big' => '大病', 'soc_total' => '五险一金合计',
+        'spec_total' => '专项附加扣除', 'actual_tax' => '本月个税', 'net' => '实发工资', 'remark' => '备注',
+    ];
+
+    /**
+     * POST /api/payroll/import-preview
+     * 预览导入列匹配结果（不写入数据库），返回每个 sheet 的列映射供用户确认/调整
+     */
+    public function importPreview(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅管理员可导入历史工资'], 403);
+        }
+        if (!$request->hasFile('file')) {
+            return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
+        }
+        $paramYm = trim((string) $request->input('ym', ''));
+
+        try {
+            $spreadsheet = IOFactory::load($request->file('file')->getPathname());
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => '文件无法解析：' . $e->getMessage()], 400);
+        }
+
+        $fullMap = [
+            '项目' => 'project', '部门' => 'department', '岗位' => 'position', '姓名' => 'name',
+            '人员状态' => 'status', '固定月薪' => 'fixed', '基本工资' => 'base',
+            '应出勤' => 'req_att', '实际出勤' => 'act_att', '绩效系数' => 'coef',
+            '应发基本工资' => 'base_pay', '应发绩效工资' => 'perf_pay', '病假工资' => 'sick_pay',
+            '夜班/话费补贴' => 'night', '餐补' => 'meal', '其他补贴' => 'title_sub',
+            '月度奖励' => 'reward', '已发福利' => 'welfare', '月度扣罚' => 'punish',
+            '迟到早退扣款' => 'late_d', '缺卡扣款' => 'miss_d', '其他扣款' => 'other_d',
+            '工装扣款' => 'uniform_d', '应发工资合计' => 'gross',
+            '养老保险' => 'pen', '医疗保险' => 'med', '失业保险' => 'une',
+            '住房公积金' => 'house', '大病' => 'big', '五险一金合计' => 'soc_total',
+            '专项附加扣除' => 'spec_total', '本月个税' => 'actual_tax', '实发工资' => 'net', '备注' => 'remark',
+        ];
+        $aliasMap = [
+            '公司' => 'project', '单位' => 'project', '所属公司' => 'project', '所属单位' => 'project',
+            '本月工资合计' => 'gross', '应发合计' => 'gross', '工资合计' => 'gross', '应发工资' => 'gross',
+            '出勤' => 'act_att', '实际出勤天数' => 'act_att', '出勤天数' => 'act_att',
+            '应出勤天数' => 'req_att',
+            '个税' => 'actual_tax', '个人所得税' => 'actual_tax', '代扣个税' => 'actual_tax',
+            '实发' => 'net', '实发合计' => 'net',
+            '五险' => 'soc_total', '社保公积金合计' => 'soc_total',
+            '专项扣除' => 'spec_total',
+        ];
+
+        $sheets = [];
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            $sheetName = trim($sheet->getTitle());
+            $ym = $this->parseSheetMonth($sheetName, $paramYm);
+            $highestCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
+
+            // 找表头行
+            $headerRow = null;
+            for ($row = 1; $row <= min(10, $sheet->getHighestRow()); $row++) {
+                $vals = [];
+                for ($c = 1; $c <= min(40, $highestCol); $c++) {
+                    $vals[] = trim(trim((string) $this->cellValue($sheet, $c, $row)), " *＊");
+                }
+                if (in_array('姓名', $vals, true) && preg_grep('/应发/', $vals)) {
+                    $headerRow = $row;
+                    break;
+                }
+            }
+
+            $columns = [];
+            $dataRowCount = 0;
+            if ($headerRow) {
+                for ($c = 1; $c <= $highestCol; $c++) {
+                    $h = trim(trim((string) $this->cellValue($sheet, $c, $headerRow)), " *＊");
+                    if ($h === '' || $h === '序号') continue;
+                    $matched = $fullMap[$h] ?? ($aliasMap[$h] ?? null);
+                    if ($matched === null) {
+                        // 模糊匹配
+                        if (str_contains($h, '项目')) $matched = 'project';
+                        elseif (str_contains($h, '应发') && str_contains($h, '合计')) $matched = 'gross';
+                        elseif (str_contains($h, '五险一金') && str_contains($h, '合计')) $matched = 'soc_total';
+                        elseif (str_contains($h, '专项附加')) $matched = 'spec_total';
+                        elseif (str_contains($h, '个税')) $matched = 'actual_tax';
+                        elseif (str_contains($h, '实发')) $matched = 'net';
+                    }
+                    $columns[] = [
+                        'col' => $c,
+                        'excel_name' => $h,
+                        'matched_field' => $matched,
+                    ];
+                }
+                $dataRowCount = max(0, $sheet->getHighestDataRow() - $headerRow);
+            }
+
+            $sheets[] = [
+                'sheet_name' => $sheetName,
+                'ym' => $ym,
+                'header_row' => $headerRow,
+                'data_rows' => $dataRowCount,
+                'columns' => $columns,
+            ];
+        }
+
+        return response()->json([
+            'ok' => true,
+            'sheets' => $sheets,
+            'field_labels' => self::FIELD_LABELS,
+            'required_fields' => ['name', 'gross', 'actual_tax'],
+        ]);
+    }
+
+    /**
      * POST /api/payroll/import-history
      * 导入历史工资表（线下核算的月份），写入 payroll_results 归档行，使后续月份累计个税自洽。
-     * 参数：file（Excel，可多 sheet，sheet 名表示月份如 2026-01 / 1月）；可选 ym（单 sheet 时指定月份）
-     * 表头需包含：姓名、项目、应发工资合计、五险一金合计、专项附加扣除、本月个税
+     * 参数：file（Excel）、ym（可选）、col_mapping（可选，用户确认的列映射 JSON: {"sheet名": {"Excel列名": "field_key"}}）
+     * 表头需包含：姓名、项目、应发工资合计、本月个税
      */
     public function importHistory(Request $request): JsonResponse
     {
@@ -433,6 +561,15 @@ class PayrollWriteController extends ApiController
             return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
         }
         $paramYm = trim((string) $request->input('ym', ''));
+        // 用户确认的列映射：{"sheet名": {"Excel列名": "field_key"}}，为空则自动匹配
+        $userColMapping = [];
+        $rawMapping = $request->input('col_mapping');
+        if (is_string($rawMapping) && $rawMapping !== '') {
+            $decoded = json_decode($rawMapping, true);
+            if (is_array($decoded)) $userColMapping = $decoded;
+        } elseif (is_array($rawMapping)) {
+            $userColMapping = $rawMapping;
+        }
 
         try {
             $spreadsheet = IOFactory::load($request->file('file')->getPathname());
@@ -487,13 +624,29 @@ class PayrollWriteController extends ApiController
                 '住房公积金' => 'house', '大病' => 'big', '五险一金合计' => 'soc_total',
                 '专项附加扣除' => 'spec_total', '本月个税' => 'actual_tax', '实发工资' => 'net', '备注' => 'remark',
             ];
+            // 常见别名映射（线下Excel常见写法）
+            $aliasMap = [
+                '公司' => 'project', '单位' => 'project', '所属公司' => 'project', '所属单位' => 'project',
+                '本月工资合计' => 'gross', '应发合计' => 'gross', '工资合计' => 'gross', '应发工资' => 'gross',
+                '出勤' => 'act_att', '实际出勤天数' => 'act_att', '出勤天数' => 'act_att',
+                '应出勤天数' => 'req_att',
+                '个税' => 'actual_tax', '个人所得税' => 'actual_tax', '代扣个税' => 'actual_tax',
+                '实发' => 'net', '实发合计' => 'net',
+                '五险' => 'soc_total', '社保公积金合计' => 'soc_total',
+                '专项扣除' => 'spec_total',
+            ];
             $cols = [];
             $headByCol = [];
+            $sheetUserMap = $userColMapping[$sheetName] ?? ($userColMapping[$ym] ?? []);
             for ($c = 1; $c <= $highestCol; $c++) {
                 $h = trim(trim((string) $this->cellValue($sheet, $c, $headerRow)), " *＊");
                 $headByCol[$c] = $h;
                 if ($h === '' || $h === '序号') continue;
-                if (isset($fullMap[$h])) $cols[$fullMap[$h]] = $c;
+                // 用户确认的映射优先级最高
+                if (isset($sheetUserMap[$h]) && $sheetUserMap[$h] !== '') {
+                    $cols[$sheetUserMap[$h]] = $c;
+                } elseif (isset($fullMap[$h])) $cols[$fullMap[$h]] = $c;
+                elseif (isset($aliasMap[$h])) $cols[$aliasMap[$h]] = $c;
             }
             // 模糊回退：精确映射没命中时按关键词找列（精简模板/列名微调）
             $findCol = function (callable $pred) use ($headByCol) {
@@ -764,6 +917,144 @@ class PayrollWriteController extends ApiController
         return response()->download($path, '历史工资导入错误报告_' . now()->format('Ymd_Hi') . '.xlsx');
     }
 
+    /**
+     * 保存核算快照（核算成功后调用）
+     * person_type: staff / mgr / case / hq
+     */
+    private function saveSnapshot(string $ym, string $personType, string $operator): void
+    {
+        try {
+            $query = DB::table('payroll_results')->where('year_month', $ym);
+            if ($personType === 'mgr') $query->where('is_manager_row', true);
+            elseif ($personType === 'case') $query->where('is_case_row', true);
+            elseif ($personType === 'hq') $query->where('is_hq_row', true);
+            else $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+
+            $rows = $query->get(['staff_legacy_id', 'project_name', 'row_data', 'archived', 'is_manager_row', 'is_case_row', 'is_hq_row']);
+            $snapshotData = $rows->map(fn($r) => [
+                'staff_legacy_id' => $r->staff_legacy_id,
+                'project_name' => $r->project_name,
+                'row_data' => is_string($r->row_data) ? $r->row_data : json_encode($r->row_data),
+                'archived' => (bool) $r->archived,
+                'is_manager_row' => (bool) $r->is_manager_row,
+                'is_case_row' => (bool) $r->is_case_row,
+                'is_hq_row' => (bool) $r->is_hq_row,
+            ])->toArray();
+
+            $grossTotal = 0;
+            $netTotal = 0;
+            foreach ($rows as $r) {
+                $rd = is_string($r->row_data) ? json_decode($r->row_data, true) : (array) $r->row_data;
+                $grossTotal += (float) ($rd['gross'] ?? 0);
+                $netTotal += (float) ($rd['net'] ?? 0);
+            }
+
+            $lastVer = (int) DB::table('payroll_snapshots')
+                ->where('ym', $ym)->where('person_type', $personType)
+                ->max('version');
+
+            DB::table('payroll_snapshots')->insert([
+                'ym' => $ym,
+                'person_type' => $personType,
+                'version' => $lastVer + 1,
+                'snapshot_data' => json_encode($snapshotData),
+                'gross_total' => $grossTotal,
+                'net_total' => $netTotal,
+                'headcount' => count($rows),
+                'operator' => $operator,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // 快照失败不影响核算结果
+            \Illuminate\Support\Facades\Log::warning('payroll.snapshot.save_failed', ['ym' => $ym, 'type' => $personType, 'err' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * GET /api/payroll/snapshots?ym=YYYY-MM&person_type=staff
+     * 查询指定年月+人员类型的版本列表
+     */
+    public function snapshots(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = trim((string) $request->input('ym', ''));
+        $type = trim((string) $request->input('person_type', 'staff'));
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份无效'], 400);
+        }
+        if (!in_array($type, ['staff', 'mgr', 'case', 'hq'], true)) {
+            return response()->json(['ok' => false, 'error' => '人员类型无效'], 400);
+        }
+        $list = DB::table('payroll_snapshots')
+            ->where('ym', $ym)->where('person_type', $type)
+            ->orderBy('version', 'desc')
+            ->get(['id', 'version', 'headcount', 'gross_total', 'net_total', 'operator', 'created_at']);
+        return response()->json(['ok' => true, 'list' => $list]);
+    }
+
+    /**
+     * POST /api/payroll/revert-snapshot
+     * 回退到指定快照版本（删除当前数据，从快照恢复）
+     * 参数：snapshot_id
+     */
+    public function revertSnapshot(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($account->role !== 'admin') {
+            return response()->json(['ok' => false, 'error' => '仅管理员可回退版本'], 403);
+        }
+        $snapshotId = (int) $request->input('snapshot_id');
+        if ($snapshotId <= 0) {
+            return response()->json(['ok' => false, 'error' => '快照ID无效'], 400);
+        }
+        $snap = DB::table('payroll_snapshots')->where('id', $snapshotId)->first();
+        if (!$snap) {
+            return response()->json(['ok' => false, 'error' => '快照不存在'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $ym = $snap->ym;
+            $type = $snap->person_type;
+
+            // 删除当前数据
+            $delQuery = DB::table('payroll_results')->where('year_month', $ym);
+            if ($type === 'mgr') $delQuery->where('is_manager_row', true);
+            elseif ($type === 'case') $delQuery->where('is_case_row', true);
+            elseif ($type === 'hq') $delQuery->where('is_hq_row', true);
+            else $delQuery->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+            $deleted = $delQuery->delete();
+
+            // 从快照恢复
+            $data = json_decode($snap->snapshot_data, true);
+            $restored = 0;
+            foreach ($data as $row) {
+                DB::table('payroll_results')->insert([
+                    'year_month' => $ym,
+                    'staff_legacy_id' => $row['staff_legacy_id'],
+                    'project_name' => $row['project_name'],
+                    'row_data' => $row['row_data'],
+                    'archived' => $row['archived'] ? 1 : 0,
+                    'is_manager_row' => $row['is_manager_row'] ? 1 : 0,
+                    'is_case_row' => $row['is_case_row'] ? 1 : 0,
+                    'is_hq_row' => $row['is_hq_row'] ? 1 : 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $restored++;
+            }
+
+            DB::commit();
+            return response()->json(['ok' => true, 'deleted' => $deleted, 'restored' => $restored]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['ok' => false, 'error' => '回退失败：' . $e->getMessage()], 500);
+        }
+    }
+
     /** 从 dept_path（形如 "罗庄春暖花开/客服部"）解析末级部门名；末级等于项目名时回退上一级（与 PayrollCalculator 同逻辑） */
     private function deptFromPath(?string $deptPath, string $project): string
     {
@@ -776,7 +1067,7 @@ class PayrollWriteController extends ApiController
         return $last === $project ? '' : (string) $last;
     }
 
-    /** 从 sheet 名解析月份（YYYY-MM 或 M月/MM月）；无法解析时回退到 $fallback */
+    /** 从 sheet 名解析月份（YYYY-MM / M月 / YY.MM / YY年M月）；无法解析时回退到 $fallback */
     private function parseSheetMonth(string $sheetName, string $fallback): ?string
     {
         if (preg_match('/^(\d{4})-(\d{1,2})$/', $sheetName, $m)) {
@@ -785,6 +1076,14 @@ class PayrollWriteController extends ApiController
         if (preg_match('/^(\d{1,2})月$/', $sheetName, $m)) {
             $year = $fallback !== '' ? (int) substr($fallback, 0, 4) : (int) date('Y');
             return sprintf('%04d-%02d', $year, (int) $m[1]);
+        }
+        // YY.MM 格式（如 26.06 → 2026-06）
+        if (preg_match('/^(\d{2})\.(\d{1,2})$/', $sheetName, $m)) {
+            return sprintf('20%02d-%02d', (int) $m[1], (int) $m[2]);
+        }
+        // YY年M月 格式（如 26年6月 → 2026-06）
+        if (preg_match('/^(\d{2})年(\d{1,2})月$/', $sheetName, $m)) {
+            return sprintf('20%02d-%02d', (int) $m[1], (int) $m[2]);
         }
         if ($fallback !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $fallback)) {
             return $fallback;
