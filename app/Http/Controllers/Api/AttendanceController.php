@@ -99,8 +99,13 @@ class AttendanceController extends ApiController
         if ($account instanceof JsonResponse) {
             return $account;
         }
+        // 按文件名扩展名校验：mimes 规则基于 MIME 内容探测反推扩展名，WPS 等工具生成的 xlsx
+        // 会被识别为 application/zip 而误拒；真实格式是否有效交给 parseWorkbook 的解析层把关
         $request->validate(['ym' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'], 'project' => ['required', 'string', 'max:120'],
-            'file' => ['required', 'file', 'mimes:xlsx,xls', 'max:51200']]);
+            'file' => ['required', 'file', 'max:51200', function ($attr, $value, $fail) {
+                $ext = strtolower($value->getClientOriginalExtension());
+                if (!in_array($ext, ['xlsx', 'xls'], true)) $fail('考勤表仅支持 xlsx / xls 格式');
+            }]]);
         $ym = $request->string('ym')->toString();
         $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
         $dryRun = in_array(strtolower((string) $request->input('dry_run')), ['1', 'true', 'yes'], true);
@@ -699,7 +704,11 @@ class AttendanceController extends ApiController
 
     private function parseWorkbook(string $path): array
     {
-        $sheet = IOFactory::load($path)->getActiveSheet();
+        try {
+            $sheet = IOFactory::load($path)->getActiveSheet();
+        } catch (\Throwable $e) {
+            return [[], ['文件解析失败，请确认上传的是有效的考勤表 Excel 文件（xls / xlsx）']];
+        }
         $headerRow = null; $columns = []; $days = [];
         $highestColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
         for ($row = 1; $row <= min(8, $sheet->getHighestRow()); $row++) {
