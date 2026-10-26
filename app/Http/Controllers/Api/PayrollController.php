@@ -33,7 +33,7 @@ class PayrollController extends ApiController
             ->where('year_month', $ym)->where('project_name', $project)->first();
         if (!$record) {
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-                'rows' => [], 'stats' => []]);
+                'rows' => [], 'stats' => [], 'locked' => false]);
         }
         $symbols = \App\Services\PayrollCalculator::symbols(); $stats = [];
         // 缺卡阶梯规则（attView 预览金额与核算一致）
@@ -46,6 +46,7 @@ class PayrollController extends ApiController
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows), 'stats' => $stats,
+            'locked' => (bool) $record->locked,
             'meta' => ['uploaded_at' => $record->updated_at]]);
     }
 
