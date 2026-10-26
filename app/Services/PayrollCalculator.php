@@ -994,7 +994,9 @@ class PayrollCalculator
                     $incomeBefore += (float)($old['gross'] ?? 0);
                     $socialBefore += (float)($old['soc_total'] ?? 0);
                     $specBefore   += (float)($old['spec_total'] ?? 0);
-                    $taxBefore    += (float)($old['actual_tax'] ?? 0);
+                    // 已缴税款 = 实缴个税 + 个税补差：补差代表实际多缴/少缴的税款（±计实发），
+                    // 不并入会导致下月累计已缴与实际不符（2026-10-26 用户确认口径）
+                    $taxBefore    += (float)($old['actual_tax'] ?? 0) + (float)($old['tax_diff'] ?? 0);
                 }
             }
             $cumIncome  = $incomeBefore + $gross;
