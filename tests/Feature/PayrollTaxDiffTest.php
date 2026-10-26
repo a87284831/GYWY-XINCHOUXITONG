@@ -182,6 +182,40 @@ class PayrollTaxDiffTest extends TestCase
         $this->assertEqualsWithDelta(0.0, (float) ($after['tax_diff'] ?? 0), 0.001);
     }
 
+    public function test_previous_month_tax_diff_joins_paid_before(): void
+    {
+        // 新口径（2026-10-26）：上月「个税补差」代表实际多缴/少缴的税款，
+        // 次月核算时必须并入已缴税款累计（paid_before），本月个税随之找平
+        $augRows = json_decode((string) DB::table('payroll_attendance')
+            ->where('record_key', self::YM . '|' . self::PROJ)->value('rows'), true);
+        DB::table('payroll_attendance')->insert([
+            'record_key' => '2026-08|' . self::PROJ, 'year_month' => '2026-08', 'project_name' => self::PROJ,
+            'rows' => json_encode($augRows, JSON_UNESCAPED_UNICODE), 'locked' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $calc = new \App\Services\PayrollCalculator();
+        $augRow = function (): array {
+            return json_decode((string) DB::table('payroll_results')
+                ->where('year_month', '2026-08')->where('staff_legacy_id', 2)->value('row_data'), true) ?: [];
+        };
+
+        // 8 月首算（7 月无补差）
+        $calc->calculate('2026-08', [self::PROJ]);
+        $first = $augRow();
+        $paidBefore1 = (float) $first['paid_before'];
+        $tax1 = (float) $first['actual_tax'];
+
+        // 7 月微调补差 +200 → 8 月重算：已缴累计多 200，本月税减少（不低于 0）
+        $this->adjust(['tax_diff' => 200])->assertOk();
+        $calc->calculate('2026-08', [self::PROJ]);
+        $second = $augRow();
+
+        $this->assertEqualsWithDelta($paidBefore1 + 200.0, (float) $second['paid_before'], 0.001,
+            '上月补差应并入已缴税款累计');
+        $this->assertEqualsWithDelta(max(0.0, $tax1 - 200.0), (float) $second['actual_tax'], 0.001,
+            '本月个税应随已缴累计增加而找平减少');
+    }
+
     public function test_project_export_has_tax_diff_column_before_net(): void
     {
         $this->adjust(['tax_diff' => 88.88])->assertOk();

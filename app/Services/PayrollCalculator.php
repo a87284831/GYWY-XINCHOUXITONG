@@ -853,7 +853,8 @@ class PayrollCalculator
                 $incomeBefore  += (float)($old['gross'] ?? 0);
                 $socialBefore  += (float)($old['soc_total'] ?? 0);
                 $specBefore    += (float)($old['spec_total'] ?? 0);
-                $taxBefore     += (float)($old['actual_tax'] ?? 0);
+                // 已缴税款 = 实缴个税 + 个税补差（与 recomputeDerived 同口径，2026-10-26）
+                $taxBefore     += (float)($old['actual_tax'] ?? 0) + (float)($old['tax_diff'] ?? 0);
             }
         }
         // 独立计税口径：年中入职只累计本系统内（入职月起）的收入/扣除/已预扣税，
