@@ -19,6 +19,13 @@
     </div>
     <div class="card" style="margin-top:12px;padding:10px 14px">
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <b>管理人员工资表（全公司）</b>
+        <button v-if="isAdmin" class="btn" @click="go('mgrAll')">导出全部管理人员（工资表 + 汇总）</button>
+        <span class="hint" style="margin:0;display:inline">所有项目管理人员一张 Excel：Sheet1「管理人员工资表」为全员明细，Sheet2「管理人员汇总」按项目汇总人数/应发/五险一金/个税/实发；口径与"工资全量数据包"一致，仅总部可导出。</span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px;padding:10px 14px">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <b>案场人员工资表（全公司）</b>
         <button v-if="isAdmin" class="btn" @click="go('caseAll')">导出全部案场人员表</button>
         <span class="hint" style="margin:0;display:inline">案场人员由总部单独核算（人员档案中勾选"是否案场人员"）；各项目可用上方"分项目导出→案场人员"导出本项目案场人员工资。</span>
@@ -88,6 +95,8 @@ function go(mode) {
     download(`/api/export/hq-staff?ym=${ym}`, `总部人员工资表_${ym}.xlsx`)
   } else if (mode === 'caseAll') {
     download(`/api/export/case-staff?ym=${ym}`, `案场人员工资表_${ym}.xlsx`)
+  } else if (mode === 'mgrAll') {
+    download(`/api/export/managers-bundle?ym=${ym}`, `管理人员工资表及汇总_${ym}.xlsx`)
   }
 }
 </script>

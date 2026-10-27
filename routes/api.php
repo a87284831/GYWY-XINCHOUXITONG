@@ -64,6 +64,7 @@ Route::get('/attendance/template', [TemplateController::class, 'attendance']);
 Route::get('/payroll/history-template', [TemplateController::class, 'payrollHistory']);
 Route::get('/export/project', [ExportController::class, 'project']);
 Route::get('/export/managers', [ExportController::class, 'managers']);
+Route::get('/export/managers-bundle', [ExportController::class, 'managersBundle']);
 Route::get('/export/project-managers', [ExportController::class, 'projectManagers']);
 Route::get('/export/case-staff', [ExportController::class, 'caseStaff']);
 Route::get('/export/hq-staff', [ExportController::class, 'hqStaff']);

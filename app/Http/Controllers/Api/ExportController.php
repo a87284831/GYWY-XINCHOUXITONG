@@ -329,68 +329,10 @@ class ExportController extends ApiController
         }
         $sheet->freezePane('A3');
 // ===== 管理人员汇总 Sheet（第2个：汇总后面，按项目汇总管理人员工资；仅总部导出时生成） =====
-        $mgrSummaryRows = $allMgrs;
-        if ($mgrSummaryRows->isNotEmpty()) {
+        if ($allMgrs->isNotEmpty()) {
             $ms = $book->createSheet();
             $ms->setTitle('管理人员汇总');
-            // 第1行 大标题
-            $ms->setCellValue('A1', $ym . ' 管理人员工资汇总');
-            $ms->mergeCells('A1:H1');
-            $ms->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
-            $ms->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
-            $ms->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
-            $ms->getRowDimension(1)->setRowHeight(30);
-            // 第2行 表头
-            $mHead = ['项目', '人数', '应发工资合计', '五险一金合计', '本月个税', '已发/福利奖金', '实发工资合计', '调个税差额'];
-            foreach ($mHead as $ci => $v) {
-                $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
-                $ms->setCellValue($col, $v);
-                $ms->getStyle($col)->getFont()->setBold(true);
-                $ms->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
-                $ms->getStyle($col)->getAlignment()->setHorizontal('center');
-            }
-            $ms->getRowDimension(2)->setRowHeight(22);
-            // 明细行（按项目分组）
-            $mr = 3;
-            $msGross = $msSoc = $msTax = $msBonus = $msNet = $msDiff = 0.0; $msCnt = 0;
-            foreach ($mgrSummaryRows->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
-                $cnt = $rows->count();
-                $gross = round($rows->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
-                $soc = round($rows->sum(fn ($x) => (float) ($x['soc_total'] ?? 0)), 2);
-                $tax = round($rows->sum(fn ($x) => (float) ($x['actual_tax'] ?? 0)), 2);
-                $bonus = round($rows->sum(fn ($x) => (float) ($x['reward'] ?? 0) + (float) ($x['welfare'] ?? 0)), 2);
-                $net = round($rows->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2);
-                $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
-                $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
-                foreach ($vals as $ci => $v) {
-                    $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
-                }
-                $msGross += $gross; $msSoc += $soc; $msTax += $tax; $msBonus += $bonus; $msNet += $net; $msDiff += $diff; $msCnt += $cnt;
-                $mr++;
-            }
-            // 合计行
-            $mTotal = ['合计', $msCnt, round($msGross, 2), round($msSoc, 2), round($msTax, 2), round($msBonus, 2), round($msNet, 2), round($msDiff, 2)];
-            foreach ($mTotal as $ci => $v) {
-                $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
-            }
-            $ms->getStyle("A{$mr}:H{$mr}")->getFont()->setBold(true);
-            $ms->getStyle("A{$mr}:H{$mr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDF3E0');
-            $mLast = $mr;
-            // 样式：列宽/边框/金额格式
-            $ms->getColumnDimension('A')->setWidth(20);
-            $ms->getColumnDimension('B')->setWidth(8);
-            foreach (['C', 'D', 'E', 'F', 'G', 'H'] as $c) {
-                $ms->getColumnDimension($c)->setWidth(15);
-            }
-            foreach (range(2, $mLast) as $rr) {
-                foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $cc) {
-                    $st = $ms->getStyle("{$cc}{$rr}");
-                    $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
-                    if (in_array($cc, ['C', 'D', 'E', 'F', 'G', 'H'], true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
-                }
-                $ms->getRowDimension($rr)->setRowHeight(20);
-            }
-            $ms->freezePane('A3');
+            $this->fillMgrSummarySheet($ms, $allMgrs, $ym);
         }
 
         // ===== 案场人员汇总 Sheet（管理人员汇总后，按项目汇总案场人员工资） =====
@@ -1076,6 +1018,99 @@ class ExportController extends ApiController
         $book = new Spreadsheet();
         $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '管理人员工资表', true);
         return $this->xlsx($book, $project . '_管理人员工资表_' . $ym . '.xlsx');
+    }
+
+    /**
+     * 管理人员数据包（仅总部）：管理人员工资表 + 管理人员汇总 两个 Sheet
+     * 与"工资全量数据包"里的同名两张表完全同口径，供只需管理人员报表时单独导出
+     */
+    public function managersBundle(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($this->isProjectScope($account)) {
+            return response()->json(['ok' => false, 'error' => '管理人员工资表仅总部可导出'], 403);
+        }
+        $ym = $request->string('ym')->toString();
+        $rows = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_manager_row', true)->where('is_hq_row', false)
+            ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
+        if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无管理人员核算数据'], 404);
+
+        $book = new Spreadsheet();
+        $mgrSheet = $book->getActiveSheet();
+        $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values(), $ym . '管理人员工资表', true);
+        $mgrSheet->setTitle('管理人员工资表');
+
+        $sumSheet = $book->createSheet();
+        $sumSheet->setTitle('管理人员汇总');
+        $this->fillMgrSummarySheet($sumSheet, $rows, $ym);
+
+        $book->setActiveSheetIndex(0);
+        return $this->xlsx($book, '管理人员工资表及汇总_' . $ym . '.xlsx');
+    }
+
+    /** 管理人员汇总 Sheet 内容（全量数据包与管理人数据包共用）：按项目汇总人数/应发/五险一金/个税/实发 */
+    private function fillMgrSummarySheet($ms, $mgrSummaryRows, string $ym): void
+    {
+        // 第1行 大标题
+        $ms->setCellValue('A1', $ym . ' 管理人员工资汇总');
+        $ms->mergeCells('A1:H1');
+        $ms->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
+        $ms->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+        $ms->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+        $ms->getRowDimension(1)->setRowHeight(30);
+        // 第2行 表头
+        $mHead = ['项目', '人数', '应发工资合计', '五险一金合计', '本月个税', '已发/福利奖金', '实发工资合计', '调个税差额'];
+        foreach ($mHead as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
+            $ms->setCellValue($col, $v);
+            $ms->getStyle($col)->getFont()->setBold(true);
+            $ms->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
+            $ms->getStyle($col)->getAlignment()->setHorizontal('center');
+        }
+        $ms->getRowDimension(2)->setRowHeight(22);
+        // 明细行（按项目分组）
+        $mr = 3;
+        $msGross = $msSoc = $msTax = $msBonus = $msNet = $msDiff = 0.0; $msCnt = 0;
+        foreach ($mgrSummaryRows->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
+            $cnt = $rows->count();
+            $gross = round($rows->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            $soc = round($rows->sum(fn ($x) => (float) ($x['soc_total'] ?? 0)), 2);
+            $tax = round($rows->sum(fn ($x) => (float) ($x['actual_tax'] ?? 0)), 2);
+            $bonus = round($rows->sum(fn ($x) => (float) ($x['reward'] ?? 0) + (float) ($x['welfare'] ?? 0)), 2);
+            $net = round($rows->sum(fn ($x) => (float) ($x['net'] ?? 0)), 2);
+            $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
+            $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
+            foreach ($vals as $ci => $v) {
+                $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+            }
+            $msGross += $gross; $msSoc += $soc; $msTax += $tax; $msBonus += $bonus; $msNet += $net; $msDiff += $diff; $msCnt += $cnt;
+            $mr++;
+        }
+        // 合计行
+        $mTotal = ['合计', $msCnt, round($msGross, 2), round($msSoc, 2), round($msTax, 2), round($msBonus, 2), round($msNet, 2), round($msDiff, 2)];
+        foreach ($mTotal as $ci => $v) {
+            $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+        }
+        $ms->getStyle("A{$mr}:H{$mr}")->getFont()->setBold(true);
+        $ms->getStyle("A{$mr}:H{$mr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDF3E0');
+        $mLast = $mr;
+        // 样式：列宽/边框/金额格式
+        $ms->getColumnDimension('A')->setWidth(20);
+        $ms->getColumnDimension('B')->setWidth(8);
+        foreach (['C', 'D', 'E', 'F', 'G', 'H'] as $c) {
+            $ms->getColumnDimension($c)->setWidth(15);
+        }
+        foreach (range(2, $mLast) as $rr) {
+            foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $cc) {
+                $st = $ms->getStyle("{$cc}{$rr}");
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                if (in_array($cc, ['C', 'D', 'E', 'F', 'G', 'H'], true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+            $ms->getRowDimension($rr)->setRowHeight(20);
+        }
+        $ms->freezePane('A3');
     }
 
     private function fillSheet($sheet, $rows, string $title, bool $withPerfDetail = false): void
