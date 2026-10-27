@@ -60,7 +60,7 @@
         <table class="tb">
           <thead>
             <tr>
-              <th style="text-align:left">项目</th><th class="num">全年发薪人数</th><th class="num">全年应发总额</th>
+              <th>项目</th><th class="num">全年发薪人数</th><th class="num">全年应发总额</th>
               <th class="num">人均年应发</th><th class="num">{{ prevYm }} 发薪人数</th><th class="num">{{ prevYm }} 应发总额</th>
             </tr>
           </thead>
@@ -253,6 +253,7 @@ onMounted(load)
 
 /* 分项目汇总 */
 .ap-sum { max-height:none; }
+.ap-sum table.tb th, .ap-sum table.tb td { text-align:center; }
 .ap-sum tfoot td { background:var(--bg-subtle); font-weight:700; border-top:2px solid var(--border); }
 
 /* 明细宽表：双层表头 + 冻结首列 + 冻结合计行 */

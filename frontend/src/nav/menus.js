@@ -27,7 +27,7 @@ export const PAGE_TITLES = {
   changelog: '系统更新日志',
   reportHome: '报表总览', hrReport: '人力资源报表', salaryReport: '薪酬报表', attReport: '考勤报表',
   fireReport: '消防维保报表', elevReport: '电梯维保报表',
-  summary: '薪资数据汇总展示', payroll: '薪资核算与人工微调',
+  summary: '薪资数据汇总展示', payroll: '薪资核算与人工微调', annualPayroll: '全年发放明细',
   taxMode: '个税扣除模式设置',
   attendance: '考勤管理', export: '多模式数据导出', org: '组织架构',
   staff: '人员档案管理', adjust: '调薪记录与追溯', budget: '项目薪资预算管理',
@@ -122,7 +122,7 @@ const PURCHASE_PAGES = ['purchaseDashboard', 'purchaseFill', 'purchaseOverview',
 const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport']
 const REPORT_PAGES = ['reportHome', 'hrReport', 'salaryReport', 'attReport']
 const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners']
-const HR_PAGES = ['summary', 'payroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export',
+const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export',
   'perfCreate', 'perfApprove', 'perfReport', 'perfMine', 'perfRecords']
 const SETTING_PAGES = ['settings', 'users', 'logs', 'backup', 'salarySettings', 'rules', 'symbols']
 
