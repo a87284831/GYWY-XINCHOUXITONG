@@ -93,8 +93,9 @@ import Icon from '@/components/Icon.vue'
 const props = defineProps({ type: { type: String, default: 'fire' } })
 const auth = useAuthStore()
 
-const isElev = props.type === 'elevator'
-const label = isElev ? '电梯' : '消防'
+// 消防/电梯台账复用同一组件，路由切换时组件实例被复用，必须响应式跟随 props.type
+const isElev = computed(() => props.type === 'elevator')
+const label = computed(() => (props.type === 'elevator' ? '电梯' : '消防'))
 const yearOpts = Array.from({ length: 16 }, (_, i) => 2020 + i)
 // 导出状态列文本（旧版 MAINT_STATUS_TEXT）
 const STATUS_TEXT = { normal: '正常在保', soon: '30天内即将到期', expired: '已过期' }
@@ -161,9 +162,9 @@ let autoFlag = false
 function onPriceInput() { if (!autoFlag) priceManual = true }
 function calcPrice() {
   if (priceManual) return
-  fm.price = priceAutoCalc(fm.amount, isElev ? fm.count : fm.area, isElev)
+  fm.price = priceAutoCalc(fm.amount, isElev.value ? fm.count : fm.area, isElev.value)
 }
-watch(() => [fm.amount, isElev ? fm.count : fm.area], () => { autoFlag = true; calcPrice(); autoFlag = false })
+watch(() => [fm.amount, isElev.value ? fm.count : fm.area], () => { autoFlag = true; calcPrice(); autoFlag = false })
 
 async function openEdit(id) {
   await loadPartners()
@@ -172,7 +173,7 @@ async function openEdit(id) {
   fm.project_name = row ? (row.project_name ?? '') : ''
   fm.party = row ? (row.party ?? '') : ''
   fm.amount = row ? (row.amount ?? '') : ''
-  if (isElev) fm.count = row ? (row.elevator_count ?? '') : ''
+  if (isElev.value) fm.count = row ? (row.elevator_count ?? '') : ''
   else fm.area = row ? (row.building_area_sqm ?? '') : ''
   fm.price = row ? (row.price_per_unit ?? row.price_per_sqm ?? '') : ''
   fm.sign_date = row ? (row.sign_date ?? '') : ''
@@ -190,7 +191,7 @@ async function saveContract() {
     amount: Number(fm.amount) || 0, sign_date: fm.sign_date, start_date: fm.start_date,
     end_date: fm.end_date, remark: fm.remark.trim(),
   }
-  if (isElev) { payload.elevator_count = Number(fm.count) || 0; payload.price_per_unit = Number(fm.price) || 0 }
+  if (isElev.value) { payload.elevator_count = Number(fm.count) || 0; payload.price_per_unit = Number(fm.price) || 0 }
   else { payload.building_area_sqm = Number(fm.area) || 0; payload.price_per_sqm = Number(fm.price) || 0 }
   try {
     if (editId.value) await api('/api/maintenance/contracts/' + editId.value, { method: 'PUT', body: payload })
@@ -262,13 +263,20 @@ function exportCsv() {
   if (kw) list = list.filter((r) => (r.project_name + r.party + r.remark).toLowerCase().includes(kw))
   if (yr) list = list.filter((r) => maintOverlapsYear(r.start_date, r.end_date, yr))
   if (!list.length) { toast('当前无数据可导出', false); return }
-  const out = buildLedgerExportRows(list, isElev, (d) => STATUS_TEXT[maintStatusOf(d)])
-  const csv = buildCsv(label + '维保台账.csv', out)
+  const out = buildLedgerExportRows(list, isElev.value, (d) => STATUS_TEXT[maintStatusOf(d)])
+  const csv = buildCsv(label.value + '维保台账.csv', out)
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob); a.download = label + '维保台账.csv'
+  a.href = URL.createObjectURL(blob); a.download = label.value + '维保台账.csv'
   document.body.appendChild(a); a.click(); a.remove()
 }
 
 onMounted(load)
+// 同一组件在 maintFire / maintElev 两条路由间复用时，切换后清空加载态并按新类型重新拉取
+watch(() => props.type, (t) => {
+  if (t !== 'elevator' && f.sortField === 'elevator_count') f.sortField = 'end_date'
+  loadErr.value = ''
+  loaded.value = false
+  load()
+})
 </script>

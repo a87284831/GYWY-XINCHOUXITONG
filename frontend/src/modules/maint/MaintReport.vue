@@ -54,7 +54,7 @@
 
 <script setup>
 // 消防/电梯维保报表 — 复刻 pageMaintFireReport/pageMaintElevReport/pageMaintReport/maintReportRender（app.js:2556-2618）
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { rMoney } from '@/modules/report/reportLogic'
@@ -66,7 +66,8 @@ import Icon from '@/components/Icon.vue'
 const props = defineProps({ type: { type: String, default: 'fire' } })
 const router = useRouter()
 
-const isFire = props.type === 'fire'
+// 消防/电梯报表复用同一组件，路由切换时组件实例被复用，必须响应式跟随 props.type
+const isFire = computed(() => props.type === 'fire')
 const yearOpts = Array.from({ length: 2035 - 2020 + 1 }, (_, i) => 2020 + i)
 const year = ref(new Date().getFullYear())
 const d = ref(null)
@@ -87,14 +88,14 @@ async function draw() {
   if (!x) return
   rBar(charts, 'state', els.state, x.state_dist.map((x2) => STATE_TEXT[x2.label] || x2.label), x.state_dist.map(rValue), { label: '合同数', color: '#f59e0b' })
   if (x.partner_amount.length) rDoughnut(charts, 'partner', els.partner, x.partner_amount.map(rLabel), x.partner_amount.map(rValue), PALETTE, '总金额', x.total_amount, rMoney)
-  if (x.project_amount.length) rHBar(charts, 'proj', els.proj, x.project_amount.map((p) => p.name), x.project_amount.map((p) => p.amount), isFire ? '#f59e0b' : '#3b82f6', rMoney)
-  if (x.partner_scale.length) rHBar(charts, 'scale', els.scale, x.partner_scale.map(rLabel), x.partner_scale.map(rValue), isFire ? '#0ea5e9' : '#8b5cf6', (v) => v + (isFire ? ' ㎡' : ' 台'))
+  if (x.project_amount.length) rHBar(charts, 'proj', els.proj, x.project_amount.map((p) => p.name), x.project_amount.map((p) => p.amount), isFire.value ? '#f59e0b' : '#3b82f6', rMoney)
+  if (x.partner_scale.length) rHBar(charts, 'scale', els.scale, x.partner_scale.map(rLabel), x.partner_scale.map(rValue), isFire.value ? '#0ea5e9' : '#8b5cf6', (v) => v + (isFire.value ? ' ㎡' : ' 台'))
 }
 
 async function load() {
   loadErr.value = ''
   try {
-    d.value = await api(`/api/maintenance/${isFire ? 'fire' : 'elev'}_report?year=${year.value}`)
+    d.value = await api(`/api/maintenance/${isFire.value ? 'fire' : 'elev'}_report?year=${year.value}`)
     draw()
   } catch (e) { loadErr.value = e.message }
 }
@@ -105,5 +106,11 @@ function daysText(end) {
 }
 
 onMounted(load)
+// 同一组件在 fireReport / elevReport 两条路由间复用时，切换后清空旧数据并重新拉取
+watch(() => props.type, () => {
+  d.value = null
+  charts.destroyAll()
+  load()
+})
 onBeforeUnmount(() => charts.destroyAll())
 </script>
