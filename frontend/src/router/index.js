@@ -37,6 +37,12 @@ const routes = [
         meta: { perm: 'payroll' },
       },
       {
+        path: 'annualPayroll',
+        name: 'annualPayroll',
+        component: () => import('@/modules/hr/AnnualPayroll.vue'),
+        meta: { perm: 'payroll' },
+      },
+      {
         path: 'taxMode',
         name: 'taxMode',
         component: () => import('@/modules/hr/TaxMode.vue'),

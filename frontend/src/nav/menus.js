@@ -76,6 +76,7 @@ export const ALL_MENUS = [
   { section: '薪资模块', icon: 'coins', app: 'hr', items: [
     { key: 'summary', label: '汇总展示', icon: 'bar', perm: 'payroll' },
     { key: 'payroll', label: '薪资核算与微调', icon: 'calc', perm: 'payroll' },
+    { key: 'annualPayroll', label: '全年发放明细', icon: 'list', perm: 'payroll' },
     { key: 'taxMode', label: '个税扣除模式设置', icon: 'receipt', perm: 'payroll' },
     { key: 'export', label: '数据导出', icon: 'up', perm: 'export' },
   ]},
