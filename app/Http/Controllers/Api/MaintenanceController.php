@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Style\{Color, Alignment, Border, Fill};
 
 class MaintenanceController extends ApiController
@@ -340,6 +341,213 @@ class MaintenanceController extends ApiController
         DB::table('maintenance_devices')->where('legacy_id', $id)->delete();
         DB::table('maintenance_alert_logs')->where('obj_type', 'device')->where('obj_id', $id)->delete();
         return response()->json(['ok' => true]);
+    }
+
+    /* ================= 批量导入 ================= */
+
+    /** 维保合同批量导入 */
+    public function importContracts(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $type = $request->input('type') === 'elevator' ? 'elevator' : 'fire';
+        if (!$request->hasFile('file')) return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
+        $path = $request->file('file')->store('tmp');
+        try {
+            $sheet = IOFactory::load($request->file('file')->getPathname())->getSheet(0);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => 'Excel 解析失败：' . $e->getMessage()], 400);
+        }
+        // 收集已有签约方 + 最大 legacy_id
+        $partnersByName = DB::table('maintenance_partners')->pluck('name')->flip();
+        $existing = DB::table('maintenance_contracts')->where('type', $type)->get()->groupBy(function ($r) {
+            return ($r->project_name ?? '') . '|' . ($r->party ?? '');
+        });
+        $maxId = (int) (DB::table('maintenance_contracts')->max('legacy_id') ?? 0);
+        $inserted = 0; $errors = []; $total = 0;
+
+        foreach ($sheet->getRowIterator(2) as $ri) {
+            $cells = $sheet->rangeToArray('A' . $ri->getRowIndex() . ':O' . $ri->getRowIndex());
+            $row = $cells[0];
+            // 整行空则结束
+            if (count(array_filter($row, fn ($v) => $v !== null && trim((string) $v) !== '')) === 0) break;
+            $total++;
+            $idx = $ri->getRowIndex();
+            try {
+                $prj = trim((string) ($row[0] ?? ''));
+                if ($prj === '') { $errors[] = ['row' => $idx, 'msg' => '项目名称不能为空']; continue; }
+                if ($this->isProjectScope($account) && $prj !== (string) $account->project_name) {
+                    $errors[] = ['row' => $idx, 'msg' => '项目账号无权导入其他项目']; continue;
+                }
+                $party = trim((string) ($row[2] ?? ''));
+                if ($party === '') { $errors[] = ['row' => $idx, 'msg' => '签约方不能为空']; continue; }
+                if (!$partnersByName->has($party)) { $errors[] = ['row' => $idx, 'msg' => "签约方「{$party}」不存在，请先在签约方维护中添加"]; continue; }
+                $amount = (float) ($row[6] ?? 0);
+                if ($amount <= 0) { $errors[] = ['row' => $idx, 'msg' => '签约金额必须大于 0']; continue; }
+                $start = $this->parseDate($row[8] ?? null);
+                if ($start === null) { $errors[] = ['row' => $idx, 'msg' => '生效开始日期必填，格式 YYYY-MM-DD']; continue; }
+                $end = $this->parseDate($row[9] ?? null);
+                if ($end !== null && $end < $start) { $errors[] = ['row' => $idx, 'msg' => '到期日期不能早于生效开始']; continue; }
+                $scaleRaw = (float) ($type === 'fire' ? ($row[10] ?? 0) : ($row[10] ?? 0));
+                if ($scaleRaw <= 0) { $errors[] = ['row' => $idx, 'msg' => ($type === 'fire' ? '建筑面积' : '电梯台数') . '必须大于 0']; continue; }
+
+                // 查重：同项目同签约方同 type 视为重复，拒绝（避免导入翻倍）
+                $key = $prj . '|' . $party;
+                if ($existing->has($key)) { $errors[] = ['row' => $idx, 'msg' => "项目「{$prj}」与签约方「{$party}」的合同已存在，请手动编辑或更换"]; continue; }
+
+                $supplies = in_array(mb_substr(trim((string) ($row[12] ?? '')), 0, 2), ['是', '1'], true);
+                $price = $type === 'fire' ? ($scaleRaw > 0 ? round($amount / $scaleRaw, 2) : 0) : 0;
+                if (!empty($row[11])) $price = (float) $row[11];
+                $maxId++;
+                DB::table('maintenance_contracts')->insert([
+                    'legacy_id' => $maxId, 'type' => $type, 'project_name' => $prj,
+                    'contract_no' => trim((string) ($row[1] ?? '')),
+                    'party' => $party, 'party_a' => trim((string) ($row[3] ?? '')),
+                    'party_contact' => trim((string) ($row[4] ?? '')), 'party_phone' => trim((string) ($row[5] ?? '')),
+                    'amount' => $amount, 'sign_date' => $this->parseDate($row[7] ?? null),
+                    'start_date' => $start, 'end_date' => $end,
+                    $type === 'fire' ? 'building_area_sqm' : 'elevator_count' => $scaleRaw,
+                    $type === 'fire' ? 'price_per_sqm' : 'price_per_unit' => $price,
+                    'includes_supplies' => $supplies ? 1 : 0,
+                    'service_scope' => trim((string) ($row[13] ?? '')),
+                    'remark' => trim((string) ($row[14] ?? '')),
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+                $existing->put($key, collect());
+                $inserted++;
+            } catch (\Throwable $e) {
+                $errors[] = ['row' => $idx, 'msg' => '解析失败：' . $e->getMessage()];
+            }
+        }
+        Storage::disk('local')->delete($path);
+        return response()->json(['ok' => true, 'total' => $total, 'inserted' => $inserted, 'errors' => $errors]);
+    }
+
+    /** 维保设备批量导入（项目+编号+type 唯一，重名则 update） */
+    public function importDevices(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $type = $request->input('type') === 'elevator' ? 'elevator' : 'fire';
+        if (!$request->hasFile('file')) return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
+        $path = $request->file('file')->store('tmp');
+        try {
+            $sheet = IOFactory::load($request->file('file')->getPathname())->getSheet(0);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => 'Excel 解析失败：' . $e->getMessage()], 400);
+        }
+        $existing = DB::table('maintenance_devices')->where('type', $type)->get()
+            ->keyBy(fn ($d) => ($d->project_name ?? '') . '|' . ($d->device_no ?? ''));
+        $maxId = (int) (DB::table('maintenance_devices')->max('legacy_id') ?? 0);
+        $inserted = 0; $updated = 0; $errors = []; $total = 0;
+
+        foreach ($sheet->getRowIterator(2) as $ri) {
+            $cells = $sheet->rangeToArray('A' . $ri->getRowIndex() . ':F' . $ri->getRowIndex());
+            $row = $cells[0];
+            if (count(array_filter($row, fn ($v) => $v !== null && trim((string) $v) !== '')) === 0) break;
+            $total++; $idx = $ri->getRowIndex();
+            try {
+                $prj = trim((string) ($row[0] ?? ''));
+                $no = trim((string) ($row[1] ?? ''));
+                if ($prj === '') { $errors[] = ['row' => $idx, 'msg' => '项目名称不能为空']; continue; }
+                if ($no === '') { $errors[] = ['row' => $idx, 'msg' => '设备编号不能为空']; continue; }
+                if ($this->isProjectScope($account) && $prj !== (string) $account->project_name) {
+                    $errors[] = ['row' => $idx, 'msg' => '项目账号无权导入其他项目']; continue;
+                }
+                $key = $prj . '|' . $no;
+                $payload = [
+                    'type' => $type, 'project_name' => $prj, 'device_no' => $no,
+                    'system_type' => $type === 'fire' ? trim((string) ($row[2] ?? '')) : null,
+                    'load_kg' => $type === 'elevator' ? max(0, (int) ($row[2] ?? 0)) : null,
+                    'cover_area_sqm' => $type === 'fire' ? max(0, (float) ($row[3] ?? 0)) : null,
+                    'floors' => $type === 'elevator' ? trim((string) ($row[3] ?? '')) : null,
+                    'inspect_date' => $this->parseDate($row[4] ?? null),
+                    'remark' => trim((string) ($row[5] ?? '')),
+                    'updated_at' => now(),
+                ];
+                if ($existing->has($key)) {
+                    DB::table('maintenance_devices')->where('legacy_id', $existing[$key]->legacy_id)->update($payload);
+                    $updated++;
+                } else {
+                    $maxId++; $payload['legacy_id'] = $maxId; $payload['created_at'] = now();
+                    DB::table('maintenance_devices')->insert($payload);
+                    $inserted++;
+                }
+            } catch (\Throwable $e) {
+                $errors[] = ['row' => $idx, 'msg' => '解析失败：' . $e->getMessage()];
+            }
+        }
+        Storage::disk('local')->delete($path);
+        return response()->json(['ok' => true, 'total' => $total, 'inserted' => $inserted, 'updated' => $updated, 'errors' => $errors]);
+    }
+
+    /** 签约方批量导入（名称唯一，重名则 update） */
+    public function importPartners(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if ($this->isProjectScope($account)) return response()->json(['ok' => false, 'error' => '项目账号无权管理签约方'], 403);
+        if (!$request->hasFile('file')) return response()->json(['ok' => false, 'error' => '未收到文件'], 400);
+        $path = $request->file('file')->store('tmp');
+        try {
+            $sheet = IOFactory::load($request->file('file')->getPathname())->getSheet(0);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => 'Excel 解析失败：' . $e->getMessage()], 400);
+        }
+        $existing = DB::table('maintenance_partners')->get()->keyBy('name');
+        $maxId = (int) (DB::table('maintenance_partners')->max('legacy_id') ?? 0);
+        $inserted = 0; $updated = 0; $errors = []; $total = 0;
+        $typeMap = ['消防' => 'fire', '电梯' => 'elevator', '消防+电梯' => 'both'];
+
+        foreach ($sheet->getRowIterator(2) as $ri) {
+            $cells = $sheet->rangeToArray('A' . $ri->getRowIndex() . ':F' . $ri->getRowIndex());
+            $row = $cells[0];
+            if (count(array_filter($row, fn ($v) => $v !== null && trim((string) $v) !== '')) === 0) break;
+            $total++; $idx = $ri->getRowIndex();
+            try {
+                $name = trim((string) ($row[0] ?? ''));
+                if ($name === '') { $errors[] = ['row' => $idx, 'msg' => '名称不能为空']; continue; }
+                $typeLabel = trim((string) ($row[1] ?? ''));
+                if (!isset($typeMap[$typeLabel])) { $errors[] = ['row' => $idx, 'msg' => '业务类型只能是 消防 / 电梯 / 消防+电梯']; continue; }
+                $payload = [
+                    'type' => $typeMap[$typeLabel],
+                    'contact' => trim((string) ($row[2] ?? '')), 'phone' => trim((string) ($row[3] ?? '')),
+                    'qualification_expire' => $this->parseDate($row[4] ?? null),
+                    'remark' => trim((string) ($row[5] ?? '')), 'updated_at' => now(),
+                ];
+                if ($existing->has($name)) {
+                    DB::table('maintenance_partners')->where('legacy_id', $existing[$name]->legacy_id)->update($payload);
+                    $updated++;
+                } else {
+                    $maxId++; $payload['legacy_id'] = $maxId; $payload['name'] = $name; $payload['created_at'] = now();
+                    DB::table('maintenance_partners')->insert($payload);
+                    $inserted++;
+                }
+            } catch (\Throwable $e) {
+                $errors[] = ['row' => $idx, 'msg' => '解析失败：' . $e->getMessage()];
+            }
+        }
+        Storage::disk('local')->delete($path);
+        return response()->json(['ok' => true, 'total' => $total, 'inserted' => $inserted, 'updated' => $updated, 'errors' => $errors]);
+    }
+
+    private function parseDate($v): ?string
+    {
+        if ($v === null || $v === '' || $v === false) return null;
+        if ($v instanceof \DateTimeInterface) return $v->format('Y-m-d');
+        if (is_numeric($v)) {
+            // Excel 日期序列号
+            $d = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($v);
+            return $d->format('Y-m-d');
+        }
+        $v = trim((string) $v);
+        if ($v === '') return null;
+        // 多种格式尝试
+        foreach (['Y-m-d', 'Y/m/d', 'Y年m月d日', 'd/m/Y', 'm/d/Y'] as $fmt) {
+            $dt = \DateTimeImmutable::createFromFormat($fmt, $v);
+            if ($dt) return $dt->format('Y-m-d');
+        }
+        return null;
     }
 
     /* ================= 签约方 ================= */

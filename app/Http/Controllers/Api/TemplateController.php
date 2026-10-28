@@ -9,6 +9,7 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use App\Services\StaffProfile;
+use Illuminate\Support\Facades\DB;
 
 class TemplateController extends ApiController
 {
@@ -597,6 +598,165 @@ class TemplateController extends ApiController
         $sheet->getProtection()->setSheet(true);
         $sheet->getProtection()->setPassword('');
         return $this->xlsxResponse($book, '考勤表模板_' . $titleName . '_' . $ym . '.xlsx');
+    }
+
+    /* ================= 维保模块模板 ================= */
+
+    /** 维保合同批量导入模板（type=fire 消防 / elevator 电梯） */
+    public function maintenanceContracts(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $type = $request->input('type') === 'elevator' ? 'elevator' : 'fire';
+        $isFire = $type === 'fire';
+        $typeLabel = $isFire ? '消防' : '电梯';
+
+        $headers = [
+            '项目名称*', '合同编号', '签约方*', '签约主体(甲方)', '乙方负责人', '乙方联系电话',
+            '签约金额(元)*', '签订日期', '生效开始(必填)', '到期日期',
+            $isFire ? '建筑面积(㎡,必填)' : '电梯台数(必填)', '单价(元/' . ($isFire ? '㎡' : '台') . ')',
+            '含配件耗材(是/否)', '维保服务内容', '备注',
+        ];
+        $example = [
+            '示例项目', 'HX-' . date('Y') . '-001', '(选一个下拉)', '甲方公司全称', '张三', '13800000000',
+            120000, date('Y-m-d'), date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+1 year')),
+            $isFire ? 8000 : 6, $isFire ? 15 : 2000,
+            '是', '季度维保、配件更换', '示例行（导入前删除本行）',
+        ];
+
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet(); $sheet->setTitle($typeLabel . '维保合同');
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($example, null, 'A2');
+        $this->paintHeader($sheet, $headers, 1000);
+
+        $widths = [14, 16, 18, 22, 10, 14, 14, 12, 12, 12, 16, 12, 14, 24, 18];
+        foreach ($headers as $i => $h) {
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1))->setWidth($widths[$i] ?? 14);
+        }
+        $sheet->freezePane('A2');
+
+        // 下拉：签约方（仅有效 type 匹配）+ 含配件耗材
+        $partners = DB::table('maintenance_partners')->orderBy('name')->get();
+        $validPartners = $partners->filter(function ($p) use ($isFire) {
+            return $p->type === 'both' || ($isFire && $p->type === 'fire') || (!$isFire && $p->type === 'elevator');
+        })->pluck('name')->values()->all();
+        $this->attachValidation($sheet, $headers, '签约方*', $validPartners);
+        $this->attachValidation($sheet, $headers, '含配件耗材(是/否)', ['是', '否']);
+
+        // Sheet2 填写说明
+        $help = $book->createSheet(); $help->setTitle('填写说明');
+        $help->fromArray([
+            ['列名', '是否必填', '填写说明'],
+            ['项目名称', '必填', '必须与系统项目档案中的项目名完全一致'],
+            ['合同编号', '可空', '自由文本；留空则保存为空'],
+            ['签约方', '必填', '只能从下拉中选择（已根据当前维保类型过滤）'],
+            ['签约主体(甲方)', '可空', '甲方单位全称'],
+            ['乙方负责人 / 乙方联系电话', '可空', '联系人姓名与 11 位手机号'],
+            ['签约金额(元)', '必填', '>0 的数值'],
+            ['签订日期 / 生效开始 / 到期日期', '日期格式', '生效开始必填；到期日期可空（留空将列为「无到期日」异常）'],
+            [($isFire ? '建筑面积(㎡)' : '电梯台数'), '必填', '>0 的数值'],
+            ['单价', '建议填', '金额÷面积/台数，可空'],
+            ['含配件耗材', '可空', '填「是」或「否」；留空按「否」处理'],
+            ['维保服务内容 / 备注', '可空', '自由文本'],
+        ], null, 'A1');
+        $this->paintHeader($help, ['列名', '是否必填', '填写说明']);
+
+        return $this->xlsxResponse($book, $typeLabel . '维保合同批量导入模板_' . date('Ymd') . '.xlsx');
+    }
+
+    /** 维保设备批量导入模板 */
+    public function maintenanceDevices(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $type = $request->input('type') === 'elevator' ? 'elevator' : 'fire';
+        $isFire = $type === 'fire';
+        $typeLabel = $isFire ? '消防' : '电梯';
+
+        $headers = $isFire
+            ? ['项目名称*', '设备编号*', '系统类型', '覆盖面积(㎡)', '年检日期', '备注']
+            : ['项目名称*', '设备编号*', '载重(kg)', '层站', '年检日期', '备注'];
+        $example = $isFire
+            ? ['示例项目', 'XF-01', '火灾自动报警系统', 8000, date('Y-m-d'), '示例行（导入前删除本行）']
+            : ['示例项目', 'DT-01', 1000, '18层18站', date('Y-m-d'), '示例行（导入前删除本行）'];
+
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet(); $sheet->setTitle($typeLabel . '设备台账');
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($example, null, 'A2');
+        $this->paintHeader($sheet, $headers, 500);
+        foreach ($headers as $i => $h) {
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1))->setWidth(18);
+        }
+        $sheet->freezePane('A2');
+
+        $help = $book->createSheet(); $help->setTitle('填写说明');
+        $help->fromArray([
+            ['列名', '是否必填', '填写说明'],
+            ['项目名称', '必填', '必须与系统项目档案中的项目名完全一致'],
+            ['设备编号', '必填', '同项目下不可重名；已有「项目+编号」将按本行内容更新'],
+            [$isFire ? '系统类型' : '载重(kg)', '建议填', '如：火灾自动报警系统 / 1000'],
+            [$isFire ? '覆盖面积(㎡)' : '层站', '建议填', '如：8000 / 18层18站'],
+            ['年检日期', '可空', '格式 YYYY-MM-DD；30 天内到期或已过期会推送预警'],
+            ['备注', '可空', '自由文本'],
+        ], null, 'A1');
+        $this->paintHeader($help, ['列名', '是否必填', '填写说明']);
+
+        return $this->xlsxResponse($book, $typeLabel . '设备台账批量导入模板_' . date('Ymd') . '.xlsx');
+    }
+
+    /** 签约方批量导入模板 */
+    public function maintenancePartners(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+
+        $headers = ['名称*', '业务类型*', '联系人', '联系电话', '资质有效期', '备注'];
+        $example = ['示例维保公司', '消防+电梯', '张三', '13800000000', date('Y-m-d', strtotime('+6 month')), '示例行（导入前删除本行）'];
+
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet(); $sheet->setTitle('签约方');
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($example, null, 'A2');
+        $this->paintHeader($sheet, $headers, 500);
+        foreach ($headers as $i => $h) {
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1))->setWidth(18);
+        }
+        $sheet->freezePane('A2');
+        $this->attachValidation($sheet, $headers, '业务类型*', ['消防', '电梯', '消防+电梯']);
+
+        $help = $book->createSheet(); $help->setTitle('填写说明');
+        $help->fromArray([
+            ['列名', '是否必填', '填写说明'],
+            ['名称', '必填', '签约方唯一标识；同名将按本行内容更新'],
+            ['业务类型', '必填', '只能从下拉中选择：消防 / 电梯 / 消防+电梯'],
+            ['联系人 / 联系电话', '可空', '姓名与 11 位手机号'],
+            ['资质有效期', '可空', '格式 YYYY-MM-DD；30 天内到期或已过期会推送预警（仅总部）'],
+            ['备注', '可空', '自由文本'],
+        ], null, 'A1');
+        $this->paintHeader($help, ['列名', '是否必填', '填写说明']);
+
+        return $this->xlsxResponse($book, '签约方批量导入模板_' . date('Ymd') . '.xlsx');
+    }
+
+    /** 表头样式：深蓝底白字加粗居中，2 行冻结，浅灰示例 */
+    private function paintHeader($sheet, array $headers, int $maxRow = 1000): void
+    {
+        $count = count($headers);
+        $last = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($count);
+        // 表头：深蓝底白字加粗居中
+        $sheet->getStyle("A1:{$last}1")->getFont()->setBold(true)->setSize(10)->setColor(new Color('FFFFFFFF'));
+        $sheet->getStyle("A1:{$last}1")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
+        $sheet->getStyle("A1:{$last}1")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+        $sheet->getRowDimension(1)->setRowHeight(30);
+        // 示例行：浅灰斜体
+        $sheet->getStyle("A2:{$last}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F2F2F2');
+        $sheet->getStyle("A2:{$last}2")->getFont()->setItalic(true)->getColor()->setRGB('808080');
+        // 边框
+        $sheet->getStyle("A1:{$last}{$maxRow}")->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->getStyle("A1:{$last}{$maxRow}")->getBorders()->getAllBorders()->getColor()->setRGB('D9D9D9');
+        $sheet->getStyle("A1:{$last}{$maxRow}")->getAlignment()->setVertical('center')->setWrapText(true);
     }
 
     private function xlsxResponse(Spreadsheet $book, string $filename)
