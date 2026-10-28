@@ -1,8 +1,8 @@
-// 维保纯逻辑测试 — 对照 app.js:2507-2527, 2886-2932, 3090-3104, 2830-2834, 3025-3034
+// 维保纯逻辑测试 — 对照 app.js:2507-2527, 2886-2932, 2830-2834, 3025-3034
 import { describe, it, expect } from 'vitest'
 import {
   maintToday, maintAddDays, maintStatusOf, maintOverlapsYear, maintFmtMoney,
-  filterLedger, buildLedgerExportRows, buildCsv, priceAutoCalc,
+  filterLedger, priceAutoCalc, MAINT_STATUS_LABELS, MAINT_STATUS_TAG, MAINT_STATUS_OPTS,
 } from './maintLogic'
 
 describe('maintToday / maintAddDays', () => {
@@ -16,20 +16,37 @@ describe('maintToday / maintAddDays', () => {
   })
 })
 
-describe('maintStatusOf（阈值判定，复刻旧版实际 29 天窗口）', () => {
+describe('maintStatusOf（6 档分级：normal/d90/d60/d30/expired/missing）', () => {
   const t = '2026-09-26'
-  it('无到期日期 → normal', () => {
-    expect(maintStatusOf(null, t)).toBe('normal')
+  it('无到期日期 → missing', () => {
+    expect(maintStatusOf(null, t)).toBe('missing')
+    expect(maintStatusOf('', t)).toBe('missing')
   })
   it('早于今天 → expired', () => {
     expect(maintStatusOf('2026-09-25', t)).toBe('expired')
   })
-  it('今天或 30 天内（旧版阈值实为 +29 天）→ soon', () => {
-    expect(maintStatusOf('2026-09-26', t)).toBe('soon')
-    expect(maintStatusOf('2026-10-25', t)).toBe('soon')
+  it('30 天内 → d30（旧版 addDays 时区行为下阈值实为 +29 天）', () => {
+    expect(maintStatusOf('2026-09-26', t)).toBe('d30')
+    expect(maintStatusOf('2026-10-25', t)).toBe('d30')
   })
-  it('超过阈值 → normal', () => {
-    expect(maintStatusOf('2026-10-26', t)).toBe('normal')
+  it('31~60 天 → d60；61~90 天 → d90', () => {
+    expect(maintStatusOf('2026-10-26', t)).toBe('d60')
+    expect(maintStatusOf('2026-11-24', t)).toBe('d60')
+    expect(maintStatusOf('2026-11-25', t)).toBe('d90')
+    expect(maintStatusOf('2026-12-24', t)).toBe('d90')
+  })
+  it('超过 90 天 → normal', () => {
+    expect(maintStatusOf('2026-12-25', t)).toBe('normal')
+  })
+})
+
+describe('状态文案与标签样式映射', () => {
+  it('6 档全覆盖', () => {
+    for (const k of MAINT_STATUS_OPTS) {
+      expect(MAINT_STATUS_LABELS[k]).toBeTruthy()
+      expect(MAINT_STATUS_TAG[k]).toMatch(/^tag /)
+    }
+    expect(MAINT_STATUS_OPTS).toEqual(['normal', 'd90', 'd60', 'd30', 'expired', 'missing'])
   })
 })
 
@@ -51,14 +68,21 @@ describe('maintFmtMoney（千分位整数）', () => {
 
 describe('filterLedger（台账筛选+排序，含 focus 聚焦）', () => {
   const rows = [
-    { id: 1, project_name: '盈科广场', party: '华安消防', remark: '', end_date: '2026-10-01', start_date: '2025-10-01', amount: '8800', elevator_count: 0 },
-    { id: 2, project_name: '绿地中心', party: '奥的斯', remark: '含年检', end_date: '2027-01-01', start_date: '2026-01-01', amount: 12000, elevator_count: 6 },
+    { id: 1, project_name: '盈科广场', party: '华安消防', remark: '', end_date: '2026-10-01', start_date: '2025-10-01', amount: '8800', elevator_count: 0, status: 'd30' },
+    { id: 2, project_name: '绿地中心', party: '奥的斯', remark: '含年检', end_date: '2027-01-01', start_date: '2026-01-01', amount: 12000, elevator_count: 6, status: 'normal' },
     { id: 3, project_name: ' 盈科广场二期 ', party: '华安消防', remark: '', end_date: '2026-12-15', start_date: '2026-01-01', amount: 5000, elevator_count: 0 },
   ]
   it('关键词匹配 项目+签约方+备注', () => {
     expect(filterLedger(rows, { kw: '奥的斯' }, 'elevator').map((r) => r.id)).toEqual([2])
     expect(filterLedger(rows, { kw: '年检' }, 'elevator').map((r) => r.id)).toEqual([2])
     expect(filterLedger(rows, { kw: '盈科' }, 'elevator').map((r) => r.id)).toEqual([1, 3])
+  })
+  it('项目下拉精确匹配', () => {
+    expect(filterLedger(rows, { project: '绿地中心' }, 'elevator').map((r) => r.id)).toEqual([2])
+  })
+  it('状态快捷筛选：优先用行内 status，缺失时按到期日现算', () => {
+    expect(filterLedger(rows, { status: 'd30' }, 'elevator').map((r) => r.id)).toEqual([1])
+    expect(filterLedger(rows, { status: 'normal' }, 'elevator').map((r) => r.id)).toEqual([2])
   })
   it('到期日期区间 / 签约方 / 金额上下限 / 台数上下限', () => {
     expect(filterLedger(rows, { efrom: '2026-12-01' }, 'elevator').map((r) => r.id)).toEqual([2, 3])
@@ -81,32 +105,6 @@ describe('filterLedger（台账筛选+排序，含 focus 聚焦）', () => {
   })
   it('focus.projectFilter 按项目名精确过滤', () => {
     expect(filterLedger(rows, {}, 'elevator', null, { type: 'elevator', projectFilter: '绿地中心' }).map((r) => r.id)).toEqual([2])
-  })
-})
-
-describe('buildLedgerExportRows（CSV 导出行）', () => {
-  const today = '2026-09-26'
-  const STATUS_TEXT = { normal: '正常在保', soon: '30天内即将到期', expired: '已过期' }
-  const statusOf = (d) => STATUS_TEXT[maintStatusOf(d, today)]
-  it('电梯类型含台数/单价列', () => {
-    const out = buildLedgerExportRows([{ project_name: 'A', party: 'B', amount: '100', sign_date: '2026-01-01', start_date: '2026-01-02', end_date: '2027-01-01', elevator_count: '4', price_per_unit: '25', remark: 'r' }], true, statusOf)
-    expect(Object.keys(out[0])).toEqual(['项目名称', '签约方', '签约金额', '签订日期', '生效开始', '到期日期', '电梯台数', '每台单价', '状态', '备注'])
-    expect(out[0]['电梯台数']).toBe(4)
-  })
-  it('消防类型含面积/每㎡单价列，状态按到期日判定', () => {
-    const out = buildLedgerExportRows([{ project_name: 'A', party: 'B', amount: '100', sign_date: '', start_date: '2026-01-02', end_date: '2020-01-01', building_area_sqm: '500', price_per_sqm: '0.2', remark: '' }], false, statusOf)
-    expect(out[0]['建筑面积(㎡)']).toBe(500)
-    expect(out[0]['状态']).toBe('已过期')
-  })
-})
-
-describe('buildCsv（BOM + 引号转义）', () => {
-  it('首行表头 + 值内引号双写', () => {
-    const csv = buildCsv('测试.csv', [{ A: 1, B: '含"引号"' }])
-    const lines = csv.split('\n')
-    expect(csv.startsWith('\uFEFF')).toBe(true)
-    expect(lines[0]).toBe('\uFEFFA,B')
-    expect(lines[1]).toBe('"1","含""引号"""')
   })
 })
 

@@ -10,15 +10,28 @@ export function maintAddDays(dstr, n) {
   return d.toISOString().slice(0, 10)
 }
 
-// 在保状态：早于今天=expired；今天起 30 天内（含第 30 天）=soon；其余 normal
+// 合同状态分级（与后端 MaintenanceService::contractStatus 同口径）：
+// 无到期日=missing；早于今天=expired；30/60/90 天内（含第 N 天）=d30/d60/d90；其余 normal
 export function maintStatusOf(endDate, today) {
   const t = today || maintToday()
-  const thr = maintAddDays(t, 30)
-  if (!endDate) return 'normal'
+  if (!endDate) return 'missing'
   if (endDate < t) return 'expired'
-  if (endDate <= thr) return 'soon'
+  if (endDate <= maintAddDays(t, 30)) return 'd30'
+  if (endDate <= maintAddDays(t, 60)) return 'd60'
+  if (endDate <= maintAddDays(t, 90)) return 'd90'
   return 'normal'
 }
+
+export const MAINT_STATUS_LABELS = {
+  normal: '正常在保', d90: '90天内到期', d60: '60天内到期',
+  d30: '30天内到期', expired: '已过期', missing: '无到期日',
+}
+export const MAINT_STATUS_TAG = {
+  normal: 'tag green', d90: 'tag blue', d60: 'tag orange',
+  d30: 'tag red', expired: 'tag red', missing: 'tag gray',
+}
+// 状态快捷筛选选项（台账/报表共用）
+export const MAINT_STATUS_OPTS = ['normal', 'd90', 'd60', 'd30', 'expired', 'missing']
 
 export function maintOverlapsYear(start, end, year) {
   return start <= year + '-12-31' && end >= year + '-01-01'
@@ -37,6 +50,8 @@ export function filterLedger(rows, f, type, sort, focus) {
     list = list.filter((r) => r.project_name === focus.projectFilter)
   } else {
     if (f.kw) list = list.filter((r) => (r.project_name + r.party + r.remark).toLowerCase().includes(f.kw))
+    if (f.project) list = list.filter((r) => r.project_name === f.project)
+    if (f.status) list = list.filter((r) => (r.status || maintStatusOf(r.end_date)) === f.status)
     if (f.efrom) list = list.filter((r) => r.end_date >= f.efrom)
     if (f.eto) list = list.filter((r) => r.end_date <= f.eto)
     if (f.party) list = list.filter((r) => (r.party || '').toLowerCase().includes(f.party))
@@ -60,28 +75,6 @@ export function filterLedger(rows, f, type, sort, focus) {
     })
   }
   return list
-}
-
-// 导出行构造 — 复刻 maintExportLedger（app.js:3097-3103）
-export function buildLedgerExportRows(rows, isElev, statusOf) {
-  return rows.map((r) => {
-    const o = { '项目名称': r.project_name, '签约方': r.party, '签约金额': Number(r.amount) || 0, '签订日期': r.sign_date, '生效开始': r.start_date, '到期日期': r.end_date }
-    if (isElev) { o['电梯台数'] = Number(r.elevator_count) || 0; o['每台单价'] = Number(r.price_per_unit) || 0 }
-    else { o['建筑面积(㎡)'] = Number(r.building_area_sqm) || 0; o['每㎡单价'] = Number(r.price_per_sqm) || 0 }
-    o['状态'] = statusOf(r.end_date)
-    o['备注'] = r.remark || ''
-    return o
-  })
-}
-
-// CSV 生成 — 复刻 maintDownloadCsv（BOM + 引号双写转义）
-export function buildCsv(filename, rows) {
-  void filename
-  if (!rows.length) return ''
-  const keys = Object.keys(rows[0])
-  const bom = '\uFEFF'
-  const csv = bom + keys.join(',') + '\n' + rows.map((r) => keys.map((k) => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-  return csv
 }
 
 // 单价自动计算 — 复刻 maintContractEdit 联动（金额÷台数/面积，2 位小数；除数为 0 → 空串）

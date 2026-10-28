@@ -42,6 +42,7 @@ class AppModules
             ['key' => 'maintain', 'name' => '工程维保', 'icon' => '🔧', 'color' => '#f59e0b', 'perms' => [
                 ['maint_fire', '消防维保台账与报表'],
                 ['maint_elev', '电梯维保台账与报表'],
+                ['maint_devices', '设备台账'],
                 ['maint_partners', '签约方维护'],
             ]],
             ['key' => 'security', 'name' => '安保管理', 'icon' => '🛡️', 'color' => '#16a34a', 'perms' => [

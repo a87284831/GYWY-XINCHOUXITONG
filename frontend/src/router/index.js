@@ -182,6 +182,13 @@ const routes = [
         meta: { perm: 'maint_partners' },
       },
       {
+        // 设备台账：菜单按 maint_devices 权限点展示；预警消息链接允许任一维保权限进入
+        path: 'maintDevices',
+        name: 'maintDevices',
+        component: () => import('@/modules/maint/MaintDevices.vue'),
+        meta: { perm: ['maint_devices', 'maint_fire', 'maint_elev'] },
+      },
+      {
         path: 'approvalCenter',
         name: 'approvalCenter',
         component: () => import('@/modules/oa/ApprovalCenter.vue'),
@@ -352,7 +359,9 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.path === '/login' && auth.token) return '/'
-  if (to.meta.perm && !auth.can(to.meta.perm)) return '/'
+  // perm 支持数组：任一权限点命中即放行（用于跨权限点的功能页，如设备台账）
+  const p = to.meta.perm
+  if (p && (Array.isArray(p) ? !p.some((x) => auth.can(x)) : !auth.can(p))) return '/'
 })
 
 export default router

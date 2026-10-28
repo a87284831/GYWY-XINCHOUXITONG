@@ -31,7 +31,7 @@ export const PAGE_TITLES = {
   taxMode: '个税扣除模式设置',
   attendance: '考勤管理', export: '多模式数据导出', org: '组织架构',
   staff: '人员档案管理', adjust: '调薪记录与追溯', budget: '项目薪资预算管理',
-  maintFire: '消防维保台账', maintElev: '电梯维保台账', maintPartners: '签约方维护',
+  maintFire: '消防维保台账', maintElev: '电梯维保台账', maintPartners: '签约方维护', maintDevices: '设备台账',
   perfCreate: '发起绩效考核', perfApprove: '待我审批', perfReport: '待我填报',
   perfMine: '我的考核', perfRecords: '考核记录管理',
   approvalCenter: '审批中心', purchaseEntry: '月度采购系统',
@@ -111,6 +111,7 @@ export const ALL_MENUS = [
     { key: 'elevReport', label: '电梯维保报表', icon: 'lift', perm: 'maint_elev' },
     { key: 'maintFire', label: '消防维保台账', icon: 'book', perm: 'maint_fire' },
     { key: 'maintElev', label: '电梯维保台账', icon: 'book', perm: 'maint_elev' },
+    { key: 'maintDevices', label: '设备台账', icon: 'grid', perm: 'maint_devices' },
     { key: 'maintPartners', label: '签约方维护', icon: 'link', perm: 'maint_partners' },
   ]},
 ]
@@ -121,7 +122,7 @@ const PURCHASE_PAGES = ['purchaseDashboard', 'purchaseFill', 'purchaseOverview',
   'purchaseWindows', 'purchaseOplogs', 'purchaseMyItems']
 const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport']
 const REPORT_PAGES = ['reportHome', 'hrReport', 'salaryReport', 'attReport']
-const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners']
+const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners', 'maintDevices']
 const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export',
   'perfCreate', 'perfApprove', 'perfReport', 'perfMine', 'perfRecords']
 const SETTING_PAGES = ['settings', 'users', 'logs', 'backup', 'salarySettings', 'rules', 'symbols']

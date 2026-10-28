@@ -3,13 +3,22 @@
     <h3>签约方维护</h3>
     <div class="row"><button class="btn primary sm" @click="openEdit(null)">＋ 新增签约方</button></div>
     <div class="table-wrap" style="margin-top:10px"><table class="tb">
-      <thead><tr><th>名称</th><th>业务类型</th><th>联系人</th><th>电话</th><th>备注</th><th>操作</th></tr></thead>
+      <thead><tr><th>名称</th><th>业务类型</th><th>联系人</th><th>电话</th><th>资质有效期</th><th>备注</th><th>操作</th></tr></thead>
       <tbody>
-        <tr v-if="loadErr"><td colspan="6" class="msg err">{{ loadErr }}</td></tr>
-        <tr v-else-if="!partners.length"><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">暂无签约方，点击上方按钮新增</td></tr>
+        <tr v-if="loadErr"><td colspan="7" class="msg err">{{ loadErr }}</td></tr>
+        <tr v-else-if="!partners.length"><td colspan="7" style="text-align:center;color:#94a3b8;padding:20px">暂无签约方，点击上方按钮新增</td></tr>
         <tr v-for="p in partners" :key="p.id">
           <td><b>{{ p.name }}</b></td><td><span class="tag blue">{{ typeMap[p.type] || p.type }}</span></td>
-          <td>{{ p.contact || '' }}</td><td>{{ p.phone || '' }}</td><td>{{ p.remark || '-' }}</td>
+          <td>{{ p.contact || '' }}</td><td>{{ p.phone || '' }}</td>
+          <td>
+            <template v-if="p.qualification_expire">
+              {{ p.qualification_expire }}
+              <span v-if="qualStatus(p.qualification_expire) === 'expired'" class="tag red">已过期</span>
+              <span v-else-if="qualStatus(p.qualification_expire) === 'soon'" class="tag orange">30天内到期</span>
+            </template>
+            <span v-else style="color:#94a3b8">未登记</span>
+          </td>
+          <td>{{ p.remark || '-' }}</td>
           <td><button class="btn sm" @click="openEdit(p.id)">编辑</button> <button class="btn sm danger" @click="del(p)">删除</button></td>
         </tr>
       </tbody>
@@ -24,6 +33,8 @@
         <option value="fire">仅消防</option>
         <option value="elevator">仅电梯</option>
       </select></div>
+      <div><label>资质有效期至</label><input v-model="fm.qualification_expire" type="date" style="width:100%">
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px">30 天内到期或已过期将推送预警（仅总部接收）</div></div>
       <div><label>联系人</label><input v-model="fm.contact" style="width:100%"></div>
       <div><label>联系电话</label><input v-model="fm.phone" style="width:100%"></div>
       <div style="grid-column:1/3"><label>备注</label><textarea v-model="fm.remark" rows="2" style="width:100%"></textarea></div>
@@ -32,10 +43,11 @@
 </template>
 
 <script setup>
-// 签约方维护 — 复刻 pageMaintPartners 群（app.js:3108-3174）
+// 签约方维护 — 复刻 pageMaintPartners 群（app.js:3108-3174），新增资质有效期与到期状态
 import { reactive, ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 import { toast } from '@/utils/toast'
+import { maintToday, maintAddDays } from './maintLogic'
 import MaintModal from './MaintModal.vue'
 
 const typeMap = { fire: '仅消防', elevator: '仅电梯', both: '消防+电梯' }
@@ -43,7 +55,15 @@ const partners = ref([])
 const loadErr = ref('')
 const modalShow = ref(false)
 const editId = ref(null)
-const fm = reactive({ name: '', type: 'both', contact: '', phone: '', remark: '' })
+const fm = reactive({ name: '', type: 'both', contact: '', phone: '', qualification_expire: '', remark: '' })
+
+// 资质状态：expired 已过期 / soon 30 天内 / normal
+function qualStatus(d) {
+  const t = maintToday()
+  if (d < t) return 'expired'
+  if (d <= maintAddDays(t, 30)) return 'soon'
+  return 'normal'
+}
 
 async function load() {
   loadErr.value = ''
@@ -60,6 +80,7 @@ function openEdit(id) {
   fm.type = !row || row.type === 'both' ? 'both' : row.type
   fm.contact = row ? (row.contact ?? '') : ''
   fm.phone = row ? (row.phone ?? '') : ''
+  fm.qualification_expire = row ? (row.qualification_expire ?? '') : ''
   fm.remark = row ? (row.remark ?? '') : ''
   modalShow.value = true
 }
@@ -68,6 +89,7 @@ async function save() {
   const payload = {
     name: fm.name.trim(), type: fm.type,
     contact: fm.contact.trim(), phone: fm.phone.trim(),
+    qualification_expire: fm.qualification_expire || null,
     remark: fm.remark.trim(),
   }
   if (!payload.name) { toast('请填写签约方名称', false); return }
