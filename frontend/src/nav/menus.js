@@ -3,7 +3,7 @@ import router from '@/router'
 
 export const APPS = [
   { key: 'hr', name: '人力资源', icon: 'users', color: '#2563eb' },
-  { key: 'oa', name: 'OA审批', icon: 'check', color: '#3b82f6' },
+
   { key: 'maintain', name: '工程维保', icon: 'wrench', color: '#f59e0b' },
   { key: 'purchase', name: '采购管理', icon: 'briefcase', color: '#6366f1' },
   { key: 'finance', name: '财务管理', icon: 'coins', color: '#0d9488' },
@@ -11,13 +11,13 @@ export const APPS = [
   { key: 'setting', name: '系统设置', icon: 'gear', color: '#64748b' },
 ]
 
-export const HOME_BUILT = new Set(['hr', 'maintain', 'report', 'setting', 'oa', 'purchase', 'finance'])
+export const HOME_BUILT = new Set(['hr', 'maintain', 'report', 'setting', 'purchase', 'finance'])
 export const HOME_META = {
   hr: { desc: '薪资核算 · 考勤管理 · 人员档案 · 预算管理 · 绩效考核', go: '进入人力资源 →' },
   maintain: { desc: '消防 / 电梯维保报表、维保台账与签约方维护', go: '进入工程维保 →' },
   report: { desc: '人力资源 · 薪酬 · 考勤三类分析报表总览', go: '进入报表中心 →' },
   setting: { desc: '账号权限 · 数据备份 · 工资规则 · 字段设置', go: '进入系统设置 →' },
-  oa: { desc: '录用 / 转正 / 离职审批与入职办理，流程可配置', go: '进入审批中心 →' },
+
   purchase: { desc: '月度采购计划 · 填报 · 审批确认 · 预算执行 · 汇总导出', go: '进入采购系统 →' },
   finance: { desc: '应收费用台账 · 付款记录 · 汇总分析 · 驾驶舱', go: '进入财务管理 →' },
 }
@@ -34,7 +34,7 @@ export const PAGE_TITLES = {
   maintFire: '消防维保台账', maintElev: '电梯维保台账', maintPartners: '签约方维护', maintDevices: '设备台账',
   perfCreate: '发起绩效考核', perfApprove: '待我审批', perfReport: '待我填报',
   perfMine: '我的考核', perfRecords: '考核记录管理',
-  approvalCenter: '审批中心', purchaseEntry: '月度采购系统',
+purchaseEntry: '月度采购系统',
   purchaseDashboard: '数据驾驶舱', purchaseFill: '采购填报',
   purchaseOverview: '填报进度确认', purchaseCustoms: '清单外审核',
   purchaseBudget: '预算管理', purchaseSummary: '采购汇总查看',
@@ -64,9 +64,7 @@ export const ALL_MENUS = [
     { key: 'purchaseOplogs', label: '操作日志', icon: 'scroll', perm: 'purchase_view', adminOnly: true },
     { key: 'purchaseMyItems', label: '我的填报记录', icon: 'list', perm: 'purchase_view', staffOnly: true },
   ]},
-  { section: '审批中心', icon: 'check', app: 'oa', items: [
-    { key: 'approvalCenter', label: '审批中心', icon: 'clipboard', perm: '' },
-  ]},
+
   { section: '报表中心', icon: 'chart', app: 'report', items: [
     { key: 'reportHome', label: '报表总览', icon: 'pie', perm: 'hr_report' },
     { key: 'hrReport', label: '人力资源报表', icon: 'users', perm: 'hr_report' },
@@ -136,7 +134,7 @@ export function appOfPage(key) {
   if (MAINT_PAGES.includes(key)) return 'maintain'
   if (HR_PAGES.includes(key)) return 'hr'
   if (SETTING_PAGES.includes(key)) return 'setting'
-  return 'oa'
+  return 'report'
 }
 
 // 页面 key → 路由 path（采购页走 /purchase/ 前缀，其余复用旧 key）
@@ -184,7 +182,6 @@ export const APP_ROUTE = {
   hr: '/summary',
   report: '/reportHome',
   maintain: '/fireReport',
-  oa: '/approvalCenter',
   purchase: '/purchase/dashboard',
   finance: '/financeDashboard',
   setting: '/settings',

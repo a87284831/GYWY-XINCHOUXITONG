@@ -1,5 +1,13 @@
 [
   {
+    "version": "v2026.10.29.1",
+    "date": "2026-10-29",
+    "commit": "pending",
+    "items": [
+      { "category": "优化", "text": "整体下线 OA 审批模块：删除通用审批流引擎（ApprovalFlowController + ApprovalActions）及其 29 条 API 路由、前端审批中心页面（ApprovalCenter.vue）与审批权责设置（TabApprovalFlow.vue）、菜单入口与工作台卡片；删除相关数据库表 approval_instances / approval_drafts / approval_shares / onboard_checklists；移除 AppModules 中的 oa 模块定义与审批权限点" }
+    ]
+  },
+  {
     "version": "v2026.10.28.2",
     "date": "2026-10-28",
     "commit": "9a7a31c",

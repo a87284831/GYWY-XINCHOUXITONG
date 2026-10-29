@@ -31,10 +31,7 @@ class AppModules
                 ['admin_view', '行政事务查看'],
                 ['admin_manage', '行政管理'],
             ]],
-            ['key' => 'oa', 'name' => 'OA审批', 'icon' => '✅', 'color' => '#3b82f6', 'perms' => [
-                ['approval', '审批中心（发起/审批）'],
-                ['approval_manage', '流程管理'],
-            ]],
+
             ['key' => 'property', 'name' => '房产管理', 'icon' => '🏠', 'color' => '#1e40af', 'perms' => [
                 ['property_view', '房产台账查看'],
                 ['property_manage', '房产管理'],

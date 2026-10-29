@@ -189,12 +189,6 @@ const routes = [
         meta: { perm: ['maint_devices', 'maint_fire', 'maint_elev'] },
       },
       {
-        path: 'approvalCenter',
-        name: 'approvalCenter',
-        component: () => import('@/modules/oa/ApprovalCenter.vue'),
-        meta: { perm: '' },
-      },
-      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/modules/settings/Settings.vue'),

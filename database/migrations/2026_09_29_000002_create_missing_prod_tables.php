@@ -37,36 +37,6 @@ return new class extends Migration
             });
         }
 
-        if (!Schema::hasTable('approval_drafts')) {
-            Schema::create('approval_drafts', function (Blueprint $table) {
-                $table->increments('id');
-                $table->integer('user_id');
-                $table->string('flow_key', 60);
-                $table->string('flow_no', 32)->nullable();
-                $table->string('title', 200)->default('');
-                $table->text('form_data')->nullable();
-                $table->string('project_name', 100)->default('');
-                $table->timestamps();
-
-                $table->index('user_id');
-            });
-        }
-
-        if (!Schema::hasTable('approval_shares')) {
-            Schema::create('approval_shares', function (Blueprint $table) {
-                $table->increments('id');
-                $table->integer('instance_id');
-                $table->string('flow_no', 32)->default('');
-                $table->integer('from_user_id');
-                $table->string('from_name', 100)->default('');
-                $table->integer('to_user_id');
-                $table->string('to_name', 100)->default('');
-                $table->timestamp('created_at')->nullable();
-
-                $table->index('to_user_id');
-                $table->index('instance_id');
-            });
-        }
 
         if (!Schema::hasTable('payroll_staff_person_type_log')) {
             Schema::create('payroll_staff_person_type_log', function (Blueprint $table) {
@@ -84,8 +54,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('payroll_staff_person_type_log');
-        Schema::dropIfExists('approval_shares');
-        Schema::dropIfExists('approval_drafts');
+
         Schema::dropIfExists('payroll_adjust_logs');
         Schema::dropIfExists('sys_dingtalk_config');
     }

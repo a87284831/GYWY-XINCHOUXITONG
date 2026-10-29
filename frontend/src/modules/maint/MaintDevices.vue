@@ -6,6 +6,8 @@
       <button class="btn sm" :class="{ primary: tab === 'elevator' }" @click="tab = 'elevator'"><Icon name="lift" /> 电梯设备</button>
       <span style="width:8px"></span>
       <button class="btn primary sm" @click="openEdit(null)"><Icon name="plus" /> 新增设备</button>
+      <button class="btn sm" @click="downloadTemplate"><Icon name="down" /> 下载模板</button>
+      <button class="btn sm primary" @click="openImport">批量导入</button>
       <input v-model="fKw" placeholder="关键词(编号/系统类型/备注)" style="width:190px">
       <select v-model="fProject" style="max-width:160px"><option value="">全部项目</option><option v-for="p in projectOpts" :key="p" :value="p">{{ p }}</option></select>
       <select v-model="fStatus" style="width:130px">
@@ -54,12 +56,32 @@
       <div style="grid-column:1/3"><label>备注</label><textarea v-model="fm.remark" rows="2"></textarea></div>
     </div>
   </MaintModal>
+
+  <MaintModal :title="tabLabel + '设备批量导入'" :show="importShow" :wide="true" :show-save="false" @close="importShow = false">
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <button class="btn sm" @click="downloadTemplate"><Icon name="down" /> 下载导入模板</button>
+      <input ref="importFileRef" type="file" accept=".xlsx" style="display:none" @change="onImportFile">
+      <button class="btn sm primary" style="cursor:pointer" @click="$refs.importFileRef.click()"><Icon name="file" /> 选择 Excel 文件</button>
+      <span style="color:#94a3b8;font-size:12.5px">仅支持 .xlsx；已存在同项目+编号的设备将按本行内容更新</span>
+    </div>
+    <div v-if="importResult" style="margin-top:12px;padding:10px 12px;border-radius:8px;background:#f8fafc;font-size:13px">
+      <b>导入结果</b>：共 {{ importResult.total }} 条，新增 <b style="color:#16a34a">{{ importResult.inserted }}</b> 条，更新 <b style="color:#2563eb">{{ importResult.updated || 0 }}</b> 条
+      <span v-if="importResult.errors && importResult.errors.length">，{{ importResult.errors.length }} 条错误</span>
+      <span v-else>，全部成功 ✓</span>
+    </div>
+    <div v-if="importResult?.errors?.length" class="table-wrap" style="margin-top:10px"><table class="tb">
+      <thead><tr><th style="width:60px">行号</th><th>错误信息</th></tr></thead>
+      <tbody>
+        <tr v-for="(e, i) in importResult.errors" :key="i"><td>{{ e.row }}</td><td style="color:#dc2626">{{ e.msg }}</td></tr>
+      </tbody>
+    </table></div>
+  </MaintModal>
 </template>
 
 <script setup>
 // 设备台账：消防/电梯设备登记 + 年检状态预警展示（后端 maintenance_devices）
 import { reactive, ref, computed, onMounted } from 'vue'
-import { api } from '@/api/client'
+import { api, download } from '@/api/client'
 import { toast } from '@/utils/toast'
 import MaintModal from './MaintModal.vue'
 import Icon from '@/components/Icon.vue'
@@ -142,4 +164,21 @@ async function del(r) {
 }
 
 onMounted(load)
+
+/* ---------- 批量导入 ---------- */
+const importShow = ref(false)
+const importFileRef = ref(null)
+const importResult = ref(null)
+
+function downloadTemplate() { download(`/api/maintenance/devices/template?type=${tab.value}`, tabLabel.value + '设备批量导入模板.xlsx') }
+function openImport() { importResult.value = null; importShow.value = true }
+async function onImportFile(e) {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return
+  const fd = new FormData(); fd.append('file', file); fd.append('type', tab.value)
+  try {
+    importResult.value = await api('/api/maintenance/devices/import', { method: 'POST', form: fd })
+    toast(`导入完成：新增 ${importResult.value.inserted} 条，更新 ${importResult.value.updated || 0} 条`, !!(importResult.value.errors && importResult.value.errors.length))
+    load()
+  } catch (err) { toast('导入失败：' + err.message, false) }
+}
 </script>

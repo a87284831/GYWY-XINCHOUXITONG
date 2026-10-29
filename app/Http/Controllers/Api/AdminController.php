@@ -111,7 +111,6 @@ class AdminController extends ApiController
             'payroll_staff', 'payroll_attendance', 'payroll_results', 'payroll_salary_adjustments',
             'payroll_budgets', 'payroll_projects', 'performance_plans',
             'maintenance_partners', 'maintenance_contracts',
-            'approval_instances', 'approval_drafts', 'approval_shares', 'onboard_checklists',
             'org_transfer_logs', 'app_messages',
         ];
         $cleared = [];

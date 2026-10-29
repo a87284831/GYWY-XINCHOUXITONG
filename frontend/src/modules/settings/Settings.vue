@@ -7,7 +7,7 @@
       </div>
       <div class="settings-content">
         <TabPerm v-if="tab === 'perm'" />
-        <TabApprovalFlow v-else-if="tab === 'approvalFlow'" />
+
         <SalarySettings v-else-if="tab === 'salarySettings'" />
         <TabCompany v-else-if="tab === 'company'" />
         <TabDingtalk v-else-if="tab === 'dingtalk'" />
@@ -28,7 +28,7 @@ import { useAuthStore } from '@/stores/auth'
 import { SETTINGS_TABS, visibleTabs } from './settingsLogic'
 import Icon from '@/components/Icon.vue'
 import TabPerm from './TabPerm.vue'
-import TabApprovalFlow from './TabApprovalFlow.vue'
+
 import SalarySettings from './SalarySettings.vue'
 import TabCompany from './TabCompany.vue'
 import TabDingtalk from './TabDingtalk.vue'

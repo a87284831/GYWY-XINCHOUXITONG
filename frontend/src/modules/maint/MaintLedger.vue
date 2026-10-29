@@ -22,6 +22,8 @@
       </select>
       <button class="btn sm" @click="toggleDir">{{ sort.dir === 'asc' ? '升序 ↑' : '降序 ↓' }}</button>
       <button class="btn sm" @click="exportXlsx">导出Excel</button>
+      <button class="btn sm" @click="downloadTemplate">下载模板</button>
+      <button class="btn sm primary" @click="openImport">批量导入</button>
       <button class="btn sm" @click="clearFilters">清除筛选</button>
     </div>
     <div class="table-wrap" style="margin-top:10px"><table class="tb">
@@ -147,6 +149,27 @@
         </div>
       </div>
     </div>
+  </MaintModal>
+
+  <!-- 批量导入 -->
+  <MaintModal :title="label + '维保合同批量导入'" :show="importShow" :wide="true" :show-save="false" @close="importShow = false">
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <button class="btn sm" @click="downloadTemplate"><Icon name="down" /> 下载导入模板</button>
+      <input ref="importFileRef" type="file" accept=".xlsx" style="display:none" @change="onImportFile">
+      <button class="btn sm primary" style="cursor:pointer" @click="$refs.importFileRef.click()"><Icon name="file" /> 选择 Excel 文件</button>
+      <span style="color:#94a3b8;font-size:12.5px">仅支持 .xlsx；从第 2 行开始读（第 1 行为表头）</span>
+    </div>
+    <div v-if="importResult" style="margin-top:12px;padding:10px 12px;border-radius:8px;background:#f8fafc;font-size:13px">
+      <b>导入结果</b>：共 {{ importResult.total }} 条，新增 <b style="color:#16a34a">{{ importResult.inserted }}</b> 条
+      <span v-if="importResult.errors && importResult.errors.length">，{{ importResult.errors.length }} 条错误</span>
+      <span v-else>，全部成功 ✓</span>
+    </div>
+    <div v-if="importResult?.errors?.length" class="table-wrap" style="margin-top:10px"><table class="tb">
+      <thead><tr><th style="width:60px">行号</th><th>错误信息</th></tr></thead>
+      <tbody>
+        <tr v-for="(e, i) in importResult.errors" :key="i"><td>{{ e.row }}</td><td style="color:#dc2626">{{ e.msg }}</td></tr>
+      </tbody>
+    </table></div>
   </MaintModal>
 </template>
 
@@ -443,6 +466,28 @@ async function downloadPdf(id) {
 /* ---------- 导出 Excel（服务端 xlsx，含新字段与 6 档状态） ---------- */
 function exportXlsx() {
   download(`/api/maintenance/contracts/export?type=${props.type}`, label.value + '维保台账.xlsx')
+}
+
+/* ---------- 批量导入 ---------- */
+const importShow = ref(false)
+const importFileRef = ref(null)
+const importResult = ref(null)
+
+function downloadTemplate() {
+  const fname = label.value + '维保合同批量导入模板.xlsx'
+  download(`/api/maintenance/contracts/template?type=${props.type}`, fname)
+}
+function openImport() { importResult.value = null; importShow.value = true }
+async function onImportFile(e) {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file) return
+  const fd = new FormData(); fd.append('file', file); fd.append('type', props.type)
+  try {
+    importResult.value = await api('/api/maintenance/contracts/import', { method: 'POST', form: fd })
+    toast(`导入完成：新增 ${importResult.value.inserted} 条`, !!(importResult.value.errors && importResult.value.errors.length))
+    refresh()
+  } catch (err) { toast('导入失败：' + err.message, false) }
 }
 
 onMounted(load)

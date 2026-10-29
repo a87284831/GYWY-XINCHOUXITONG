@@ -21,7 +21,7 @@ use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\OrgController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ChangelogController;
-use App\Http\Controllers\Api\ApprovalFlowController;
+
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -201,36 +201,6 @@ Route::get('/messages/unread_count', [MessageController::class, 'unreadCount']);
 Route::post('/messages/read', [MessageController::class, 'markRead']);
 Route::post('/messages/read_all', [MessageController::class, 'markAllRead']);
 Route::get('/changelog', [ChangelogController::class, 'list']);
-// ---- 通用审批流引擎 ----
-Route::get('/approval/positions', [ApprovalFlowController::class, 'positions']);
-Route::get('/approval/flows', [ApprovalFlowController::class, 'flows']);
-Route::post('/approval/flow_save', [ApprovalFlowController::class, 'flowSave']);
-Route::post('/approval/flow_delete', [ApprovalFlowController::class, 'flowDelete']);
-Route::post('/approval/flow_toggle', [ApprovalFlowController::class, 'flowToggle']);
-Route::get('/approval/flows_public', [ApprovalFlowController::class, 'publicFlows']);
-Route::post('/approval/create', [ApprovalFlowController::class, 'create']);
-Route::get('/approval/list', [ApprovalFlowController::class, 'list']);
-Route::post('/approval/approve', [ApprovalFlowController::class, 'approve']);
-Route::post('/approval/reject', [ApprovalFlowController::class, 'reject']);
-Route::post('/approval/resubmit', [ApprovalFlowController::class, 'resubmit']);
-Route::post('/approval/withdraw', [ApprovalFlowController::class, 'withdraw']);
-Route::post('/approval/void', [ApprovalFlowController::class, 'void']);
-Route::post('/approval/upload', [ApprovalFlowController::class, 'upload']);
-Route::get('/approval/onboard/list', [ApprovalFlowController::class, 'onboardList']);
-Route::get('/approval/onboard/{id}', [ApprovalFlowController::class, 'onboardDetail']);
-Route::post('/approval/onboard/save', [ApprovalFlowController::class, 'onboardSave']);
-Route::post('/approval/onboard/complete', [ApprovalFlowController::class, 'onboardComplete']);
-Route::post('/approval/draft_save', [ApprovalFlowController::class, 'draftSave']);
-Route::get('/approval/drafts', [ApprovalFlowController::class, 'draftList']);
-Route::get('/approval/drafts/{id}', [ApprovalFlowController::class, 'draftDetail']);
-Route::post('/approval/draft_delete', [ApprovalFlowController::class, 'draftDelete']);
-Route::post('/approval/draft_submit', [ApprovalFlowController::class, 'draftSubmit']);
-Route::get('/approval/inbox', [ApprovalFlowController::class, 'inbox']);
-Route::post('/approval/inbox_delete', [ApprovalFlowController::class, 'inboxDelete']);
-Route::post('/approval/send', [ApprovalFlowController::class, 'send']);
-Route::get('/approval/send_targets', [ApprovalFlowController::class, 'sendTargets']);
-Route::get('/approval/search', [ApprovalFlowController::class, 'search']);
-Route::get('/approval/{id}', [ApprovalFlowController::class, 'detail']);
 
 // ---- 月度采购（整合采购系统）----
 Route::any('/purchase/{path?}', [App\Http\Controllers\Api\PurchaseController::class, 'index'])->where('path', '.*');
