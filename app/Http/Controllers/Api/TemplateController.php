@@ -281,10 +281,11 @@ class TemplateController extends ApiController
         // 奖惩/补贴/五险一金/扣款：新增「已发福利/奖励」（与工资表口径一致，核算中计入应发计税、实发再减回）；
         // 删除缺卡扣款、迟到早退扣款（薪酬核算自动按次数计），保留其他扣款与工装扣款
         // 奖励组 → 补贴组 → 五险一金组 → 扣罚组 → 自定义组（新增「补发工资」，计入应发/计税/实发）
-        $moneyCols = ['月度奖励金额', '已发福利/奖励', '补发工资',
+        // 奖励组 → 补贴组 → 扣罚组 → 五险一金组（与考勤导出列序完全一致）
+        $moneyCols = ['月度奖励', '已发福利/奖励', '补发工资',
             '餐补', '夜班/话费补贴', '职称/证书补贴',
-            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
-            '月度扣罚金额', '其他扣款', '工装扣款'];
+            '月度扣罚', '其他扣款', '工装扣款',
+            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病'];
         $tailCols = ['备注'];
         $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
         $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
@@ -352,13 +353,13 @@ class TemplateController extends ApiController
         $d2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);
         $s1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);
         $s2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statEnd);
-        // 奖励/补贴/五险一金/扣罚/自定义 五个分组的列区间（第3行各自独立合并）
+        // 奖励/补贴/扣罚/五险一金/自定义 五个分组的列区间（第3行各自独立合并）
         $mw = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $off);
         $m1 = $mw(0);                        // 奖励组起始
         $rw2 = $mw(2);                       // 奖励组结束（月度奖励/已发福利/补发工资）
         $sb1 = $mw(3); $sb2 = $mw(5);        // 补贴组（餐补/夜班话费/职称证书）
-        $in1 = $mw(6); $in2 = $mw(10);       // 五险一金（养老/医疗/失业/公积金/大病）
-        $pu1 = $mw(11); $pu2 = $mw(13);      // 扣罚组（月度扣罚/其他扣款/工装扣款）
+        $pu1 = $mw(6); $pu2 = $mw(8);        // 扣罚组（月度扣罚/其他扣款/工装扣款）
+        $in1 = $mw(9); $in2 = $mw(13);       // 五险一金（养老/医疗/失业/公积金/大病）
         $m2 = $mw(count($moneyCols) + count($__cfCols) - 1);
         $cu1 = count($__cfCols) > 0 ? $mw(14) : null;
         $cu2 = count($__cfCols) > 0 ? $mw(14 + count($__cfCols) - 1) : null;
@@ -374,10 +375,10 @@ class TemplateController extends ApiController
         $sheet->setCellValue("{$m1}3", '奖励项（人力填写）');
         $sheet->mergeCells("{$sb1}3:{$sb2}3");
         $sheet->setCellValue("{$sb1}3", '补贴项（人力填写）');
-        $sheet->mergeCells("{$in1}3:{$in2}3");
-        $sheet->setCellValue("{$in1}3", '五险一金（人力填写）');
         $sheet->mergeCells("{$pu1}3:{$pu2}3");
         $sheet->setCellValue("{$pu1}3", '扣罚项（人力填写）');
+        $sheet->mergeCells("{$in1}3:{$in2}3");
+        $sheet->setCellValue("{$in1}3", '五险一金（人力填写）');
         if ($cu1 && $cu2) {
             $sheet->mergeCells("{$cu1}3:{$cu2}3");
             $sheet->setCellValue("{$cu1}3", '自定义项（人力填写）');
@@ -394,8 +395,8 @@ class TemplateController extends ApiController
         $fill("{$s1}3:{$s2}3", $COL_STAT);
         $fill("{$m1}3:{$rw2}3", $COL_REWARD);
         $fill("{$sb1}3:{$sb2}3", $COL_SUBSIDY);
-        $fill("{$in1}3:{$in2}3", $COL_INSUR);
         $fill("{$pu1}3:{$pu2}3", $COL_PUNISH);
+        $fill("{$in1}3:{$in2}3", $COL_INSUR);
         if ($cu1 && $cu2) $fill("{$cu1}3:{$cu2}3", $COL_MONEY);
         $fill("{$t1}3:{$t2}3", $COL_TAIL);
         $sheet->getRowDimension(3)->setRowHeight(20);
@@ -409,19 +410,19 @@ class TemplateController extends ApiController
         $fill("{$s1}4:{$s2}4", $COL_STAT);
         $fill("{$m1}4:{$rw2}4", $COL_REWARD);
         $fill("{$sb1}4:{$sb2}4", $COL_SUBSIDY);
-        $fill("{$in1}4:{$in2}4", $COL_INSUR);
         $fill("{$pu1}4:{$pu2}4", $COL_PUNISH);
+        $fill("{$in1}4:{$in2}4", $COL_INSUR);
         if ($cu1 && $cu2) $fill("{$cu1}4:{$cu2}4", $COL_MONEY);
         $fill("{$t1}4:{$t2}4", $COL_TAIL);
         $sheet->getStyle("A4:{$lastLetter}4")->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
         $sheet->getRowDimension(4)->setRowHeight(30);
 
-        // ===== 第5行：星期 =====
+        // ===== 第5行：星期（日期段 G-AJ 不合并；统计/奖惩/备注段与第4行表头纵向合并，消除空白防误填）=====
         $sheet->mergeCells("A5:{$baseEndLetter}5");
         $sheet->setCellValue('A5', '星期');
         $sheet->getStyle("A5:{$baseEndLetter}5")->getFont()->setName('微软雅黑')->setSize(9);
-        $sheet->getStyle("A5:{$baseEndLetter}5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        $fill("A5:{$baseEndLetter}5", $COL_BASE);
         $weekNames = ['日', '一', '二', '三', '四', '五', '六'];
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $col = $dateStart + $day - 1;
@@ -434,6 +435,25 @@ class TemplateController extends ApiController
         $sheet->getStyle("A5:{$lastLetter}5")->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
         $sheet->getRowDimension(5)->setRowHeight(16);
+
+        // 非日期段表头与星期行纵向合并（出勤统计/奖惩金额/备注），合并后这些区域第5行不可再编辑
+        $vm = function ($from, $to) use ($sheet) {
+            for ($i = $from; $i <= $to; $i++) {
+                $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
+                $sheet->mergeCells("{$L}4:{$L}5");
+            }
+        };
+        $vm($statStart, $statEnd);   // 出勤统计段
+        $vm($moneyStart, $moneyEnd); // 奖励/补贴/五险一金/扣罚/自定义段
+        $vm($tailStart, $tailEnd);   // 备注段
+        // 被合并区域底色与表头保持一致
+        $fill("{$s1}5:{$s2}5", $COL_STAT);
+        $fill("{$m1}5:{$rw2}5", $COL_REWARD);
+        $fill("{$sb1}5:{$sb2}5", $COL_SUBSIDY);
+        $fill("{$pu1}5:{$pu2}5", $COL_PUNISH);
+        $fill("{$in1}5:{$in2}5", $COL_INSUR);
+        if ($cu1 && $cu2) $fill("{$cu1}5:{$cu2}5", $COL_MONEY);
+        $fill("{$t1}5:{$t2}5", $COL_TAIL);
 
         // ===== 第6行起：人员数据 =====
         // 离职人员过滤：仅包含未离职（resign_date 为空）或离职日期 >= 当月1日的人员
