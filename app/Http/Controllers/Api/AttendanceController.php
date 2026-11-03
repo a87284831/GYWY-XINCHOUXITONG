@@ -16,7 +16,9 @@ class AttendanceController extends ApiController
     public const FIELD_MAP = [
         '姓名' => 'name', '员工工号' => 'emp_no', '人员状态' => 'status', '员工状态' => 'status', '岗位' => 'position',
         '应出勤(天)' => 'req_attend', '应出勤(手填)' => 'req_attend', '实际出勤' => 'act_attend', '实际出勤(天)' => 'act_attend',
-        '月度奖励金额' => 'reward', '月度扣罚金额' => 'punish', '餐补' => 'meal_sub',
+        '月度奖励' => 'reward', '月度扣罚' => 'punish',
+        '月度奖励金额' => 'reward', '月度扣罚金额' => 'punish', // 旧表头兼容
+        '餐补' => 'meal_sub',
         '夜班/话餐补贴' => 'night_sub', '夜班/话费补贴' => 'night_sub', '职称/证书补贴' => 'title_sub', '养老保险' => 'pen',
         '医疗保险' => 'med', '失业保险' => 'une', '住房公积金' => 'house', '大病' => 'big',
         '缺卡扣款' => 'miss_deduct', '迟到早退扣款' => 'late_deduct', '其他扣款' => 'other_deduct',
@@ -585,11 +587,11 @@ class AttendanceController extends ApiController
         for ($d = 1; $d <= $daysInMonth; $d++) $dateCols[] = (string) $d;
         $statCols = ['应出勤(天)', '实际出勤(天)', '绩效系数', '事假(天)', '病假(天)', '产假(天)',
             '带薪假(天)', '缺卡(次)', '旷工(天)', '迟到(次)', '早退(次)'];
-        // 奖励组 → 补贴组 → 五险一金组 → 扣罚组（与上传模板列序完全一致）
-        $moneyCols = ['月度奖励金额', '已发福利/奖励', '补发工资',
+        // 奖励组 → 补贴组 → 扣罚组 → 五险一金组（与上传模板列序完全一致）
+        $moneyCols = ['月度奖励', '已发福利/奖励', '补发工资',
             '餐补', '夜班/话费补贴', '职称/证书补贴',
-            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
-            '月度扣罚金额', '其他扣款', '工装扣款'];
+            '月度扣罚', '其他扣款', '工装扣款',
+            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病'];
         $tailCols = ['备注'];
         $headers = array_merge($baseCols, $dateCols, $statCols, $moneyCols, $tailCols);
         $lastCol = count($headers);
@@ -647,8 +649,8 @@ class AttendanceController extends ApiController
         };
         $fillH($moneyStart, $moneyStart + 2, 'E2EFDA');    // 奖励项
         $fillH($moneyStart + 3, $moneyStart + 5, 'DDEBF7');// 补贴项
-        $fillH($moneyStart + 6, $moneyStart + 10, 'EDEDF0');// 五险一金
-        $fillH($moneyStart + 11, $moneyStart + 13, 'FCE4E4');// 扣罚项
+        $fillH($moneyStart + 6, $moneyStart + 8, 'FCE4E4');// 扣罚项
+        $fillH($moneyStart + 9, $moneyStart + 13, 'EDEDF0');// 五险一金
         $fillH($tailStart, $tailStart, 'EDEDED');           // 备注
 
         $symbols = \App\Services\PayrollCalculator::symbols();
@@ -688,14 +690,14 @@ class AttendanceController extends ApiController
             $sheet->setCellValue("{$m(3)}{$row}", (float)($att['meal_sub'] ?? 0));
             $sheet->setCellValue("{$m(4)}{$row}", (float)($att['night_sub'] ?? 0));
             $sheet->setCellValue("{$m(5)}{$row}", (float)($att['title_sub'] ?? 0));
-            $sheet->setCellValue("{$m(6)}{$row}", (float)($att['pen'] ?? 0));
-            $sheet->setCellValue("{$m(7)}{$row}", (float)($att['med'] ?? 0));
-            $sheet->setCellValue("{$m(8)}{$row}", (float)($att['une'] ?? 0));
-            $sheet->setCellValue("{$m(9)}{$row}", (float)($att['house'] ?? 0));
-            $sheet->setCellValue("{$m(10)}{$row}", (float)($att['big'] ?? 0));
-            $sheet->setCellValue("{$m(11)}{$row}", (float)($att['punish'] ?? 0));
-            $sheet->setCellValue("{$m(12)}{$row}", (float)($att['other_deduct'] ?? 0));
-            $sheet->setCellValue("{$m(13)}{$row}", (float)($att['uniform_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(6)}{$row}", (float)($att['punish'] ?? 0));
+            $sheet->setCellValue("{$m(7)}{$row}", (float)($att['other_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(8)}{$row}", (float)($att['uniform_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(9)}{$row}", (float)($att['pen'] ?? 0));
+            $sheet->setCellValue("{$m(10)}{$row}", (float)($att['med'] ?? 0));
+            $sheet->setCellValue("{$m(11)}{$row}", (float)($att['une'] ?? 0));
+            $sheet->setCellValue("{$m(12)}{$row}", (float)($att['house'] ?? 0));
+            $sheet->setCellValue("{$m(13)}{$row}", (float)($att['big'] ?? 0));
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart) . $row, (string)($att['remark'] ?? ''));
             $row++;
         }

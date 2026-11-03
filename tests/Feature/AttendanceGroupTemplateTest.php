@@ -131,13 +131,13 @@ class AttendanceGroupTemplateTest extends TestCase
         $nameCol = null;
         for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
             $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') {
+            if (trim((string) $sheet->getCell("{$letter}4")->getValue()) === '姓名') {
                 $nameCol = $letter;
                 break;
             }
         }
         $names = [];
-        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+        for ($r = 6; $r <= $sheet->getHighestRow(); $r++) {
             $v = trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue());
             if ($v !== '') $names[] = $v;
         }
@@ -190,11 +190,11 @@ class AttendanceGroupTemplateTest extends TestCase
         $nameCol = null;
         for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
             $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-            if (trim((string) $sheet->getCell("{$letter}3")->getValue()) === '姓名') { $nameCol = $letter; break; }
+            if (trim((string) $sheet->getCell("{$letter}4")->getValue()) === '姓名') { $nameCol = $letter; break; }
         }
         $this->assertNotNull($nameCol);
         $jiaRow = null;
-        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+        for ($r = 6; $r <= $sheet->getHighestRow(); $r++) {
             if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $jiaRow = $r; break; }
         }
         $this->assertNotNull($jiaRow);
@@ -331,7 +331,7 @@ class AttendanceGroupTemplateTest extends TestCase
         @unlink($tmp);
         $out = [];
         for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
-            $out[] = trim((string) $sheet->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . '3')->getValue());
+            $out[] = trim((string) $sheet->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . '4')->getValue());
         }
         return $out;
     }
@@ -344,7 +344,7 @@ class AttendanceGroupTemplateTest extends TestCase
         $headers = $this->headersFromDownload($resp);
         $idx = array_search('已发福利/奖励', $headers, true);
         $this->assertNotFalse($idx, '考勤模板必须包含「已发福利/奖励」列');
-        $this->assertSame('月度奖励金额', $headers[$idx - 1], '福利列应紧随「月度奖励金额」之后');
+        $this->assertSame('月度奖励', $headers[$idx - 1], '福利列应紧随「月度奖励」之后');
     }
 
     public function test_template_welfare_value_roundtrips_on_upload(): void
@@ -358,13 +358,13 @@ class AttendanceGroupTemplateTest extends TestCase
         $nameCol = null; $welfareCol = null;
         for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
             $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            $h = trim((string) $sheet->getCell("{$L}4")->getValue());
             if ($h === '姓名') $nameCol = $L;
             if ($h === '已发福利/奖励') $welfareCol = $L;
         }
         $this->assertNotNull($nameCol); $this->assertNotNull($welfareCol);
         $targetRow = null;
-        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+        for ($r = 6; $r <= $sheet->getHighestRow(); $r++) {
             if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '员工甲') { $targetRow = $r; break; }
         }
         $this->assertNotNull($targetRow);
@@ -393,13 +393,13 @@ class AttendanceGroupTemplateTest extends TestCase
         $nameCol = null; $welfareCol = null;
         for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
             $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-            $h = trim((string) $sheet->getCell("{$L}3")->getValue());
+            $h = trim((string) $sheet->getCell("{$L}4")->getValue());
             if ($h === '姓名') $nameCol = $L;
             if ($h === '已发福利/奖励') $welfareCol = $L;
         }
         $this->assertNotNull($welfareCol, '虚拟组模板必须含福利列');
         $row = null;
-        for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+        for ($r = 6; $r <= $sheet->getHighestRow(); $r++) {
             if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '经理甲') { $row = $r; break; }
         }
         $this->assertNotNull($row);
