@@ -280,9 +280,11 @@ class TemplateController extends ApiController
             '带薪假(天)', '缺卡(次)', '旷工(天)', '迟到(次)', '早退(次)'];
         // 奖惩/补贴/五险一金/扣款：新增「已发福利/奖励」（与工资表口径一致，核算中计入应发计税、实发再减回）；
         // 删除缺卡扣款、迟到早退扣款（薪酬核算自动按次数计），保留其他扣款与工装扣款
-        $moneyCols = ['月度奖励金额', '已发福利/奖励', '月度扣罚金额', '餐补', '夜班/话费补贴', '职称/证书补贴',
+        // 奖励组 → 补贴组 → 五险一金组 → 扣罚组 → 自定义组（新增「补发工资」，计入应发/计税/实发）
+        $moneyCols = ['月度奖励金额', '已发福利/奖励', '补发工资',
+            '餐补', '夜班/话费补贴', '职称/证书补贴',
             '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
-            '其他扣款', '工装扣款'];
+            '月度扣罚金额', '其他扣款', '工装扣款'];
         $tailCols = ['备注'];
         $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
         $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
@@ -307,8 +309,12 @@ class TemplateController extends ApiController
         $COL_BASE = 'DDEBF7';   // 基本信息：浅蓝
         $COL_DATE = 'E2EFDA';   // 每日出勤：浅绿
         $COL_STAT = 'F2F2F2';   // 出勤统计：浅灰
-        $COL_MONEY = 'FFF2CC';  // 奖惩/补贴/五险一金/扣款：浅黄
+        $COL_MONEY = 'FFF2CC';  // 自定义项：浅黄
         $COL_TAIL = 'EDEDED';   // 备注：浅灰
+        $COL_REWARD = 'E2EFDA';  // 奖励项：浅绿
+        $COL_SUBSIDY = 'DDEBF7'; // 补贴项：浅蓝
+        $COL_INSUR = 'EDEDF0';   // 五险一金：浅灰
+        $COL_PUNISH = 'FCE4E4';  // 扣罚项：浅红
 
         // ===== 第1行：大标题 =====
         $sheet->mergeCells("A1:{$lastLetter}1");
@@ -317,68 +323,119 @@ class TemplateController extends ApiController
         $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
         $sheet->getRowDimension(1)->setRowHeight(26);
 
-        // ===== 第2行：五个分区标题 =====
+        // ===== 第2行：符号图例（动态读符号库，设置里改符号后这里自动同步）=====
+        $legendParts = [];
+        $symItems = \App\Services\PayrollCalculator::symbols();
+        foreach ($symItems as $sym => $meta) {
+            $name = trim((string)($meta['name'] ?? $meta['label'] ?? ''));
+            if ($sym !== '' && $name !== '') $legendParts[] = "\"{$sym}\"{$name}";
+        }
+        if (empty($legendParts)) {
+            foreach (\App\Http\Controllers\Api\ConfigController::defaultSymbols() as $it) {
+                $sym = (string)($it['symbol'] ?? '');
+                $name = (string)($it['name'] ?? '');
+                if ($sym !== '' && $name !== '') $legendParts[] = "\"{$sym}\"{$name}";
+            }
+        }
+        $legendText = implode('  ', $legendParts);
+        $legendRow = 2;
+        $sheet->mergeCells("A{$legendRow}:{$lastLetter}{$legendRow}");
+        $sheet->setCellValue("A{$legendRow}", $legendText);
+        $sheet->getStyle("A{$legendRow}")->getFont()->setName('微软雅黑')->setSize(10)->getColor()->setRGB('334155');
+        $sheet->getStyle("A{$legendRow}")->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getStyle("A{$legendRow}:{$lastLetter}{$legendRow}")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8FAFC');
+        $sheet->getRowDimension($legendRow)->setRowHeight(22);
+
+        // ===== 第3行：五个分区标题 =====
         $d1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart);
         $d2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);
         $s1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);
         $s2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statEnd);
-        $m1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart);
-        $m2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyEnd);
+        // 奖励/补贴/五险一金/扣罚/自定义 五个分组的列区间（第3行各自独立合并）
+        $mw = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $off);
+        $m1 = $mw(0);                        // 奖励组起始
+        $rw2 = $mw(2);                       // 奖励组结束（月度奖励/已发福利/补发工资）
+        $sb1 = $mw(3); $sb2 = $mw(5);        // 补贴组（餐补/夜班话费/职称证书）
+        $in1 = $mw(6); $in2 = $mw(10);       // 五险一金（养老/医疗/失业/公积金/大病）
+        $pu1 = $mw(11); $pu2 = $mw(13);      // 扣罚组（月度扣罚/其他扣款/工装扣款）
+        $m2 = $mw(count($moneyCols) + count($__cfCols) - 1);
+        $cu1 = count($__cfCols) > 0 ? $mw(14) : null;
+        $cu2 = count($__cfCols) > 0 ? $mw(14 + count($__cfCols) - 1) : null;
         $t1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart);
         $t2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailEnd);
-        $sheet->mergeCells("A2:{$baseEndLetter}2");
-        $sheet->setCellValue('A2', '基本信息');
-        $sheet->mergeCells("{$d1}2:{$d2}2");
-        $sheet->setCellValue("{$d1}2", '每日出勤记录（符号录入）');
-        $sheet->mergeCells("{$s1}2:{$s2}2");
-        $sheet->setCellValue("{$s1}2", '出勤统计（系统自动核算，无需填写）');
-        $sheet->mergeCells("{$m1}2:{$m2}2");
-        $sheet->setCellValue("{$m1}2", '奖惩/补贴/五险一金/扣款/自定义项（人力填写）');
-        $sheet->mergeCells("{$t1}2:{$t2}2");
-        $sheet->setCellValue("{$t1}2", '备注');
-        $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
-        $sheet->getStyle("A2:{$lastLetter}2")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-        $sheet->getStyle("A2:{$baseEndLetter}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
-        $sheet->getStyle("{$d1}2:{$d2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
-        $sheet->getStyle("{$s1}2:{$s2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_STAT);
-        $sheet->getStyle("{$m1}2:{$m2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_MONEY);
-        $sheet->getStyle("{$t1}2:{$t2}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_TAIL);
-        $sheet->getStyle("A2:{$lastLetter}2")->getBorders()->getAllBorders()
-            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-        $sheet->getRowDimension(2)->setRowHeight(20);
-
-        // ===== 第3行：表头 =====
-        $sheet->fromArray($headers, null, 'A3');
+        $sheet->mergeCells("A3:{$baseEndLetter}3");
+        $sheet->setCellValue('A3', '基本信息');
+        $sheet->mergeCells("{$d1}3:{$d2}3");
+        $sheet->setCellValue("{$d1}3", '每日出勤记录（符号录入）');
+        $sheet->mergeCells("{$s1}3:{$s2}3");
+        $sheet->setCellValue("{$s1}3", '出勤统计（系统自动核算，无需填写）');
+        $sheet->mergeCells("{$m1}3:{$rw2}3");
+        $sheet->setCellValue("{$m1}3", '奖励项（人力填写）');
+        $sheet->mergeCells("{$sb1}3:{$sb2}3");
+        $sheet->setCellValue("{$sb1}3", '补贴项（人力填写）');
+        $sheet->mergeCells("{$in1}3:{$in2}3");
+        $sheet->setCellValue("{$in1}3", '五险一金（人力填写）');
+        $sheet->mergeCells("{$pu1}3:{$pu2}3");
+        $sheet->setCellValue("{$pu1}3", '扣罚项（人力填写）');
+        if ($cu1 && $cu2) {
+            $sheet->mergeCells("{$cu1}3:{$cu2}3");
+            $sheet->setCellValue("{$cu1}3", '自定义项（人力填写）');
+        }
+        $sheet->mergeCells("{$t1}3:{$t2}3");
+        $sheet->setCellValue("{$t1}3", '备注');
         $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
         $sheet->getStyle("A3:{$lastLetter}3")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
-        $sheet->getStyle("A3:{$baseEndLetter}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
-        $sheet->getStyle("{$d1}3:{$d2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
-        $sheet->getStyle("{$s1}3:{$s2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_STAT);
-        $sheet->getStyle("{$m1}3:{$m2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_MONEY);
-        $sheet->getStyle("{$t1}3:{$t2}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_TAIL);
         $sheet->getStyle("A3:{$lastLetter}3")->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-        $sheet->getRowDimension(3)->setRowHeight(30);
+        $fill = fn($range, $rgb) => $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($rgb);
+        $fill("A3:{$baseEndLetter}3", $COL_BASE);
+        $fill("{$d1}3:{$d2}3", $COL_DATE);
+        $fill("{$s1}3:{$s2}3", $COL_STAT);
+        $fill("{$m1}3:{$rw2}3", $COL_REWARD);
+        $fill("{$sb1}3:{$sb2}3", $COL_SUBSIDY);
+        $fill("{$in1}3:{$in2}3", $COL_INSUR);
+        $fill("{$pu1}3:{$pu2}3", $COL_PUNISH);
+        if ($cu1 && $cu2) $fill("{$cu1}3:{$cu2}3", $COL_MONEY);
+        $fill("{$t1}3:{$t2}3", $COL_TAIL);
+        $sheet->getRowDimension(3)->setRowHeight(20);
 
-        // ===== 第4行：星期 =====
-        $sheet->mergeCells("A4:{$baseEndLetter}4");
-        $sheet->setCellValue('A4', '星期');
-        $sheet->getStyle("A4:{$baseEndLetter}4")->getFont()->setName('微软雅黑')->setSize(9);
-        $sheet->getStyle("A4:{$baseEndLetter}4")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
+        // ===== 第4行：表头 =====
+        $sheet->fromArray($headers, null, 'A4');
+        $sheet->getStyle("A4:{$lastLetter}4")->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
+        $sheet->getStyle("A4:{$lastLetter}4")->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+        $fill("A4:{$baseEndLetter}4", $COL_BASE);
+        $fill("{$d1}4:{$d2}4", $COL_DATE);
+        $fill("{$s1}4:{$s2}4", $COL_STAT);
+        $fill("{$m1}4:{$rw2}4", $COL_REWARD);
+        $fill("{$sb1}4:{$sb2}4", $COL_SUBSIDY);
+        $fill("{$in1}4:{$in2}4", $COL_INSUR);
+        $fill("{$pu1}4:{$pu2}4", $COL_PUNISH);
+        if ($cu1 && $cu2) $fill("{$cu1}4:{$cu2}4", $COL_MONEY);
+        $fill("{$t1}4:{$t2}4", $COL_TAIL);
+        $sheet->getStyle("A4:{$lastLetter}4")->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->getRowDimension(4)->setRowHeight(30);
+
+        // ===== 第5行：星期 =====
+        $sheet->mergeCells("A5:{$baseEndLetter}5");
+        $sheet->setCellValue('A5', '星期');
+        $sheet->getStyle("A5:{$baseEndLetter}5")->getFont()->setName('微软雅黑')->setSize(9);
+        $sheet->getStyle("A5:{$baseEndLetter}5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_BASE);
         $weekNames = ['日', '一', '二', '三', '四', '五', '六'];
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $col = $dateStart + $day - 1;
             $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
-            $sheet->setCellValue("{$letter}4", $weekNames[(int) date('w', strtotime(sprintf('%s-%02d', $ym, $day)))]);
-            $sheet->getStyle("{$letter}4")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
+            $sheet->setCellValue("{$letter}5", $weekNames[(int) date('w', strtotime(sprintf('%s-%02d', $ym, $day)))]);
+            $sheet->getStyle("{$letter}5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($COL_DATE);
         }
-        $sheet->getStyle("A4:{$lastLetter}4")->getAlignment()->setHorizontal('center')->setVertical('center');
-        $sheet->getStyle("A4:{$lastLetter}4")->getFont()->getColor()->setRGB('808080');
-        $sheet->getStyle("A4:{$lastLetter}4")->getBorders()->getAllBorders()
+        $sheet->getStyle("A5:{$lastLetter}5")->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getStyle("A5:{$lastLetter}5")->getFont()->getColor()->setRGB('808080');
+        $sheet->getStyle("A5:{$lastLetter}5")->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-        $sheet->getRowDimension(4)->setRowHeight(16);
+        $sheet->getRowDimension(5)->setRowHeight(16);
 
-        // ===== 第5行起：人员数据 =====
+        // ===== 第6行起：人员数据 =====
         // 离职人员过滤：仅包含未离职（resign_date 为空）或离职日期 >= 当月1日的人员
         // （如 8/20 离职出现在 8 月模板、9 月模板不出现）
         $resignGuard = function ($q) use ($ym) {
@@ -423,14 +480,14 @@ class TemplateController extends ApiController
             }
         }
         // 表头名 => record key，仅人力可手填列（统计列是公式，绝不带出）
-        $writableKeys = ['req_attend', 'coef', 'reward', 'punish', 'meal_sub', 'night_sub', 'title_sub',
+        $writableKeys = ['req_attend', 'coef', 'reward', 'backpay', 'punish', 'meal_sub', 'night_sub', 'title_sub',
             'pen', 'med', 'une', 'house', 'big', 'other_deduct', 'uniform_deduct', 'welfare', 'remark'];
         $labelToKey = [];
         foreach (\App\Http\Controllers\Api\AttendanceController::FIELD_MAP as $label => $key) {
             if (in_array($key, $writableKeys, true)) $labelToKey[$label] = $key;
         }
         foreach ($__cfCols as $cf) { $labelToKey[$cf] = 'cf_' . $cf; }
-        $row = 5;
+        $row = 6;
         // 统计列公式（第2行标注"系统自动核算"，此处写入 Excel 公式让模板打开即自动统计；应出勤列保持手填不带公式）
         $dStartLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart); // 日期首列
         $dEndLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);   // 日期末列
@@ -508,7 +565,7 @@ class TemplateController extends ApiController
 
         // ===== 部门合并单元格（与考勤导出一致，居中显示）=====
         $deptColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($group ? 3 : 2);
-        $dataStart = 5;
+        $dataStart = 6;
         $dataEnd = $row - 1;
         if ($dataEnd >= $dataStart) {
             $mergeStart = $dataStart;
@@ -541,8 +598,8 @@ class TemplateController extends ApiController
                 if (!empty($it['symbol'])) $symbols[] = (string) $it['symbol'];
             }
         }
-        $dropStart = 5;
-        $dropEnd = max(4 + $formulaRows + 15, $dropStart + 9); // 覆盖人员行并预留增行余量
+        $dropStart = 7;
+        $dropEnd = max(6 + $formulaRows + 15, $dropStart + 9); // 覆盖人员行并预留增行余量
         for ($c = $dateStart; $c <= $dateEnd; $c++) {
             $cLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
             $validation = $sheet->getDataValidation("{$cLetter}{$dropStart}:{$cLetter}{$dropEnd}");
@@ -579,10 +636,10 @@ class TemplateController extends ApiController
         }
         // 备注列
         $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart))->setWidth(18);
-        $sheet->freezePane('E5');
+        $sheet->freezePane('E6');
         // 工作表保护：统计列锁定，填写列可编辑
         $unlock = \PhpOffice\PhpSpreadsheet\Style\Protection::PROTECTION_UNPROTECTED;
-        $maxRow = max(4 + $formulaRows + 30, 50);
+        $maxRow = max(6 + $formulaRows + 30, 70);
         $dL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart);
         $dR = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateEnd);
         $reqL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart);
@@ -590,11 +647,11 @@ class TemplateController extends ApiController
         $mL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart);
         $mR = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyEnd);
         $tL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart);
-        $sheet->getStyle("{$dL}5:{$dR}{$maxRow}")->getProtection()->setLocked($unlock);
-        $sheet->getStyle("{$reqL}5:{$reqL}{$maxRow}")->getProtection()->setLocked($unlock);
-        $sheet->getStyle("{$coefL}5:{$coefL}{$maxRow}")->getProtection()->setLocked($unlock);
-        $sheet->getStyle("{$mL}5:{$mR}{$maxRow}")->getProtection()->setLocked($unlock);
-        $sheet->getStyle("{$tL}5:{$tL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$dL}6:{$dR}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$reqL}6:{$reqL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$coefL}6:{$coefL}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$mL}6:{$mR}{$maxRow}")->getProtection()->setLocked($unlock);
+        $sheet->getStyle("{$tL}6:{$tL}{$maxRow}")->getProtection()->setLocked($unlock);
         $sheet->getProtection()->setSheet(true);
         $sheet->getProtection()->setPassword('');
         return $this->xlsxResponse($book, '考勤表模板_' . $titleName . '_' . $ym . '.xlsx');

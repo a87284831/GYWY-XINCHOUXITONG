@@ -23,7 +23,7 @@ class CalcRules
     private const FORMULA_VAR_CN = [
         'base_pay' => '应发基本工资', 'perf_pay' => '应发绩效工资', 'sick_pay' => '病假工资',
         'night' => '夜班话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴',
-        'reward' => '月度奖励', 'welfare' => '已发福利', 'punish' => '月度扣罚',
+        'reward' => '月度奖励', 'backpay' => '补发工资', 'welfare' => '已发福利', 'punish' => '月度扣罚',
         'miss_d' => '缺卡扣款', 'late_d' => '迟到早退扣款', 'other_d' => '其他扣款',
         'uniform_d' => '工装扣款', 'gross' => '应发合计', 'soc_total' => '五险一金合计',
         'actual_tax' => '本月个税', 'pen' => '养老保险', 'med' => '医疗保险',

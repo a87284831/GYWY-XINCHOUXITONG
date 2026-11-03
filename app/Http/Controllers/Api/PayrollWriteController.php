@@ -327,7 +327,7 @@ class PayrollWriteController extends ApiController
         $changes = $request->input('fields');
         if (!is_array($changes)) $changes = [$request->input('field') => $request->input('value')];
 
-        $editable = ['night', 'meal', 'title_sub', 'reward', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
+        $editable = ['night', 'meal', 'title_sub', 'reward', 'backpay', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
             'uniform_d', 'pen', 'med', 'une', 'house', 'big', 'coef', 'req_att', 'act_att', 'perf_att',
             'actual_tax', 'tax_diff', 'spec_rent', 'spec_loan', 'spec_child', 'spec_elder', 'spec_edu', 'spec_baby', 'remark'];
         foreach ($changes as $field => $value) {
@@ -429,7 +429,7 @@ class PayrollWriteController extends ApiController
         'req_att' => '应出勤', 'act_att' => '实际出勤', 'coef' => '绩效系数',
         'base_pay' => '应发基本工资', 'perf_pay' => '应发绩效工资', 'sick_pay' => '病假工资',
         'night' => '夜班/话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴',
-        'reward' => '月度奖励', 'welfare' => '已发福利', 'punish' => '月度扣罚',
+        'reward' => '月度奖励', 'backpay' => '补发工资', 'welfare' => '已发福利', 'punish' => '月度扣罚',
         'late_d' => '迟到早退扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款',
         'uniform_d' => '工装扣款', 'gross' => '应发工资合计',
         'pen' => '养老保险', 'med' => '医疗保险', 'une' => '失业保险',
@@ -465,7 +465,7 @@ class PayrollWriteController extends ApiController
             '应出勤' => 'req_att', '实际出勤' => 'act_att', '绩效系数' => 'coef',
             '应发基本工资' => 'base_pay', '应发绩效工资' => 'perf_pay', '病假工资' => 'sick_pay',
             '夜班/话费补贴' => 'night', '餐补' => 'meal', '其他补贴' => 'title_sub',
-            '月度奖励' => 'reward', '已发福利' => 'welfare', '月度扣罚' => 'punish',
+            '月度奖励' => 'reward', '补发工资' => 'backpay', '已发福利' => 'welfare', '月度扣罚' => 'punish',
             '迟到早退扣款' => 'late_d', '缺卡扣款' => 'miss_d', '其他扣款' => 'other_d',
             '工装扣款' => 'uniform_d', '应发工资合计' => 'gross',
             '养老保险' => 'pen', '医疗保险' => 'med', '失业保险' => 'une',
@@ -617,7 +617,7 @@ class PayrollWriteController extends ApiController
                 '应出勤' => 'req_att', '实际出勤' => 'act_att', '绩效系数' => 'coef',
                 '应发基本工资' => 'base_pay', '应发绩效工资' => 'perf_pay', '病假工资' => 'sick_pay',
                 '夜班/话费补贴' => 'night', '餐补' => 'meal', '其他补贴' => 'title_sub',
-                '月度奖励' => 'reward', '已发福利' => 'welfare', '月度扣罚' => 'punish',
+                '月度奖励' => 'reward', '补发工资' => 'backpay', '已发福利' => 'welfare', '月度扣罚' => 'punish',
                 '迟到早退扣款' => 'late_d', '缺卡扣款' => 'miss_d', '其他扣款' => 'other_d',
                 '工装扣款' => 'uniform_d', '应发工资合计' => 'gross',
                 '养老保险' => 'pen', '医疗保险' => 'med', '失业保险' => 'une',
@@ -767,7 +767,7 @@ class PayrollWriteController extends ApiController
 
                 // 数值列：Excel 有值用 Excel，无列/空值按 0
                 $numKeys = ['fixed', 'base', 'req_att', 'act_att', 'coef', 'base_pay', 'perf_pay', 'sick_pay',
-                    'night', 'meal', 'title_sub', 'reward', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
+                    'night', 'meal', 'title_sub', 'reward', 'backpay', 'welfare', 'punish', 'late_d', 'miss_d', 'other_d',
                     'uniform_d', 'gross', 'pen', 'med', 'une', 'house', 'big', 'soc_total', 'spec_total', 'actual_tax'];
                 $vals = [];
                 // 导入的历史金额统一规整到分（问题1 方案A：全口径到分；规范 Excel 只有两位小数，round 幂等）
@@ -810,6 +810,7 @@ class PayrollWriteController extends ApiController
                     'meal' => $vals['meal'],
                     'title_sub' => $vals['title_sub'],
                     'reward' => $vals['reward'],
+                    'backpay' => $vals['backpay'],
                     'welfare' => $welfare,
                     'punish' => $vals['punish'],
                     'late_d' => $vals['late_d'],

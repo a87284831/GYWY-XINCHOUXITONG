@@ -255,7 +255,7 @@ class PayrollController extends ApiController
     /** 微调字段中文标签（导出用，与前端 FIELD_CN 保持一致） */
     private const ADJUST_FIELD_CN = [
         'req_att' => '应出勤', 'act_att' => '实际出勤', 'perf_att' => '绩效计薪出勤', 'coef' => '绩效系数',
-        'night' => '夜班/话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴', 'reward' => '月度奖励', 'welfare' => '已发福利(计税不发现金)',
+        'night' => '夜班/话费补贴', 'meal' => '餐补', 'title_sub' => '其他补贴', 'reward' => '月度奖励', 'backpay' => '补发工资', 'welfare' => '已发福利(计税不发现金)',
         'punish' => '月度扣罚', 'late_d' => '迟到早退扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款', 'uniform_d' => '工装扣款',
         'pen' => '养老保险', 'med' => '医疗保险', 'une' => '失业保险', 'house' => '公积金', 'big' => '大病',
         'spec_rent' => '租房租金', 'spec_loan' => '住房贷款利息', 'spec_child' => '子女教育', 'spec_elder' => '赡养老人',

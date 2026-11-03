@@ -21,7 +21,7 @@ class AttendanceController extends ApiController
         '医疗保险' => 'med', '失业保险' => 'une', '住房公积金' => 'house', '大病' => 'big',
         '缺卡扣款' => 'miss_deduct', '迟到早退扣款' => 'late_deduct', '其他扣款' => 'other_deduct',
         '工装扣款' => 'uniform_deduct', '绩效系数' => 'coef', '月度绩效' => 'coef', '月度绩效系数' => 'coef', '备注' => 'remark',
-        '已发福利/奖励' => 'welfare',
+        '已发福利/奖励' => 'welfare', '补发工资' => 'backpay',
     ];
 
     public function status(Request $request): JsonResponse
@@ -585,8 +585,11 @@ class AttendanceController extends ApiController
         for ($d = 1; $d <= $daysInMonth; $d++) $dateCols[] = (string) $d;
         $statCols = ['应出勤(天)', '实际出勤(天)', '绩效系数', '事假(天)', '病假(天)', '产假(天)',
             '带薪假(天)', '缺卡(次)', '旷工(天)', '迟到(次)', '早退(次)'];
-        $moneyCols = ['月度奖励', '月度扣罚', '餐补', '夜班/话费补贴', '职称/证书补贴',
-            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病', '其他扣款', '工装扣款'];
+        // 奖励组 → 补贴组 → 五险一金组 → 扣罚组（与上传模板列序完全一致）
+        $moneyCols = ['月度奖励金额', '已发福利/奖励', '补发工资',
+            '餐补', '夜班/话费补贴', '职称/证书补贴',
+            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病',
+            '月度扣罚金额', '其他扣款', '工装扣款'];
         $tailCols = ['备注'];
         $headers = array_merge($baseCols, $dateCols, $statCols, $moneyCols, $tailCols);
         $lastCol = count($headers);
@@ -606,14 +609,50 @@ class AttendanceController extends ApiController
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(13);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
         $sheet->getRowDimension(1)->setRowHeight(26);
-        $sheet->fromArray($headers, null, 'A2');
-        $sheet->getStyle("A2:{$lastLetter}2")->getFont()->setBold(true)->setSize(10);
-        $sheet->getStyle("A2:{$lastLetter}2")->getAlignment()->setHorizontal('center')->setWrapText(true);
-        $sheet->getStyle("A2:{$lastLetter}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
-        $sheet->getStyle("A2:{$lastLetter}2")->getFont()->getColor()->setRGB('FFFFFF');
+
+        // 第2行：符号图例（动态读符号库，设置里改符号后这里自动同步）
+        $legendParts = [];
+        $symItems = \App\Services\PayrollCalculator::symbols();
+        foreach ($symItems as $sym => $meta) {
+            $name = trim((string)($meta['name'] ?? $meta['label'] ?? ''));
+            if ($sym !== '' && $name !== '') $legendParts[] = "\"{$sym}\"{$name}";
+        }
+        if (empty($legendParts)) {
+            foreach (\App\Http\Controllers\Api\ConfigController::defaultSymbols() as $it) {
+                $sym = (string)($it['symbol'] ?? '');
+                $name = (string)($it['name'] ?? '');
+                if ($sym !== '' && $name !== '') $legendParts[] = "\"{$sym}\"{$name}";
+            }
+        }
+        $legendRow = 2;
+        $sheet->mergeCells("A{$legendRow}:{$lastLetter}{$legendRow}");
+        $sheet->setCellValue("A{$legendRow}", implode('  ', $legendParts));
+        $sheet->getStyle("A{$legendRow}")->getFont()->setSize(10)->getColor()->setRGB('334155');
+        $sheet->getStyle("A{$legendRow}")->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getStyle("A{$legendRow}:{$lastLetter}{$legendRow}")->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8FAFC');
+        $sheet->getRowDimension($legendRow)->setRowHeight(22);
+
+        // 第3行：表头（奖罚区按分组配色，与上传模板一致）
+        $sheet->fromArray($headers, null, 'A3');
+        $sheet->getStyle("A3:{$lastLetter}3")->getFont()->setBold(true)->setSize(10);
+        $sheet->getStyle("A3:{$lastLetter}3")->getAlignment()->setHorizontal('center')->setWrapText(true);
+        $sheet->getStyle("A3:{$lastLetter}3")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2F5496');
+        $sheet->getStyle("A3:{$lastLetter}3")->getFont()->getColor()->setRGB('FFFFFF');
+        $L = fn($idx) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($idx);
+        $fillH = function ($from, $to, $rgb) use ($sheet, $L) {
+            $sheet->getStyle("{$L($from)}3:{$L($to)}3")->getFill()
+                ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($rgb);
+            $sheet->getStyle("{$L($from)}3:{$L($to)}3")->getFont()->getColor()->setRGB('1F2329');
+        };
+        $fillH($moneyStart, $moneyStart + 2, 'E2EFDA');    // 奖励项
+        $fillH($moneyStart + 3, $moneyStart + 5, 'DDEBF7');// 补贴项
+        $fillH($moneyStart + 6, $moneyStart + 10, 'EDEDF0');// 五险一金
+        $fillH($moneyStart + 11, $moneyStart + 13, 'FCE4E4');// 扣罚项
+        $fillH($tailStart, $tailStart, 'EDEDED');           // 备注
 
         $symbols = \App\Services\PayrollCalculator::symbols();
-        $row = 3;
+        $row = 4;
         $deptColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
             count($projects) > 1 ? 3 : 2
         );
@@ -644,21 +683,23 @@ class AttendanceController extends ApiController
             $sheet->setCellValue("{$c(10)}{$row}", $stats['early']);
             $m = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $off);
             $sheet->setCellValue("{$m(0)}{$row}", (float)($att['reward'] ?? 0));
-            $sheet->setCellValue("{$m(1)}{$row}", (float)($att['punish'] ?? 0));
-            $sheet->setCellValue("{$m(2)}{$row}", (float)($att['meal_sub'] ?? 0));
-            $sheet->setCellValue("{$m(3)}{$row}", (float)($att['night_sub'] ?? 0));
-            $sheet->setCellValue("{$m(4)}{$row}", (float)($att['title_sub'] ?? 0));
-            $sheet->setCellValue("{$m(5)}{$row}", (float)($att['pen'] ?? 0));
-            $sheet->setCellValue("{$m(6)}{$row}", (float)($att['med'] ?? 0));
-            $sheet->setCellValue("{$m(7)}{$row}", (float)($att['une'] ?? 0));
-            $sheet->setCellValue("{$m(8)}{$row}", (float)($att['house'] ?? 0));
-            $sheet->setCellValue("{$m(9)}{$row}", (float)($att['big'] ?? 0));
-            $sheet->setCellValue("{$m(10)}{$row}", (float)($att['other_deduct'] ?? 0));
-            $sheet->setCellValue("{$m(11)}{$row}", (float)($att['uniform_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(1)}{$row}", (float)($att['welfare'] ?? 0));
+            $sheet->setCellValue("{$m(2)}{$row}", (float)($att['backpay'] ?? 0));
+            $sheet->setCellValue("{$m(3)}{$row}", (float)($att['meal_sub'] ?? 0));
+            $sheet->setCellValue("{$m(4)}{$row}", (float)($att['night_sub'] ?? 0));
+            $sheet->setCellValue("{$m(5)}{$row}", (float)($att['title_sub'] ?? 0));
+            $sheet->setCellValue("{$m(6)}{$row}", (float)($att['pen'] ?? 0));
+            $sheet->setCellValue("{$m(7)}{$row}", (float)($att['med'] ?? 0));
+            $sheet->setCellValue("{$m(8)}{$row}", (float)($att['une'] ?? 0));
+            $sheet->setCellValue("{$m(9)}{$row}", (float)($att['house'] ?? 0));
+            $sheet->setCellValue("{$m(10)}{$row}", (float)($att['big'] ?? 0));
+            $sheet->setCellValue("{$m(11)}{$row}", (float)($att['punish'] ?? 0));
+            $sheet->setCellValue("{$m(12)}{$row}", (float)($att['other_deduct'] ?? 0));
+            $sheet->setCellValue("{$m(13)}{$row}", (float)($att['uniform_deduct'] ?? 0));
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart) . $row, (string)($att['remark'] ?? ''));
             $row++;
         }
-        $sheet->getStyle("A2:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()
+        $sheet->getStyle("A3:{$lastLetter}" . ($row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
         // 基础列宽（岗位宽一点，员工状态窄一点，与所有表格统一）
         foreach ($baseCols as $bi => $h) {
@@ -671,7 +712,7 @@ class AttendanceController extends ApiController
         $sheet->freezePane('E3');
 
         // 部门列合并单元格：相同部门连续行合并，内容水平+垂直居中
-        $deptStart = 3;
+        $deptStart = 4;
         $deptEnd = $row - 1;
         if ($deptEnd >= $deptStart) {
             $mergeStart = $deptStart;
