@@ -39,8 +39,8 @@ class ExportController extends ApiController
         return match (true) {
             $idx <= 9                       => self::COL_BASE,  // 序号..基本工资（含入职日期）
             $idx <= 12                      => self::COL_ATT,   // 应出勤..绩效系数
-            $idx <= 26                      => self::COL_PAY,   // 应发基本..应发合计
-            $idx <= 32                      => self::COL_SOC,   // 五险..五险一金合计
+            $idx <= 27                      => self::COL_PAY,   // 应发基本..应发合计（含补发工资列）
+            $idx <= 33                      => self::COL_SOC,   // 五险..五险一金合计
             default                         => self::COL_NET,   // 专项/个税/实发/备注
         };
     }
@@ -1208,22 +1208,22 @@ class ExportController extends ApiController
                     $cellStyle->getAlignment()->setHorizontal('right');
                 } elseif (in_array($c, [10, 11, 12], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
-                } elseif ($c === 37) {
-                    $cellStyle->getAlignment()->setHorizontal('left');
+                } elseif ($c === 38) {
+                    $cellStyle->getAlignment()->setHorizontal('left'); // 备注列左对齐
                 } else {
                     $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
                 }
             }
-            // 应发合计(26)、实发(36)加粗
-            $sheet->getStyle(Coordinate::stringFromColumnIndex(26) . $rowNumber)->getFont()->setBold(true);
-            $sheet->getStyle(Coordinate::stringFromColumnIndex(36) . $rowNumber)->getFont()->setBold(true);
+            // 应发合计(27)、实发(37)加粗（插入补发工资列后各后移 1 列）
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(27) . $rowNumber)->getFont()->setBold(true);
+            $sheet->getStyle(Coordinate::stringFromColumnIndex(37) . $rowNumber)->getFont()->setBold(true);
             $sheet->getRowDimension($rowNumber)->setRowHeight(20);
             $rowNumber++;
         }
 
         // ===== 合计行 =====
         $totalRow = $rowNumber;
-        $sumCols = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36];
+        $sumCols = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37];
         for ($c = $baseColCount + 1; $c <= $colCount; $c++) $sumCols[] = $c;
         $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
         $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);
@@ -1266,8 +1266,9 @@ class ExportController extends ApiController
         }
 
         // ===== 列宽 =====
+        // 38 列（含补发工资；备注 16 宽）
         $widths = [6, 14, 12, 14, 10, 8, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
-            10, 10, 10, 11, 8, 12, 12, 10, 12, 16];
+            10, 10, 10, 10, 11, 8, 12, 12, 10, 12, 16, 16];
         for ($c = 1; $c <= $colCount; $c++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);
         }

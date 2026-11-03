@@ -735,9 +735,9 @@ class AttendanceController extends ApiController
         for ($d = 1; $d <= $daysInMonth; $d++) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateStart + $d - 1))->setWidth(3.4);
         }
-        // 奖惩/补贴/五险一金/扣款区列宽（12列）：社保公积金数值列加宽，避免金额显示为 ###
-        // （与模板下载口径一致；此前导出未设 money 区列宽，全部默认 8.43 偏窄）
-        $exportMoneyWidths = [9, 9, 6, 10, 10, 10, 10, 10, 11, 8, 8, 8];
+        // 奖惩/补贴/扣罚/五险一金区列宽（14 列，顺序与 $moneyCols 一致；与模板下载口径保持一致）
+        // 社保公积金数值列加宽，避免金额显示为 ###
+        $exportMoneyWidths = [9, 10, 9, 6, 10, 10, 9, 8, 8, 10, 10, 10, 11, 8];
         foreach ($exportMoneyWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $i))->setWidth($w);
         }
