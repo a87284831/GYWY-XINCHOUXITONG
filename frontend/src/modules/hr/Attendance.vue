@@ -39,7 +39,7 @@
             <thead><tr>
               <th>姓名</th><th>职位</th><th>人员状态</th><th>应出勤</th><th>实出勤</th><th>应出勤(符号统计)</th><th>事假</th><th>病假</th><th>产假</th><th>带薪假</th>
               <th>缺卡</th><th>旷工</th><th>迟到</th><th>早退</th><th>绩效系数</th>
-              <th>奖励</th><th>已发福利</th><th>补发工资</th><th>餐补</th><th>夜班/话费</th><th>职称/证书</th>
+              <th>奖励</th><th>补发工资</th><th>餐补</th>
               <th>月度扣罚</th><th>迟早扣款</th><th>缺卡扣款</th><th>其他扣款</th><th>工装扣款</th>
               <th>养老</th><th>医疗</th><th>失业</th><th>公积金</th><th>大病</th>
             </tr></thead>
@@ -58,10 +58,9 @@
                 <td class="num">{{ (view.stats[n] || {}).late }}</td>
                 <td class="num">{{ (view.stats[n] || {}).early }}</td>
                 <td class="num">{{ fmtEmpty(view.rows[n].coef) }}</td>
-                <td class="num">{{ moneyOrDash(view.rows[n].reward) }}</td><td class="num">{{ moneyOrDash(view.rows[n].welfare) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].reward) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].backpay) }}</td>
-                <td class="num">{{ moneyOrDash(view.rows[n].meal_sub) }}</td><td class="num">{{ moneyOrDash(view.rows[n].night_sub) }}</td>
-                <td class="num">{{ moneyOrDash(view.rows[n].title_sub) }}</td>
+                <td class="num">{{ moneyOrDash(view.rows[n].meal_sub) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].punish) }}</td>
                 <td class="num">{{ moneyOrDash(view.rows[n].late_deduct) }}</td>
                 <td class="num">{{ moneyOrDash((view.stats[n] || {}).miss_deduct ?? view.rows[n].miss_deduct) }}</td>
