@@ -351,7 +351,7 @@ class ReportController extends ApiController
         // 薪资构成（当月应发明细汇总）
         $composition = $this->sumField($rows, [
             'base_pay' => '基本工资', 'perf_pay' => '绩效工资', 'sick_pay' => '病假工资',
-            'meal' => '餐补', 'night' => '夜班/话补', 'reward' => '奖励', 'welfare' => '福利',
+            'meal' => '餐补', 'night' => '夜班/话补', 'reward' => '奖励', 'backpay' => '补发工资', 'welfare' => '福利',
             'late_d' => '迟到扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款', 'uniform_d' => '工装扣款',
         ]);
 

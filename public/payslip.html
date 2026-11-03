@@ -263,6 +263,7 @@ function renderPayslip(data) {
       ${mrowNz("餐补", r.meal)}
       ${mrowNz("其他补贴", r.title_sub)}
       ${mrowNz("月度奖励", r.reward)}
+      ${mrowNz("补发工资", r.backpay)}
       ${mrowNz("已发福利", r.welfare)}
       <div class="ps-row" style="border-top:1px solid #e5e7eb;padding-top:6px;margin-top:4px"><span class="label" style="font-weight:600">应发合计</span><span class="val" style="font-weight:600;color:#1e3a5f">${money(r.gross)}</span></div>
     </div>

@@ -19,14 +19,14 @@ export function summaryTotals(items) {
 // 微调字段定义（复刻 ADJUST_FIELDS / FIELD_CN，app.js:1184-1189、1263-1268）
 export const ADJUST_GROUPS = [
   ['req_att', 'act_att', 'perf_att', 'coef'],
-  ['night', 'meal', 'title_sub', 'reward', 'welfare'],
+  ['night', 'meal', 'title_sub', 'reward', 'backpay', 'welfare'],
   ['punish', 'late_d', 'miss_d', 'other_d', 'uniform_d'],
   ['pen', 'med', 'une', 'house', 'big'],
   ['spec_rent', 'spec_loan', 'spec_child', 'spec_elder', 'spec_edu', 'spec_baby'],
   ['actual_tax', 'tax_diff'],
 ]
 export const FIELD_CN = {
-  night: '夜班/话费补贴', meal: '餐补', title_sub: '其他补贴', reward: '月度奖励', welfare: '已发福利(计税不发现金)',
+  night: '夜班/话费补贴', meal: '餐补', title_sub: '其他补贴', reward: '月度奖励', backpay: '补发工资', welfare: '已发福利(计税不发现金)',
   punish: '月度扣罚', late_d: '迟到早退扣款', miss_d: '缺卡扣款', other_d: '其他扣款', uniform_d: '工装扣款',
   pen: '养老保险', med: '医疗保险', une: '失业保险', house: '公积金', big: '大病', coef: '绩效系数',
   req_att: '应出勤', act_att: '实际出勤', perf_att: '绩效计薪出勤', actual_tax: '本月实缴个税', tax_diff: '个税补差(±计实发)',
@@ -65,7 +65,7 @@ export function computeAdjustChanges(row, values, remark) {
 }
 
 // 合计字段与表格列顺序对应（复刻 payTotalHtml，app.js:1218-1231）
-const TOTAL_FIELDS = ['base_pay', 'perf_pay', 'sick_pay', 'night', 'meal', 'title_sub', 'reward', 'welfare',
+const TOTAL_FIELDS = ['base_pay', 'perf_pay', 'sick_pay', 'night', 'meal', 'title_sub', 'reward', 'backpay', 'welfare',
   'punish', 'late_d', 'miss_d', 'other_d', 'uniform_d', 'gross', 'soc_total', 'spec_total', 'actual_tax', 'tax_diff', 'net']
 
 export function payTotalRow(rows) {

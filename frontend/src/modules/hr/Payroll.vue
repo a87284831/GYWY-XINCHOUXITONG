@@ -77,7 +77,7 @@
                   <td class="num">{{ money(r.base_pay) }}</td><td class="num">{{ money(r.perf_pay) }}</td>
                   <td class="num">{{ r.sick_days }}</td><td class="num">{{ money(r.sick_pay) }}</td>
                   <td class="num">{{ money(r.night) }}</td><td class="num">{{ money(r.meal) }}</td>
-                  <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td>
+                  <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td><td class="num">{{ money(r.backpay) }}</td>
                   <td class="num">{{ money(r.welfare) }}</td><td class="num">{{ money(r.punish) }}</td>
                   <td class="num">{{ money(r.late_d) }}</td><td class="num">{{ money(r.miss_d) }}</td>
                   <td class="num">{{ money(r.other_d) }}</td><td class="num">{{ money(r.uniform_d) }}</td>
@@ -97,7 +97,7 @@
                   <td class="num">{{ money(tot.sums.perf_pay) }}</td><td></td>
                   <td class="num">{{ money(tot.sums.sick_pay) }}</td>
                   <td class="num">{{ money(tot.sums.night) }}</td><td class="num">{{ money(tot.sums.meal) }}</td>
-                  <td class="num">{{ money(tot.sums.title_sub) }}</td><td class="num">{{ money(tot.sums.reward) }}</td>
+                  <td class="num">{{ money(tot.sums.title_sub) }}</td><td class="num">{{ money(tot.sums.reward) }}</td><td class="num">{{ money(tot.sums.backpay) }}</td>
                   <td class="num">{{ money(tot.sums.welfare) }}</td><td class="num">{{ money(tot.sums.punish) }}</td>
                   <td class="num">{{ money(tot.sums.late_d) }}</td><td class="num">{{ money(tot.sums.miss_d) }}</td>
                   <td class="num">{{ money(tot.sums.other_d) }}</td><td class="num">{{ money(tot.sums.uniform_d) }}</td>
@@ -194,7 +194,7 @@
                       <td class="num">{{ money(r.base_pay) }}</td><td class="num">{{ money(r.perf_pay) }}</td>
                       <td class="num">{{ r.sick_days }}</td><td class="num">{{ money(r.sick_pay) }}</td>
                       <td class="num">{{ money(r.night) }}</td><td class="num">{{ money(r.meal) }}</td>
-                      <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td>
+                      <td class="num">{{ money(r.title_sub) }}</td><td class="num">{{ money(r.reward) }}</td><td class="num">{{ money(r.backpay) }}</td>
                       <td class="num">{{ money(r.welfare) }}</td><td class="num">{{ money(r.punish) }}</td>
                       <td class="num">{{ money(r.late_d) }}</td><td class="num">{{ money(r.miss_d) }}</td>
                       <td class="num">{{ money(r.other_d) }}</td><td class="num">{{ money(r.uniform_d) }}</td>
@@ -215,7 +215,7 @@
                     <td class="num">{{ money(typeTot[tp].sums.perf_pay) }}</td><td></td>
                     <td class="num">{{ money(typeTot[tp].sums.sick_pay) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.night) }}</td><td class="num">{{ money(typeTot[tp].sums.meal) }}</td>
-                    <td class="num">{{ money(typeTot[tp].sums.title_sub) }}</td><td class="num">{{ money(typeTot[tp].sums.reward) }}</td>
+                    <td class="num">{{ money(typeTot[tp].sums.title_sub) }}</td><td class="num">{{ money(typeTot[tp].sums.reward) }}</td><td class="num">{{ money(typeTot[tp].sums.backpay) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.welfare) }}</td><td class="num">{{ money(typeTot[tp].sums.punish) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.late_d) }}</td><td class="num">{{ money(typeTot[tp].sums.miss_d) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.other_d) }}</td><td class="num">{{ money(typeTot[tp].sums.uniform_d) }}</td>
@@ -497,7 +497,7 @@ const ui = useUiStore()
 const isAdmin = computed(() => auth.user && auth.user.role === 'admin')
 const STATUS_TAG = { 正式: 'green', 新聘: 'blue', 转正: 'purple', 试用: 'orange', 离职: 'gray' }
 const PAY_HEADS = ['项目', '部门', '职位', '姓名', '员工状态', '入职日期', '固定月薪', '基本工资', '应出勤', '出勤', '绩效计薪', '系数',
-  '基本工资(折算)', '绩效工资', '病假天数', '病假工资', '夜班/话费', '餐补', '其他补贴', '奖励', '福利',
+  '基本工资(折算)', '绩效工资', '病假天数', '病假工资', '夜班/话费', '餐补', '其他补贴', '奖励', '补发工资', '福利',
   '扣罚', '迟早扣', '缺卡扣', '其他扣', '工装扣', '应发合计', '社保合计', '附加扣除', '本月个税', '个税补差', '实发工资', '操作']
 // 管理/案场/总部表：固定数据列（不含末列「操作」，操作列在模板中固定渲染于季度明细列之后，避免列错位）
 const payHeadsData = PAY_HEADS.slice(0, -1)

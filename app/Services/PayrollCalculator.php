@@ -33,7 +33,7 @@ class PayrollCalculator
     // 注意：welfare（已发福利/奖励）在应发公式中是加项（计入计税口径），在实发公式中是减项
     // （实发时扣回——即"福利计税但不实发"）。两条默认公式成对设计，对拍测试已锁定该口径；
     // 若在系统设置里自定义公式，必须成对同步调整，勿只改其一。
-    private const DEFAULT_GROSS = 'base_pay + perf_pay + sick_pay + night + meal + title_sub + reward + welfare - punish - miss_d - late_d - other_d - uniform_d';
+    private const DEFAULT_GROSS = 'base_pay + perf_pay + sick_pay + night + meal + title_sub + reward + backpay + welfare - punish - miss_d - late_d - other_d - uniform_d';
 
     /**
      * 绩效配置缺失错误码 → 中文文案。Task 3 归档检查将消费 perfErrorCode()
@@ -792,6 +792,8 @@ class PayrollCalculator
         $rpFull = $this->rules->flag('reward_punish.full_in_gross', true);
         $reward  = $rpEnabled && $rpFull ? round((float)($att['reward'] ?? 0), 2) : 0.0;
         $welfare = $rpEnabled && $rpFull ? round((float)($att['welfare'] ?? 0), 2) : 0.0;
+        // 补发工资：真实现金补发，计入应发→计税→实发（不受 full_in_gross 折算影响）
+        $backpay = $rpEnabled ? round((float)($att['backpay'] ?? 0), 2) : 0.0;
         $punish  = $rpEnabled ? round((float)($att['punish'] ?? 0), 2) : 0.0;
 
         // 餐补 / 其他津贴 mode（full=全额，prorate=按出勤折算且不超过全额，与旧版一致）
@@ -817,7 +819,7 @@ class PayrollCalculator
         $vars = [
             'base_pay' => $basePay, 'perf_pay' => $perfPay, 'sick_pay' => $sickPay,
             'night' => $night, 'meal' => $meal, 'title_sub' => $titleSub,
-            'reward' => $reward, 'welfare' => $welfare,
+            'reward' => $reward, 'backpay' => $backpay, 'welfare' => $welfare,
             'punish' => $punish, 'late_d' => $lateD, 'miss_d' => $miss,
             'other_d' => $other, 'uniform_d' => $uniformD,
             'coef' => $coef, 'req_att' => $h, 'act_att' => $actual,
@@ -896,7 +898,7 @@ class PayrollCalculator
             'base_pay_ref' => $basePayRef, 'perf_pay_ref' => $perfPayRef,
             'sick_days' => $stats['sick'], 'sick_pay' => $sickPay,
             'night' => $night, 'meal' => $meal, 'title_sub' => $titleSub,
-            'reward' => $reward, 'welfare' => $welfare, 'punish' => $punish,
+            'reward' => $reward, 'backpay' => $backpay, 'welfare' => $welfare, 'punish' => $punish,
             'late_d' => $lateD, 'miss_d' => $miss, 'other_d' => $other,
             'uniform_d' => $uniformD, 'gross' => $gross,
             'pen' => $pen, 'med' => $med, 'une' => $une, 'house' => $house, 'big' => $big,
@@ -929,7 +931,7 @@ class PayrollCalculator
             'sick_pay' => $m2($row['sick_pay'] ?? 0),
             'night' => $m2($row['night'] ?? 0), 'meal' => $m2($row['meal'] ?? 0),
             'title_sub' => $m2($row['title_sub'] ?? 0),
-            'reward' => $m2($row['reward'] ?? 0), 'welfare' => $m2($row['welfare'] ?? 0),
+            'reward' => $m2($row['reward'] ?? 0), 'backpay' => $m2($row['backpay'] ?? 0), 'welfare' => $m2($row['welfare'] ?? 0),
             'punish' => $m2($row['punish'] ?? 0),
             'late_d' => $m2($row['late_d'] ?? 0), 'miss_d' => $m2($row['miss_d'] ?? 0),
             'other_d' => $m2($row['other_d'] ?? 0), 'uniform_d' => $m2($row['uniform_d'] ?? 0),
