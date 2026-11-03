@@ -361,8 +361,8 @@ class TemplateController extends ApiController
         $pu1 = $mw(6); $pu2 = $mw(8);        // 扣罚组（月度扣罚/其他扣款/工装扣款）
         $in1 = $mw(9); $in2 = $mw(13);       // 五险一金（养老/医疗/失业/公积金/大病）
         $m2 = $mw(count($moneyCols) + count($__cfCols) - 1);
-        $cu1 = count($__cfCols) > 0 ? $mw(14) : null;
-        $cu2 = count($__cfCols) > 0 ? $mw(14 + count($__cfCols) - 1) : null;
+        $cu1 = count($__cfCols) > 0 ? $mw(count($moneyCols)) : null;
+        $cu2 = count($__cfCols) > 0 ? $mw(count($moneyCols) + count($__cfCols) - 1) : null;
         $t1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailStart);
         $t2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($tailEnd);
         $sheet->mergeCells("A3:{$baseEndLetter}3");
@@ -648,9 +648,10 @@ class TemplateController extends ApiController
         foreach ($statWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $i))->setWidth($w);
         }
-        // 奖惩/补贴/五险一金/扣款区列宽（13列：奖励9 福利10 扣罚9 餐补6 夜班10 职称10 养老10 医疗10 失业10 公积金11 大病8 其他8 工装8）
+        // 奖惩/补贴/扣罚/五险一金区列宽（14列，顺序须与 $moneyCols 一致：
+        // 月度奖励9 已发福利10 补发工资9 餐补6 夜班10 职称10 月度扣罚9 其他扣款8 工装8 养老10 医疗10 失业10 公积金11 大病8）
         // 社保公积金列加宽：原 8/7 数值稍大即显示 ###，用户反馈显示不全
-        $moneyWidths = [9, 10, 9, 6, 10, 10, 10, 10, 10, 11, 8, 8, 8];
+        $moneyWidths = [9, 10, 9, 6, 10, 10, 9, 8, 8, 10, 10, 10, 11, 8];
         foreach ($moneyWidths as $i => $w) {
             $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($moneyStart + $i))->setWidth($w);
         }

@@ -113,7 +113,7 @@ class AttendanceExportLayoutTest extends TestCase
         $tmp = tempnam(sys_get_temp_dir(), 'xlsx') . '.xlsx';
         file_put_contents($tmp, $resp->streamedContent());
         $sheet = IOFactory::load($tmp)->getSheet(0);
-        $headers = $sheet->toArray(null, true, false, false)[1]; // 第 2 行是表头
+        $headers = $sheet->toArray(null, true, false, false)[2]; // 第 1 行标题、第 2 行符号图例、第 3 行表头
 
         // 单项目省"项目"列：序号|部门|岗位|姓名|员工状态|入职日期|日期列...
         $this->assertSame('序号', $headers[0]);
@@ -126,7 +126,7 @@ class AttendanceExportLayoutTest extends TestCase
         $this->assertEquals(1, $headers[6]);
 
         // 验证数据行：张三的入职日期
-        $dataRow = $sheet->toArray(null, true, false, false)[2];
+        $dataRow = $sheet->toArray(null, true, false, false)[3]; // 数据从第 4 行起
         $this->assertSame('张三', $dataRow[3]);
         $this->assertSame('正式', $dataRow[4]);
         $this->assertSame('2026-03-15', $dataRow[5]);
