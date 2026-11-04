@@ -1,5 +1,27 @@
 [
   {
+    "version": "v2026.11.04.10",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "全链路残留审计（8层）：①.env MAIL_FROM_ADDRESS noreply@88shangcheng.top 改为 noreply@haoxuanyunshu.cn；②crontab 宝塔 cron 残留任务（/www/server/cron/3ab48c27...）移除；③Let's Encrypt 旧域名证书目录删除；④nginx sites-available 旧配置清理；⑤数据库/应用代码扫旧域名/旧 IP 全干净。仓库切换：origin 从 haoxuanyunshu.git 改为 GYWY-XINCHOUXITONG.git（旧仓库归档为 old-origin），三份文档彻底清除旧系统内容只保留新服务器 120.53.8.216"
+      }
+    ]
+  },
+  {
+    "version": "v2026.11.04.9",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "备份脚本修复 v2：①自动检测 mysqldump 路径（先宝塔再 PATH）；②root 身份执行走 /root/.my.cnf，避免 payroll 用户缺 PROCESS 权限导致导出混入 warning；③新增 .last_backup 标记文件；④脚本头加 set -e；⑤手动试跑成功（三库 246KB）。同步执行安全清理 v1：kill 宝塔 PHP 残留进程、删除 .disabled 旧配置、宝塔 vhost .bak、宝塔 cron 文件、syslog.1、journal 老文件、apt 缓存（189MB→32KB）、/tmp 迁移临时脚本。磁盘从 9.3G→8.6G，关键服务全 active"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.8",
     "date": "2026-11-04",
     "commit": "PENDING",
