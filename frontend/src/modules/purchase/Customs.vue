@@ -38,14 +38,14 @@ const filteredProducts = ref([])
 const activeKeyword = ref('')
 
 async function loadAllProducts() {
-  const PAGE_SIZE = 200 // 后端 max=200
-  const MAX_PAGES = 50 // 兜底 1 万条，防止商品库异常膨胀时无限请求
+  const PAGE_SIZE = 200
+  const MAX_PAGES = 50
   const items = []
   let total = 0
+  let emptyPage = false
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
       let d = null
-      // 单页失败重试一次，避免一次抖动导致整个下拉永久为空
       for (let retry = 0; retry < 2 && d === null; retry++) {
         try {
           d = await api(`/api/purchase/products?page=${page}&page_size=${PAGE_SIZE}`)
@@ -54,14 +54,14 @@ async function loadAllProducts() {
         }
       }
       const batch = (d && d.data) || []
-      if (!batch.length) break
-      items.push(...batch)
-      total = d.total || items.length
-      // 渐进式赋值：即使后续分页失败，已拿到的商品仍可搜索、仍可选中
-      allProducts.value = items
-      if (!activeKeyword.value) filteredProducts.value = items
+      if (!batch.length) { emptyPage = true; break }
+      for (const p of batch) items.push(p)
+      total = (d && d.total) || items.length
+      allProducts.value = items.slice() // 用 slice 强制创建新数组引用，触发 Vue 响应式更新
+      if (!activeKeyword.value) filteredProducts.value = items.slice()
       if (items.length >= total) break
     }
+    console.log('[Customs] loadAllProducts done:', { total, loaded: items.length, pages: Math.ceil(total / PAGE_SIZE), ended: emptyPage ? 'empty page' : 'collected all' })
   } catch (e) {
     console.warn('商品库加载失败', e)
     toast(items.length ? `商品库仅加载了 ${items.length}/${total || '?'} 条，搜索可能不全，请刷新重试` : '商品库加载失败：下拉暂无可选商品，请刷新重试', false)
