@@ -19,7 +19,7 @@
         <div class="login-tip" :style="{ color: tipColor }">{{ tip }}</div>
       </div>
     </div>
-    <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩</div>
+    <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩<br><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;opacity:.75;">鲁ICP备2026066985号-1</a></div>
   </div>
 </template>
 
