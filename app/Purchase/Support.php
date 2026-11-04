@@ -190,7 +190,8 @@ namespace {
         }
         if ($link !== '') {
             try {
-                $full = 'https://www.88shangcheng.top' . $link;
+                $base = rtrim((string) (function_exists('config') ? config('app.url') : (getenv('APP_URL') ?: '')), '/');
+                $full = ($base !== '' ? $base : 'https://oa.haoxuanyunshu.cn') . $link;
                 db()->prepare("INSERT INTO payroll.app_messages (account_id, type, title, content, link, project_name, `read`, created_at, updated_at) VALUES (?,?,?,?,?,?,0,NOW(),NOW())")
                     ->execute([$user_id, $type, $title, mb_substr($content, 0, 500), $full, '']);
             } catch (Throwable $e) {}
