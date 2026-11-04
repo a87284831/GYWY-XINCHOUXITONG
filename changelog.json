@@ -1,5 +1,16 @@
 [
   {
+    "version": "v2026.11.04.5",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "合并三个域名至新机同一 nginx server block：裸域 haoxuanyunshu.cn、www、oa 全部指向 120.53.8.216，certbot --expand 重签 SAN 覆盖三域的新证书（到期 2027-02-02）；禁用 sites-enabled/88shangcheng.top 旧配置（旧域名 DNS 仍在旧机，新机不需要），解决旧配置按字母序优先加载抢占 default server 导致新域名 fallback 到旧证书的问题"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.4",
     "date": "2026-11-04",
     "commit": "8ebf72d",
