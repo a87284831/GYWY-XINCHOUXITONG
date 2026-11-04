@@ -1,5 +1,16 @@
 [
   {
+    "version": "v2026.11.04.7",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "域名语义拆分：haoxuanyunshu.cn 裸域从系统剥离，改为静态个人主页「昊轩的小站 · 个人开发中」（用于公安备案审核），内容含自我介绍 + 开发中状态 + ICP 备案号链接；www.haoxuanyunshu.cn 和 oa.haoxuanyunshu.cn 继续承载 Laravel 系统。nginx 原单 server block（三域名合并）拆为两套：landing（/var/www/landing）+ system（/var/www/payroll/laravel-app/public），共享同一张 Let's Encrypt 证书（SAN 覆盖三域）。sites-enabled 从 oa.haoxuanyunshu.cn 改名为 landing + system 两文件"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.6",
     "date": "2026-11-04",
     "commit": "PENDING",
