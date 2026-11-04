@@ -1,5 +1,16 @@
 [
   {
+    "version": "v2026.11.04.6",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "全链路残留审计（8层）并清理：①.env MAIL_FROM_ADDRESS noreply@88shangcheng.top 改为 noreply@haoxuanyunshu.cn；②crontab root+ubuntu 各一条宝塔 cron 任务残留（/www/server/cron/3ab48c27...）移除，仅保留三条自有定时任务（backup+schedule+watchdog）；③Let's Encrypt /etc/letsencrypt/live/www.88shangcheng.top 旧证书目录删除；④nginx sites-available/88shangcheng.top 改名为 .disabled；⑤数据库 sys_settings 无旧域名残留；⑥应用代码/脚本全干净。三域名外部验证全部 200"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.5",
     "date": "2026-11-04",
     "commit": "4e31e11",
