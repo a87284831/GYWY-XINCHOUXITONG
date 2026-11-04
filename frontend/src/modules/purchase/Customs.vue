@@ -34,24 +34,37 @@ function uid() {
 const allProducts = ref([])
 // filter-method 实际遍历的选项（EP filter-method 签名只收一个 kw 参数，无 callback）
 const filteredProducts = ref([])
+// 当前输入的关键字：分页渐进加载时据此重新过滤，避免把用户正在筛选的列表重置成全量
+const activeKeyword = ref('')
 
 async function loadAllProducts() {
+  const PAGE_SIZE = 200 // 后端 max=200
+  const MAX_PAGES = 50 // 兜底 1 万条，防止商品库异常膨胀时无限请求
+  const items = []
+  let total = 0
   try {
-    const PAGE_SIZE = 200 // 后端 max=200
-    let page = 1
-    let items = []
-    let total = 0
-    do {
-      const d = await api(`/api/purchase/products?page=${page}&page_size=${PAGE_SIZE}`)
-      const batch = d.data || []
-      items = items.concat(batch)
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      let d = null
+      // 单页失败重试一次，避免一次抖动导致整个下拉永久为空
+      for (let retry = 0; retry < 2 && d === null; retry++) {
+        try {
+          d = await api(`/api/purchase/products?page=${page}&page_size=${PAGE_SIZE}`)
+        } catch (e) {
+          if (retry === 1) throw e
+        }
+      }
+      const batch = (d && d.data) || []
+      if (!batch.length) break
+      items.push(...batch)
       total = d.total || items.length
-      page++
-    } while (items.length < total && page <= 20)
-    allProducts.value = items
-    filteredProducts.value = items // 全量加载完成 → 初始化为全部选项
+      // 渐进式赋值：即使后续分页失败，已拿到的商品仍可搜索、仍可选中
+      allProducts.value = items
+      if (!activeKeyword.value) filteredProducts.value = items
+      if (items.length >= total) break
+    }
   } catch (e) {
-    console.warn('全量商品库加载失败，下拉无选项可用', e)
+    console.warn('商品库加载失败', e)
+    toast(items.length ? `商品库仅加载了 ${items.length}/${total || '?'} 条，搜索可能不全，请刷新重试` : '商品库加载失败：下拉暂无可选商品，请刷新重试', false)
   }
 }
 
@@ -59,6 +72,7 @@ async function loadAllProducts() {
 // 传了 filter-method 后 EP 跳过自己的 include 内部过滤，完全依赖我更新选项列表。
 function productFilter(kw) {
   const q = (kw || '').trim().toLowerCase()
+  activeKeyword.value = q
   if (!q) {
     filteredProducts.value = allProducts.value
     return
@@ -68,6 +82,12 @@ function productFilter(kw) {
     (p.spec || '').toLowerCase().includes(q) ||
     (p.brand || '').toLowerCase().includes(q)
   )
+}
+
+// 选中项回显文案：优先用商品库对象，找不到时退回 id，保证输入框不出现空白
+function selText(row) {
+  if (!row || row._sel === null || row._sel === undefined || row._sel === '') return ''
+  return row._selItem ? productLabel(row._selItem) : String(row._sel)
 }
 
 // 选中的商品 id → 商品对象（直接查 allProducts，不需要缓存）
@@ -293,6 +313,7 @@ onMounted(() => { load(); loadAllProducts() })
   <div>
     <div style="display:flex;align-items:center;">
       <span style="font-size:18px;font-weight:700;">清单外商品审核（归入标准商品库）</span>
+      <span style="margin-left:10px;font-size:12px;color:#909399">商品库 {{ allProducts.length }} 条{{ allProducts.length ? '' : '（加载中…）' }}</span>
       <el-button type="primary" style="margin-left:10px" :loading="loading" @click="load">刷新</el-button>
     </div>
 
@@ -318,12 +339,14 @@ onMounted(() => { load(); loadAllProducts() })
       </el-table-column>
       <el-table-column label="归入标准商品" min-width="250">
         <template #default="{ row }">
-          <!-- 方案 B：不 remote，本地 filter。EP 从 v-for el-option 里命中 modelValue → getOption 正确 → 选中回显原生正确，无需任何 hack -->
-          <el-select :model-value="row._sel" filterable
+          <!-- 方案 B：不 remote，本地 filter（v-model 直接双向绑定，回显再用 #label 兜底，避免 EP 内部 selectedLabel 解析失败出现空白） -->
+          <el-select v-model="row._sel" filterable
             :filter-method="productFilter"
             clearable placeholder="输入关键字搜索商品库"
+            no-data-text="没有匹配的商品，换个关键字试试"
             style="width:230px"
-            @update:model-value="(v) => onSelectChange(row, v)">
+            @change="(v) => onSelectChange(row, v)">
+            <template #label><span>{{ selText(row) }}</span></template>
             <el-option label="＋ 新建标准商品入库" value="__new__" />
             <el-option v-for="p in filteredProducts" :key="p.id"
               :label="productLabel(p)" :value="p.id" />
