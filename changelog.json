@@ -1,5 +1,16 @@
 [
   {
+    "version": "v2026.11.04.8",
+    "date": "2026-11-04",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "钉钉配置补全：迁移时 sys_dingtalk_config 表数据丢失（旧机有 8 条完整配置，新机表空），从旧机 mysqldump 导出后导入新机。DingtalkService 从该表读 app_key/app_secret/agent_id。导入后 access_token 获取成功、dingtalk:sync 完整同步跑通（100 部门 / 544 用户 / 890 离职 / 1433 花名册，用时 54.6s）。注意：钉钉开发者后台需确认新服务器出口 IP 120.53.8.216 是否加入白名单；回调地址现由 www.haoxuanyunshu.cn 承载"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.7",
     "date": "2026-11-04",
     "commit": "PENDING",
