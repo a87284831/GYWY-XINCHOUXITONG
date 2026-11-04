@@ -2,7 +2,7 @@
   {
     "version": "v2026.11.04.2",
     "date": "2026-11-04",
-    "commit": "pending",
+    "commit": "df8c0fd",
     "items": [
       { "category": "修复", "text": "采购「清单外商品审核」商品库渐进加载：修复 esbuild minify 将 `allProducts.value = items`（同一数组引用）优化掉导致 Vue 响应式不触发，页面始终只显示第一页 200 条的问题，改为 `.slice()` 创建新引用强制触发更新；同时将 break 条件拆分为独立 if 语句避免压缩器误合并" }
     ]
