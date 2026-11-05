@@ -19,7 +19,7 @@
         <div class="login-tip" :style="{ color: tipColor }">{{ tip }}</div>
       </div>
     </div>
-    <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩<br><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;opacity:.75;">鲁ICP备2026066985号-1</a></div>
+    <div class="lb-foot">HAOXUAN CLOUD PLATFORM · 2026<br>原创开发人：李昊轩<br><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;opacity:.75;">鲁ICP备2026066985号-1</a><br><a href="https://beian.mps.gov.cn/#/query/webSearch?code=37130202372311" target="_blank" rel="noreferrer" style="color:inherit;text-decoration:none;opacity:.75;">鲁公网安备37130202372311号</a></div>
   </div>
 </template>
 
