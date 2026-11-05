@@ -31,7 +31,7 @@ const latest = ref('')
 const loading = ref(true)
 const error = ref('')
 
-const CAT_CLS = { 新增: 'green', 修复: 'red', 优化: 'blue' }
+const CAT_CLS = { 新增: 'green', 修复: 'red', 优化: 'blue', 运维: 'purple' }
 const catCls = (c) => CAT_CLS[c] || 'gray'
 
 onMounted(async () => {

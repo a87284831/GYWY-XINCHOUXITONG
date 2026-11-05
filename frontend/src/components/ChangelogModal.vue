@@ -27,7 +27,7 @@ import Icon from '@/components/Icon.vue'
 defineProps({ entries: { type: Array, default: () => [] } })
 defineEmits(['close'])
 
-const CAT_CLS = { 新增: 'green', 修复: 'red', 优化: 'blue' }
+const CAT_CLS = { 新增: 'green', 修复: 'red', 优化: 'blue', 运维: 'purple' }
 const catCls = (c) => CAT_CLS[c] || 'gray'
 </script>
 
