@@ -19,6 +19,17 @@
     ]
   },
   {
+    "version": "v2026.11.05.1",
+    "date": "2026-11-05",
+    "commit": "PENDING",
+    "items": [
+      {
+        "category": "运维",
+        "text": "三端一致性核查+服务器源码副本同步：仓库 372 文件与生产逐一 md5 比对，运行内容（app/+public/app 86/86）完全一致，88 个过期源码副本文件同步为仓库最新（先备份 /tmp/pre_sync_backup_20261104_210011.tar.gz）。修复关键缺失：frontend/src/modules/oa/approvalLogic.js(+test) 被 4 个组件 import 却从未入库，从备份恢复后补交（commit 0cb7fc0）；无引用的 ApprovalCenter.vue/TabApprovalFlow.vue 保持删除。文档：开发文档新增第〇章项目速览（新会话 AI 必读），三份文档清除旧服务器 47.254.88.94/88shangcheng.top 残留改用新机事实"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.04.10",
     "date": "2026-11-04",
     "commit": "PENDING",
