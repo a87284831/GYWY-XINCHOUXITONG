@@ -26,14 +26,21 @@ class PayrollController extends ApiController
             // 虚拟汇总选项（管理人员/案场人员）：聚合各项目考勤块中该类别的行
             $group = \App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS[$project] ?? null;
             if ($group) {
-                return $this->attendanceVirtualGroup($ym, $project, $group);
+                return $this->attendanceVirtualGroup($ym, $project, $group, $request->boolean('warnings_only'));
             }
         }
         $record = DB::table('payroll_attendance')
             ->where('year_month', $ym)->where('project_name', $project)->first();
         if (!$record) {
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-                'rows' => [], 'stats' => [], 'locked' => false]);
+                'rows' => [], 'stats' => [], 'locked' => false, 'symbol_warnings' => []]);
+        }
+        $rows = $this->jsonValue($record->rows) ?: [];
+        // 顶部提示条只需未知符号告警：轻量返回，不计算整表统计
+        $symbolWarnings = $this->symbolWarnings($rows, $project, $ym);
+        if ($request->boolean('warnings_only')) {
+            return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
+                'symbol_warnings' => $symbolWarnings]);
         }
         $symbols = \App\Services\PayrollCalculator::symbols(); $stats = [];
         // 缺卡阶梯规则（attView 预览金额与核算一致）
@@ -41,13 +48,37 @@ class PayrollController extends ApiController
         $missEnabled = $rules->flag('deduction_rules.miss_punch.enabled', true);
         $missFirst3 = $rules->num('deduction_rules.miss_punch.first_3', 30);
         $missAfter3 = $rules->num('deduction_rules.miss_punch.after_3', 50);
-        foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
+        foreach ($rows as $name => $attendance) {
             $stats[$name] = $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3);
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows), 'stats' => $stats,
             'locked' => (bool) $record->locked,
+            'symbol_warnings' => $symbolWarnings,
             'meta' => ['uploaded_at' => $record->updated_at]]);
+    }
+
+    /** 单块考勤的未知符号告警（考勤页提示条与核算告警共用口径） */
+    private function symbolWarnings(array $rows, string $project, string $ym): array
+    {
+        $symbols = \App\Services\PayrollCalculator::symbols();
+        $out = [];
+        foreach ($rows as $name => $attendance) {
+            $unknown = \App\Services\PayrollCalculator::unknownSymbols($attendance['days'] ?? [], $symbols);
+            if (!$unknown) {
+                continue;
+            }
+            $parts = [];
+            foreach ($unknown as $day => $symbol) {
+                $parts[] = "{$ym}-" . str_pad((string)$day, 2, '0', STR_PAD_LEFT) . "「{$symbol}」";
+            }
+            $out[] = [
+                'name' => $name, 'project' => $project, 'ym' => $ym,
+                'count' => count($unknown),
+                'detail' => implode('、', array_slice($parts, 0, 8)) . (count($parts) > 8 ? ' 等' . count($parts) . ' 处' : ''),
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -55,7 +86,7 @@ class PayrollController extends ApiController
      * 口径与 uploadVirtualGroup 一致：按月 categoryMap 分类、过滤离职、管理人员不含物业总部。
      * 跨项目同名时显示名加项目后缀，避免键冲突互相覆盖。
      */
-    private function attendanceVirtualGroup(string $ym, string $project, array $group): JsonResponse
+    private function attendanceVirtualGroup(string $ym, string $project, array $group, bool $warningsOnly = false): JsonResponse
     {
         $category = $group['category'];
         $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
@@ -85,8 +116,17 @@ class PayrollController extends ApiController
             foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
                 if (!isset($namesInProj[$name])) continue;
                 $entries[] = ['name' => $name, 'project' => $proj, 'att' => $attendance,
-                    'st' => $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3)];
+                    'st' => $warningsOnly ? [] : $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3)];
             }
+        }
+        // 顶部提示条：只返回未知符号告警（跨项目按各自项目名标注）
+        if ($warningsOnly) {
+            $warnings = [];
+            foreach ($entries as $e) {
+                $warnings = array_merge($warnings, $this->symbolWarnings([$e['name'] => $e['att']], $e['project'], $ym));
+            }
+            return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
+                'symbol_warnings' => $warnings]);
         }
         usort($entries, fn ($a, $b) => strcmp($a['project'], $b['project']) ?: strcmp($a['name'], $b['name']));
         $nameCounts = [];
@@ -105,7 +145,11 @@ class PayrollController extends ApiController
     /** 单行考勤统计（含缺卡阶梯扣款预览）：应出勤按符号 value 加权，手填 miss_deduct 优先 */
     private function attendanceRowStats(array $attendance, array $symbols, bool $missEnabled, float $missFirst3, float $missAfter3): array
     {
-        $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+        // 统计列一律走存值锚定（缺列才数格子）：与核算、导出同一口径
+        $st = \App\Services\PayrollCalculator::storedStats($attendance, $symbols);
+        // 应出勤/实际出勤展示值：与核算、导出共用同一判定（字段缺失才回退，填 0 就是 0）
+        $st['req_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'req_attend', $st['required']);
+        $st['act_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'act_attend', $st['attend']);
         // 应出勤按 value 加权（让"半"符号算 0.5 天，与人力手填口径对齐；required 仍按 in_required 计 1 天，核算逻辑不变）
         $st['required_value'] = 0.0;
         foreach (($attendance['days'] ?? []) as $d) {

@@ -121,7 +121,7 @@ class PayrollPrecisionTest extends TestCase
         $d = array_fill(0, 31, '休');
         for ($i = 0; $i < 21; $i++) $d[$i] = '√';
         $d[21] = '半';
-        $att = ['days' => $d, 'req_attend' => 0.0, 'act_attend' => 0.0,
+        $att = ['days' => $d, 'req_attend' => null, 'act_attend' => null,
             'reward' => 333.33, 'punish' => 27.77, 'meal_sub' => 500.0, 'night_sub' => 300.0, 'title_sub' => 155.55,
             'welfare' => 88.88,
             'pen' => 812.33, 'med' => 203.11, 'une' => 50.77, 'house' => 1015.55, 'big' => 3.0,

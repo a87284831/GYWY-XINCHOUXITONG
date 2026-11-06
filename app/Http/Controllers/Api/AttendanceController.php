@@ -16,6 +16,10 @@ class AttendanceController extends ApiController
     public const FIELD_MAP = [
         '姓名' => 'name', '员工工号' => 'emp_no', '人员状态' => 'status', '员工状态' => 'status', '岗位' => 'position',
         '应出勤(天)' => 'req_attend', '应出勤(手填)' => 'req_attend', '实际出勤' => 'act_attend', '实际出勤(天)' => 'act_attend',
+        // 考勤统计列（模板 COUNTIF 公式列）：上传时一并落库，核算/导出/页面优先读存值
+        '事假(天)' => 'stat_personal', '病假(天)' => 'stat_sick', '产假(天)' => 'stat_maternity',
+        '带薪假(天)' => 'stat_paid', '缺卡(次)' => 'stat_miss', '旷工(天)' => 'stat_absent',
+        '迟到(次)' => 'stat_late', '早退(次)' => 'stat_early',
         '月度奖励' => 'reward', '月度扣罚' => 'punish',
         '月度奖励金额' => 'reward', '月度扣罚金额' => 'punish', // 旧表头兼容
         '餐补' => 'meal_sub',
@@ -111,15 +115,19 @@ class AttendanceController extends ApiController
         $ym = $request->string('ym')->toString();
         $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
         $dryRun = in_array(strtolower((string) $request->input('dry_run')), ['1', 'true', 'yes'], true);
+        // 统计列与格子数不一致时默认整单拒绝；管理员显式勾选"仍然上传"后才放行（并返回 warnings）
+        $forceStats = $request->boolean('force_stats');
+        // 拒单报错带上文件/项目/月份，便于用户定位是哪张表哪个月出的问题
+        $ctx = '文件 ' . $request->file('file')->getClientOriginalName() . ' ｜ 项目 ' . $project . ' ｜ 月份 ' . $ym . '：';
 
         // 项目角色的 project 入口已被强制覆盖为自己的项目，虚拟哨兵到不了这里，只能走普通项目分支
         $group = \App\Services\PayrollCalculator::ATT_VIRTUAL_GROUPS[$project] ?? null;
         if ($group) {
-            [$rows, $errors] = $this->parseWorkbook($request->file('file')->getPathname());
+            [$rows, $errors, $warnings] = $this->parseWorkbook($request->file('file')->getPathname(), $forceStats);
             if ($errors) {
-                return response()->json(['ok' => false, 'error' => implode('；', array_slice($errors, 0, 30))], 400);
+                return response()->json(['ok' => false, 'error' => $ctx . implode('；', array_slice($errors, 0, 30))], 400);
             }
-            return $this->uploadVirtualGroup($ym, $group, $rows, $dryRun);
+            return $this->uploadVirtualGroup($ym, $group, $rows, $dryRun, $warnings);
         }
 
         if (!DB::table('payroll_projects')->where('name', $project)->exists()) {
@@ -131,9 +139,9 @@ class AttendanceController extends ApiController
         if ($this->isLocked($ym, $project)) {
             return response()->json(['ok' => false, 'error' => '该项目考勤已锁定为最终版本，如需修改请先解锁'], 400);
         }
-        [$rows, $errors] = $this->parseWorkbook($request->file('file')->getPathname());
+        [$rows, $errors, $warnings] = $this->parseWorkbook($request->file('file')->getPathname(), $forceStats);
         if ($errors) {
-            return response()->json(['ok' => false, 'error' => implode('；', array_slice($errors, 0, 30))], 400);
+            return response()->json(['ok' => false, 'error' => $ctx . implode('；', array_slice($errors, 0, 30))], 400);
         }
         // 离职人员不参与同名校验：与模板下载 resignGuard 一致口径
         // （status='离职' 且 resign_date 早于当月 1 日的人不进 staffRows，避免离职档案挡住同名在岗人员上传）
@@ -176,14 +184,14 @@ class AttendanceController extends ApiController
             // 整表覆盖：新表完全替换旧块，旧表有而新表没有的人员行随之移除（2026-10-18 用户口径）
             $this->overwriteBlock($ym, $project, $rows);
         }
-        return response()->json(['ok' => true] + $response);
+        return response()->json(['ok' => true] + $response + ($warnings ? ['warnings' => $warnings] : []));
     }
 
     /**
      * 管理人员/案场人员汇总表上传：逐人按当月分类档案定位所属项目，
      * 分组后按人合并进各项目考勤块。任一涉及项目归档/锁定则整单拒绝，不做部分写入。
      */
-    private function uploadVirtualGroup(string $ym, array $group, array $rows, bool $dryRun): JsonResponse
+    private function uploadVirtualGroup(string $ym, array $group, array $rows, bool $dryRun, array $warnings = []): JsonResponse
     {
         $label = $group['label']; $category = $group['category'];
         $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
@@ -253,7 +261,7 @@ class AttendanceController extends ApiController
                 $this->mergeBlock($ym, $proj, $incoming);
             }
         }
-        return response()->json(['ok' => true] + $response);
+        return response()->json(['ok' => true] + $response + ($warnings ? ['warnings' => $warnings] : []));
     }
 
     /**
@@ -605,9 +613,19 @@ class AttendanceController extends ApiController
         $projLabel = $isVirtualGroup
             ? ($proj === '__managers__' ? '管理人员' : '案场人员')
             : (count($projects) > 1 ? '全部项目' : $projects[0]);
+        // 归档月口径：统计列优先读上传/归档时落库的存值（归档后不可重传，等价于归档时点快照）；
+        // Phase 2 之前上传的旧月份没有存值，只能按当前符号库重算，需在表头如实注明。
+        $missingSnapshot = false;
+        foreach ($filtered as $person) {
+            $att = $person->_att;
+            foreach (array_keys(\App\Services\PayrollCalculator::STAT_FIELDS) as $k) {
+                if (!array_key_exists($k, $att) || $att[$k] === null) { $missingSnapshot = true; break 2; }
+            }
+        }
         $typeLabel = $staffType !== '' ? $staffType : '全部人员';
         $sheet->mergeCells("A1:{$lastLetter}1");
-        $sheet->setCellValue('A1', "【{$projLabel}】" . substr($ym,0,4) . '年' . (int)substr($ym,5,2) . "月考勤表（{$typeLabel}）");
+        $sheet->setCellValue('A1', "【{$projLabel}】" . substr($ym,0,4) . '年' . (int)substr($ym,5,2) . "月考勤表（{$typeLabel}）"
+            . ($missingSnapshot ? '（统计按当前符号库计算）' : ''));
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(13);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
         $sheet->getRowDimension(1)->setRowHeight(26);
@@ -660,7 +678,7 @@ class AttendanceController extends ApiController
         );
         foreach ($filtered as $i => $person) {
             $att = $person->_att;
-            $stats = \App\Services\PayrollCalculator::attendanceStats($att['days'] ?? [], $symbols);
+            $stats = \App\Services\PayrollCalculator::storedStats($att, $symbols);
             // 基础列动态写入（单项目省"项目"列）
             $hireDate = $person->hire_date ? substr((string)$person->hire_date, 0, 10) : '';
             $baseValues = count($projects) > 1
@@ -672,8 +690,9 @@ class AttendanceController extends ApiController
                 $sheet->setCellValue("{$col}{$row}", $sym);
             }
             $c = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $off);
-            $sheet->setCellValue("{$c(0)}{$row}", $att['req_attend'] ?? $stats['required'] ?? 0);
-            $sheet->setCellValue("{$c(1)}{$row}", $att['act_attend'] ?? $stats['attend'] ?? 0);
+            // 应出勤/实际出勤：与核算、页面共用 storedOrFallback——字段缺失才回退符号统计，填 0 就是 0
+            $sheet->setCellValue("{$c(0)}{$row}", \App\Services\PayrollCalculator::storedOrFallback($att, 'req_attend', $stats['required']));
+            $sheet->setCellValue("{$c(1)}{$row}", \App\Services\PayrollCalculator::storedOrFallback($att, 'act_attend', $stats['attend']));
             $sheet->setCellValue("{$c(2)}{$row}", $att['coef'] ?? 1);
             $sheet->setCellValue("{$c(3)}{$row}", $stats['personal']);
             $sheet->setCellValue("{$c(4)}{$row}", $stats['sick']);
@@ -751,12 +770,17 @@ class AttendanceController extends ApiController
         ]);
     }
 
-    private function parseWorkbook(string $path): array
+    /**
+     * 解析考勤表。返回 [行数据, 错误, 告警]：
+     *  - 统计列与"按符号库数出来的值"不一致默认进错误（整单拒绝）；
+     *  - $forceStats=true 时降级为告警（管理员显式选择"仍然上传"）。
+     */
+    private function parseWorkbook(string $path, bool $forceStats = false): array
     {
         try {
             $sheet = IOFactory::load($path)->getActiveSheet();
         } catch (\Throwable $e) {
-            return [[], ['文件解析失败，请确认上传的是有效的考勤表 Excel 文件（xls / xlsx）']];
+            return [[], ['文件解析失败，请确认上传的是有效的考勤表 Excel 文件（xls / xlsx）'], []];
         }
         $headerRow = null; $columns = []; $days = [];
         $highestColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
@@ -767,7 +791,7 @@ class AttendanceController extends ApiController
                 }
             }
         }
-        if (!$headerRow) return [[], ['未找到“姓名”表头']];
+        if (!$headerRow) return [[], ['未找到“姓名”表头'], []];
         $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
         $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
         $__cfFields = $__cfPayload['rules']['custom_fields'] ?? [];
@@ -778,8 +802,22 @@ class AttendanceController extends ApiController
             if (preg_match('/^\d{1,2}$/', $value) && (int) $value >= 1 && (int) $value <= 31) $days[(int) $value] = $col;
             if (isset($dynamicMap[$value])) $columns[$dynamicMap[$value]] = $col;
         }
-        if (!isset($columns['name']) || count($days) < 28) return [[], ['模板列结构不完整']];
-        $symbols = \App\Services\PayrollCalculator::symbols(); $rows = []; $errors = [];
+        if (!isset($columns['name']) || count($days) < 28) return [[], ['模板列结构不完整'], []];
+        $symbols = \App\Services\PayrollCalculator::symbols(); $rows = []; $errors = []; $warnings = [];
+        // 统计列与格子数一致性校验：模板统计列是 COUNTIF 公式，正常应与符号库数出来的一致；
+        // 人手改过或换过符号库就会不一致，此时按"列值"算工资会与考勤表格子对不上，默认整单拒绝。
+        $statChecks = [
+            'req_attend' => ['label' => '应出勤', 'stat' => 'required'],
+            'act_attend' => ['label' => '实际出勤', 'stat' => 'attend'],
+            'stat_personal' => ['label' => '事假', 'stat' => 'personal'],
+            'stat_sick' => ['label' => '病假', 'stat' => 'sick'],
+            'stat_maternity' => ['label' => '产假', 'stat' => 'maternity'],
+            'stat_paid' => ['label' => '带薪假', 'stat' => 'paid'],
+            'stat_miss' => ['label' => '缺卡', 'stat' => 'miss'],
+            'stat_absent' => ['label' => '旷工', 'stat' => 'absent'],
+            'stat_late' => ['label' => '迟到', 'stat' => 'late'],
+            'stat_early' => ['label' => '早退', 'stat' => 'early'],
+        ];
         for ($row = $headerRow + 1; $row <= $sheet->getHighestRow(); $row++) {
             $name = trim((string) $this->cellValue($sheet, $columns['name'], $row));
             if ($name === '' || $name === '星期') continue;
@@ -801,10 +839,32 @@ class AttendanceController extends ApiController
                     $record[$key] = null;
                     continue;
                 }
-                $record[$key] = in_array($key, ['status', 'position', 'emp_no', 'remark'], true) ? trim((string) ($value ?? '')) : (($value === null || $value === '') ? 0 : round((float) $value, 2));
+                if (in_array($key, ['status', 'position', 'emp_no', 'remark'], true)) {
+                    $record[$key] = trim((string) ($value ?? ''));
+                } elseif ($value === null || (is_string($value) && trim($value) === '')) {
+                    // 空单元格存 null（缺失语义）：核算时回退数格子，绝不把"没填"写成 0 当作真实 0 天
+                    $record[$key] = null;
+                } else {
+                    $record[$key] = round((float) $value, 2);
+                }
+            }
+            // 逐列比对统计列与符号统计（只比对表里实际存在的列；空值视为未填，不参与比对）
+            $grid = \App\Services\PayrollCalculator::attendanceStats($daysData, $symbols);
+            foreach ($statChecks as $key => $chk) {
+                if (!array_key_exists($key, $record) || $record[$key] === null) continue;
+                $filled = (float) $record[$key];
+                $counted = (float) ($grid[$chk['stat']] ?? 0);
+                if (abs($filled - $counted) <= 0.001) continue;
+                $msg = "第{$row}行 {$name}：{$chk['label']}列填 " . rtrim(rtrim(number_format($filled, 2, '.', ''), '0'), '.')
+                    . '，按符号统计为 ' . rtrim(rtrim(number_format($counted, 2, '.', ''), '0'), '.');
+                if ($forceStats) {
+                    $warnings[] = $msg;
+                } else {
+                    $errors[] = $msg . '（请核对格子符号，或把该列留空让系统按符号统计；确认无误可勾选“仍然上传”）';
+                }
             }
             $rows[$name] = $record;
         }
-        return [$rows, $errors];
+        return [$rows, array_slice($errors, 0, 30), $warnings];
     }
 }

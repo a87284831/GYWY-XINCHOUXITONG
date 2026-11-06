@@ -9,6 +9,12 @@
           <option v-for="p in auth.projects" :key="p">{{ p }}</option>
           <option v-for="g in VIRTUAL_ATT_GROUPS" :key="g.value" :value="g.value">{{ g.label }}（跨项目汇总）</option>
         </select></label>
+      </div>
+      <div v-if="showSymbolWarn" class="msg" style="display:flex;align-items:center;gap:10px;background:#fffbeb;border:1px solid #fde68a;color:#b45309;margin-bottom:8px">
+        <span style="flex:1">本月考勤有 {{ symbolWarnCount }} 个符号当前符号库识别不了，这些日期已按不计勤处理，工资可能偏低；请到「设置 → 考勤符号」补录后重新上传。</span>
+        <button type="button" title="关闭提示" @click="warnClosed = true" style="border:none;background:transparent;color:#b45309;font-size:16px;line-height:1;cursor:pointer;padding:0 4px">×</button>
+      </div>
+      <div class="row">
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
         <input ref="fileEl" type="file" accept=".xlsx,.xls" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
@@ -46,8 +52,8 @@
             <tbody>
               <tr v-for="n in names" :key="n" :class="{ 'att-hl': hlName === n }" @click="hlName = hlName === n ? '' : n">
                 <td>{{ n }}</td><td>{{ view.rows[n].position }}</td><td>{{ view.rows[n].status || '-' }}</td>
-                <td class="num">{{ view.rows[n].req_attend || '-' }}</td>
-                <td class="num">{{ view.rows[n].act_attend > 0 ? view.rows[n].act_attend : (view.stats[n] || {}).attend }}</td>
+                <td class="num">{{ (view.stats[n] || {}).req_attend ?? view.rows[n].req_attend ?? '-' }}</td>
+                <td class="num">{{ (view.stats[n] || {}).act_attend ?? view.rows[n].act_attend ?? '-' }}</td>
                 <td class="num">{{ (view.stats[n] || {}).required_value ?? (view.stats[n] || {}).required }}</td>
                 <td class="num">{{ (view.stats[n] || {}).personal }}</td>
                 <td class="num">{{ (view.stats[n] || {}).sick }}</td>
@@ -101,6 +107,8 @@ const attProj = ref(auth.projects[0] || '')
 const fileEl = ref(null)
 const attMsg = ref('')
 const pendingFile = ref(null)
+// 统计列与格子数不一致时的显式覆盖开关：默认拒绝，用户点"仍然上传"后才带 force_stats
+const forceStats = ref(false)
 const view = ref({ rows: {}, stats: {}, meta: {} })
 const viewLoaded = ref(false)
 const viewErr = ref('')
@@ -110,6 +118,11 @@ const hlName = ref('')
 // 所有项目与虚拟选项口径统一——无考勤块（未上传）时三按钮置灰，上传成功后放行
 // null = 尚未加载/查询失败（此时保守放行，避免状态接口故障把正常操作锁死）；[] = 已加载
 const statusList = ref(null)
+// 顶部未知符号提示条：接口返回 symbol_warnings 非空才显示；关闭只保留本次会话，切换月份/项目重新判断
+const symbolWarnings = ref([])
+const warnClosed = ref(false)
+const symbolWarnCount = computed(() => symbolWarnings.value.reduce((n, w) => n + (Number(w.count) || 1), 0))
+const showSymbolWarn = computed(() => symbolWarnCount.value > 0 && !warnClosed.value)
 
 const names = computed(() => Object.keys(view.value.rows || {}))
 const curStatus = computed(() => {
@@ -145,6 +158,17 @@ async function refreshStatus() {
   }
 }
 
+async function refreshWarnings() {
+  warnClosed.value = false
+  try {
+    const d = await api(`/api/attendance?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}&warnings_only=1`)
+    symbolWarnings.value = (d && d.symbol_warnings) || []
+  } catch (e) {
+    // 告警查询失败不影响主流程
+    symbolWarnings.value = []
+  }
+}
+
 async function attTemplate() {
   download(`/api/attendance/template?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}`, `考勤表模板_${projLabel.value}_${ui.month}.xlsx`)
 }
@@ -154,12 +178,18 @@ async function attUpload(e) {
   const f = e.target.files[0]
   if (!f) return
   pendingFile.value = f
+  forceStats.value = false
+  await attDryRun(f)
+}
+
+async function attDryRun(f) {
   attMsg.value = `<div class="msg info">正在校验考勤表...</div>`
   const form = new FormData()
   form.append('ym', ui.month)
   form.append('project', curProj.value)
   form.append('file', f)
   form.append('dry_run', '1')
+  if (forceStats.value) form.append('force_stats', '1')
   try {
     const r = await api('/api/attendance/upload', { form })
     // 防御：后端返回非预期结构时不让 .join 把整个错误盖住
@@ -172,6 +202,9 @@ async function attUpload(e) {
     if (r.overwrite) warnHtml += isVirtual.value
       ? `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
       : `<div style="color:#dc2626;margin-top:6px">⚠ 将<b>整表覆盖</b>已有的考勤数据：新表完全替换旧数据，旧表有而新表没有的人员将被移除！</div>`
+    if (r.warnings && r.warnings.length) {
+      warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 已勾选“仍然上传”，以下统计列与格子不一致，将按列值入库：<br>${r.warnings.slice(0, 5).join('<br>')}${r.warnings.length > 5 ? '<br>…' : ''}</div>`
+    }
     attMsg.value = `<div class="msg ok" style="border-color:#16a34a">
       <div style="font-weight:600;margin-bottom:6px">校验通过：${r.count} 人${r.overwrite ? '（将覆盖旧数据）' : ''}</div>
       <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${(r.names || []).join('、')}</div>
@@ -182,8 +215,12 @@ async function attUpload(e) {
       </div>
     </div>`
   } catch (e2) {
-    attMsg.value = `<div class="msg err">${e2.message}</div>`
-    pendingFile.value = null
+    // 统计列与格子数不一致：默认拒绝，并按需给出"仍然上传"的显式覆盖入口
+    const canForce = !forceStats.value && String(e2.message).includes('按符号统计为')
+    attMsg.value = `<div class="msg err">${e2.message}`
+      + (canForce ? `<div style="margin-top:8px"><button class="btn" data-act="force-upload">仍然上传（统计列与格子不一致）</button></div>` : '')
+      + '</div>'
+    if (!canForce) pendingFile.value = null
   }
 }
 
@@ -193,18 +230,24 @@ async function attUploadConfirm() {
   form.append('ym', ui.month)
   form.append('project', curProj.value)
   form.append('file', pendingFile.value)
+  if (forceStats.value) form.append('force_stats', '1')
   attMsg.value = `<div class="msg info">正在正式上传...</div>`
   try {
     const r = await api('/api/attendance/upload', { form })
-    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? (isVirtual.value ? '（已按人合并旧数据）' : '（已整表覆盖旧数据）') : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}</div>`
+    const warnText = (r.warnings && r.warnings.length)
+      ? '<br>⚠ 统计列与格子不一致（已按“仍然上传”入库）：' + r.warnings.slice(0, 3).join('；')
+      : ''
+    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? (isVirtual.value ? '（已按人合并旧数据）' : '（已整表覆盖旧数据）') : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}${warnText}</div>`
     pendingFile.value = null
+    forceStats.value = false
     if (fileEl.value) fileEl.value.value = ''
     await refreshStatus()
-    // 汇总选项没有单一项目块可预览，只提示成功
+    await refreshWarnings()
     if (!isVirtual.value) attView()
   } catch (e) {
     attMsg.value = `<div class="msg err">${e.message}</div>`
     pendingFile.value = null
+    forceStats.value = false
   }
 }
 
@@ -221,6 +264,7 @@ async function attView() {
     view.value = data
     viewLoaded.value = true
     attLocked.value = !!data.locked
+    if (data.symbol_warnings) symbolWarnings.value = data.symbol_warnings
     hlName.value = ''
   } catch (e) { viewErr.value = e.message }
 }
@@ -250,6 +294,7 @@ async function attDelete() {
     const s = r.stats || {}
     toast(`已删除 ${s.blocks || 0} 个考勤块、${s.rows || 0} 行考勤数据`)
     await refreshStatus()
+    await refreshWarnings()
     viewLoaded.value = false
     view.value = { rows: {}, stats: {}, meta: {} }
   } catch (e) { alert(e.message) }
@@ -293,6 +338,10 @@ function onDocClick(e) {
   const act = e.target.closest && e.target.closest('[data-act]')
   if (!act) return
   if (act.dataset.act === 'confirm-upload') attUploadConfirm()
+  if (act.dataset.act === 'force-upload') {
+    forceStats.value = true
+    if (pendingFile.value) attDryRun(pendingFile.value)
+  }
   if (act.dataset.act === 'cancel-upload') {
     attMsg.value = ''
     pendingFile.value = null
@@ -304,17 +353,19 @@ function onMonthChange() {
   viewLoaded.value = false
   attLocked.value = false
   refreshStatus()
+  refreshWarnings()
 }
 
 watch(() => ui.month, onMonthChange)
 // 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目（按钮状态由 status+curProj 派生，无需额外刷新）
-watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked })
+watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked; refreshWarnings() })
 watch(() => auth.projects, (v) => { if (!isProj.value && !attProj.value && v.length) attProj.value = v[0] })
 
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   if (!isProj.value && !attProj.value && auth.projects.length) attProj.value = auth.projects[0]
   refreshStatus()
+  refreshWarnings()
 })
 
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
