@@ -9,6 +9,12 @@
           <option v-for="p in auth.projects" :key="p">{{ p }}</option>
           <option v-for="g in VIRTUAL_ATT_GROUPS" :key="g.value" :value="g.value">{{ g.label }}（跨项目汇总）</option>
         </select></label>
+      </div>
+      <div v-if="showSymbolWarn" class="msg" style="display:flex;align-items:center;gap:10px;background:#fffbeb;border:1px solid #fde68a;color:#b45309;margin-bottom:8px">
+        <span style="flex:1">本月考勤有 {{ symbolWarnCount }} 个符号当前符号库识别不了，这些日期已按不计勤处理，工资可能偏低；请到「设置 → 考勤符号」补录后重新上传。</span>
+        <button type="button" title="关闭提示" @click="warnClosed = true" style="border:none;background:transparent;color:#b45309;font-size:16px;line-height:1;cursor:pointer;padding:0 4px">×</button>
+      </div>
+      <div class="row">
         <button class="btn" @click="attTemplate">① 下载本月考勤模板</button>
         <input ref="fileEl" type="file" accept=".xlsx,.xls" style="display:none" @change="attUpload" />
         <button class="btn primary" @click="fileEl && fileEl.click()">② 上传考勤表</button>
@@ -112,6 +118,11 @@ const hlName = ref('')
 // 所有项目与虚拟选项口径统一——无考勤块（未上传）时三按钮置灰，上传成功后放行
 // null = 尚未加载/查询失败（此时保守放行，避免状态接口故障把正常操作锁死）；[] = 已加载
 const statusList = ref(null)
+// 顶部未知符号提示条：接口返回 symbol_warnings 非空才显示；关闭只保留本次会话，切换月份/项目重新判断
+const symbolWarnings = ref([])
+const warnClosed = ref(false)
+const symbolWarnCount = computed(() => symbolWarnings.value.reduce((n, w) => n + (Number(w.count) || 1), 0))
+const showSymbolWarn = computed(() => symbolWarnCount.value > 0 && !warnClosed.value)
 
 const names = computed(() => Object.keys(view.value.rows || {}))
 const curStatus = computed(() => {
@@ -144,6 +155,17 @@ async function refreshStatus() {
   } catch (e) {
     // 状态查询失败不锁死操作：回到"未知=放行"，由各功能接口自身鉴权/报错
     statusList.value = null
+  }
+}
+
+async function refreshWarnings() {
+  warnClosed.value = false
+  try {
+    const d = await api(`/api/attendance?ym=${ui.month}&project=${encodeURIComponent(curProj.value)}&warnings_only=1`)
+    symbolWarnings.value = (d && d.symbol_warnings) || []
+  } catch (e) {
+    // 告警查询失败不影响主流程
+    symbolWarnings.value = []
   }
 }
 
@@ -220,7 +242,7 @@ async function attUploadConfirm() {
     forceStats.value = false
     if (fileEl.value) fileEl.value.value = ''
     await refreshStatus()
-    // 汇总选项没有单一项目块可预览，只提示成功
+    await refreshWarnings()
     if (!isVirtual.value) attView()
   } catch (e) {
     attMsg.value = `<div class="msg err">${e.message}</div>`
@@ -242,6 +264,7 @@ async function attView() {
     view.value = data
     viewLoaded.value = true
     attLocked.value = !!data.locked
+    if (data.symbol_warnings) symbolWarnings.value = data.symbol_warnings
     hlName.value = ''
   } catch (e) { viewErr.value = e.message }
 }
@@ -271,6 +294,7 @@ async function attDelete() {
     const s = r.stats || {}
     toast(`已删除 ${s.blocks || 0} 个考勤块、${s.rows || 0} 行考勤数据`)
     await refreshStatus()
+    await refreshWarnings()
     viewLoaded.value = false
     view.value = { rows: {}, stats: {}, meta: {} }
   } catch (e) { alert(e.message) }
@@ -329,17 +353,19 @@ function onMonthChange() {
   viewLoaded.value = false
   attLocked.value = false
   refreshStatus()
+  refreshWarnings()
 }
 
 watch(() => ui.month, onMonthChange)
 // 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目（按钮状态由 status+curProj 派生，无需额外刷新）
-watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked })
+watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked; refreshWarnings() })
 watch(() => auth.projects, (v) => { if (!isProj.value && !attProj.value && v.length) attProj.value = v[0] })
 
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   if (!isProj.value && !attProj.value && auth.projects.length) attProj.value = auth.projects[0]
   refreshStatus()
+  refreshWarnings()
 })
 
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
