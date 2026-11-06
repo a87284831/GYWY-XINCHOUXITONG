@@ -72,7 +72,7 @@ class PayrollAdjustParityTest extends TestCase
 
     private function seedAttendance(array $days): void
     {
-        $att = ['days' => $days, 'req_attend' => 0, 'act_attend' => 0, 'reward' => 0, 'punish' => 0,
+        $att = ['days' => $days, 'req_attend' => null, 'act_attend' => null, 'reward' => 0, 'punish' => 0,
             'meal_sub' => 0, 'night_sub' => 0, 'title_sub' => 0, 'pen' => 0, 'med' => 0, 'une' => 0,
             'house' => 0, 'big' => 0, 'miss_deduct' => 0, 'late_deduct' => 0, 'other_deduct' => 0,
             'uniform_deduct' => 0, 'welfare' => 0, 'coef' => null, 'remark' => ''];

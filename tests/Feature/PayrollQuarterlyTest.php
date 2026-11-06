@@ -122,7 +122,7 @@ class PayrollQuarterlyTest extends TestCase
         DB::table('payroll_attendance')->insert([
             'record_key' => $ym . '|测试项目', 'year_month' => $ym, 'project_name' => '测试项目',
             'rows' => json_encode([$name => [
-                'days' => $this->fullDays(), 'req_attend' => 0.0, 'act_attend' => 0.0,
+                'days' => $this->fullDays(), 'req_attend' => null, 'act_attend' => null,
                 'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
                 'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
                 'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,

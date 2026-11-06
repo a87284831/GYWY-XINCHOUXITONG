@@ -106,6 +106,9 @@ class PayrollController extends ApiController
     private function attendanceRowStats(array $attendance, array $symbols, bool $missEnabled, float $missFirst3, float $missAfter3): array
     {
         $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+        // 应出勤/实际出勤展示值：与核算、导出共用同一判定（字段缺失才回退，填 0 就是 0）
+        $st['req_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'req_attend', $st['required']);
+        $st['act_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'act_attend', $st['attend']);
         // 应出勤按 value 加权（让"半"符号算 0.5 天，与人力手填口径对齐；required 仍按 in_required 计 1 天，核算逻辑不变）
         $st['required_value'] = 0.0;
         foreach (($attendance['days'] ?? []) as $d) {

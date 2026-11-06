@@ -112,6 +112,50 @@ class AttendanceStatsFixTest extends TestCase
         $this->assertEqualsWithDelta(0.0, $stats['无缺卡']['miss_deduct'] ?? -1, 0.01);
     }
 
+    /** 0 的语义：存值 0 就是 0，不能因为格子全是"√"又把出勤数回来 */
+    public function test_stored_zero_attendance_is_zero_not_symbol_fallback(): void
+    {
+        DB::table('payroll_attendance')->insert([
+            'record_key' => self::YM . '|' . self::PROJ,
+            'year_month' => self::YM, 'project_name' => self::PROJ,
+            'rows' => json_encode([
+                '零出勤' => array_merge($this->baseAtt(), [
+                    'name' => '零出勤', 'days' => array_fill(0, 31, '√'),
+                    'req_attend' => 0, 'act_attend' => 0,
+                ]),
+            ], JSON_UNESCAPED_UNICODE),
+            'locked' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->getJson('/api/attendance?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $st = $resp->json('stats.零出勤');
+        $this->assertEqualsWithDelta(0, $st['req_attend'], 0.001, '存值 0 应显示 0');
+        $this->assertEqualsWithDelta(0, $st['act_attend'], 0.001, '存值 0 应显示 0');
+        $this->assertEqualsWithDelta(31, $st['attend'], 0.001, '格子统计仍按原始符号计算，仅用于对照');
+    }
+
+    /** 字段缺失（未提供）才回退按符号统计 */
+    public function test_missing_attendance_falls_back_to_symbol_count(): void
+    {
+        $att = $this->baseAtt();
+        unset($att['req_attend'], $att['act_attend']);
+        DB::table('payroll_attendance')->insert([
+            'record_key' => self::YM . '|' . self::PROJ,
+            'year_month' => self::YM, 'project_name' => self::PROJ,
+            'rows' => json_encode(['缺字段' => array_merge($att, ['name' => '缺字段', 'days' => array_fill(0, 31, '√')])], JSON_UNESCAPED_UNICODE),
+            'locked' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->getJson('/api/attendance?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $st = $resp->json('stats.缺字段');
+        $this->assertEqualsWithDelta(31, $st['req_attend'], 0.001);
+        $this->assertEqualsWithDelta(31, $st['act_attend'], 0.001);
+    }
+
     private function setupAndGetAttView(array $days): \Illuminate\Testing\TestResponse
     {
         DB::table('payroll_attendance')->insert([
