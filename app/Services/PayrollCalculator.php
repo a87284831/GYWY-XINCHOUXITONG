@@ -30,6 +30,16 @@ class PayrollCalculator
         '缺卡' => 'miss', '旷工' => 'absent', '迟到' => 'late', '早退' => 'early',
     ];
 
+    /**
+     * 考勤统计列存值键（上传时按模板统计列落库）=> attendanceStats 内部键。
+     * 核算、导出、考勤页必须共用 storedStats()，存值缺失（null/未提供）才回退数格子。
+     */
+    public const STAT_FIELDS = [
+        'stat_personal' => 'personal', 'stat_sick' => 'sick', 'stat_maternity' => 'maternity',
+        'stat_paid' => 'paid', 'stat_miss' => 'miss', 'stat_absent' => 'absent',
+        'stat_late' => 'late', 'stat_early' => 'early',
+    ];
+
     // 注意：welfare（已发福利/奖励）在应发公式中是加项（计入计税口径），在实发公式中是减项
     // （实发时扣回——即"福利计税但不实发"）。两条默认公式成对设计，对拍测试已锁定该口径；
     // 若在系统设置里自定义公式，必须成对同步调整，勿只改其一。
@@ -334,6 +344,23 @@ class PayrollCalculator
                     'level' => 'danger',
                 ];
             }
+            // 符号失配不再静默：当前符号库识别不了的字符会被跳过，导致出勤少算 → 工资错误
+            $unknown = self::unknownSymbols($att['days'] ?? [], $symbols);
+            if ($unknown) {
+                $detail = [];
+                foreach ($unknown as $day => $symbol) {
+                    $detail[] = "{$ym}-" . str_pad((string)$day, 2, '0', STR_PAD_LEFT) . "「{$symbol}」";
+                }
+                \Illuminate\Support\Facades\Log::warning('payroll.symbol_unknown', [
+                    'ym' => $ym, 'project' => $person->project_name, 'name' => $person->name, 'symbols' => $detail,
+                ]);
+                $warnings[] = [
+                    'name' => $person->name, 'project' => $person->project_name,
+                    'reason' => '考勤符号无法识别（已按缺失处理，可能少算出勤）：' . implode('、', array_slice($detail, 0, 8))
+                        . (count($detail) > 8 ? ' 等' . count($detail) . ' 处' : '') . '；请在符号库补录或重传考勤',
+                    'level' => 'danger',
+                ];
+            }
             $rows[] = $row;
         }
 
@@ -442,16 +469,155 @@ class PayrollCalculator
     }
 
     /**
-     * 实际出勤天数：优先取考勤行汇总值 act_attend；其 <=0（含缺失）时，
-     * 按考勤符号回退统计 days 的出勤天数（与 computeRow 内口径一致）。
+     * 实际出勤天数：只认"字段缺失（null/未提供）"才回退按符号统计；
+     * 存值为 0 就是 0，不再用 <=0 判定，避免把真实 0 天重新数成有出勤。
      */
     public static function actualAttendance(array $att, array $symbols): float
     {
-        $actual = (float)($att['act_attend'] ?? 0);
-        if ($actual <= 0) {
-            $actual = (float)self::attendanceStats($att['days'] ?? [], $symbols)['attend'];
+        $fallback = (float)self::attendanceStats($att['days'] ?? [], $symbols)['attend'];
+        return (float)self::storedOrFallback($att, 'act_attend', $fallback);
+    }
+
+    /**
+     * 存值锚定统一判定：字段缺失（不存在或 null）才回退 $fallback；
+     * 显式存 0（或空串）一律按 0 处理。核算、导出、页面必须共用本函数，禁止各写一套。
+     */
+    public static function storedOrFallback(array $row, string $key, mixed $fallback = 0): mixed
+    {
+        if (!array_key_exists($key, $row) || $row[$key] === null) {
+            return $fallback;
         }
-        return $actual;
+        return $row[$key];
+    }
+
+    /**
+     * 考勤统计（存值锚定）：每个统计项优先读上传时落库的存值，只有存值缺失（null/未提供）才数格子。
+     * 核算、导出、考勤页统一调用本方法，禁止各写一套，否则同一张考勤表会出现三套数字。
+     */
+    public static function storedStats(array $att, array $symbols): array
+    {
+        $stats = self::attendanceStats($att['days'] ?? [], $symbols);
+        foreach (self::STAT_FIELDS as $key => $statKey) {
+            $stats[$statKey] = (float) self::storedOrFallback($att, $key, $stats[$statKey]);
+        }
+        return $stats;
+    }
+
+    /**
+     * 把整月存值按权重分摊到各薪资段：
+     *  - 权重之和 > 0 时按权重比例分摊（每段 <= 存值）；
+     *  - 权重全为 0 时退回按日历天数分摊（保证各段之和仍等于存值）；
+     *  - 余数落在最后一个有权重的段上，确保各段之和严格等于 $total（不虚高、不丢天）。
+     *
+     * @param float $total          整月存值（出勤天数 / 病假天数 / 旷工天数等）
+     * @param array $weights        各段"按符号数出来"的权重
+     * @param array $fallbackWeights 权重全 0 时的备用权重（各段日历天数）
+     */
+    private static function allocateAnchored(float $total, array $weights, array $fallbackWeights): array
+    {
+        $n = count($weights);
+        $out = array_fill(0, $n, 0.0);
+        if ($n === 0) return $out;
+        $w = array_map(fn ($v) => max(0.0, (float) $v), array_values($weights));
+        $sum = array_sum($w);
+        if ($sum <= 0) {
+            $w = array_map(fn ($v) => max(0.0, (float) $v), array_values($fallbackWeights));
+            $sum = array_sum($w);
+        }
+        if ($sum <= 0) {
+            $w = array_fill(0, $n, 1.0);
+            $sum = (float) $n;
+        }
+        $lastIdx = null;
+        foreach ($w as $i => $v) { if ($v > 0) $lastIdx = $i; }
+        $acc = 0.0;
+        foreach ($w as $i => $v) {
+            if ($i === $lastIdx) {
+                $out[$i] = $total - $acc;
+            } elseif ($v > 0) {
+                $out[$i] = $total * $v / $sum;
+                $acc += $out[$i];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * 考勤中无法被当前符号库识别的字符：返回 [日 => 字符]，供核算告警与考勤页提示共用。
+     */
+    public static function unknownSymbols(array $days, array $symbols): array
+    {
+        $out = [];
+        foreach ($days as $idx => $symbol) {
+            $symbol = trim((string) $symbol);
+            if ($symbol === '') continue;
+            if (!self::symbolLookup($symbol, $symbols)) $out[$idx + 1] = $symbol;
+        }
+        return $out;
+    }
+
+    /**
+     * 符号属性变更影响面：比较新旧符号库的 in_actual / in_required / value，
+     * 找出仍未归档月份中使用了这些符号的人数，供保存符号库前二次确认。
+     * 已归档月份工资已冻结，不列入影响面。
+     *
+     * @return array{symbols: string[], months: array<string,int>, people: int}
+     */
+    public static function symbolImpact(array $oldItems, array $newItems): array
+    {
+        $old = [];
+        foreach ($oldItems as $it) {
+            if (!is_array($it)) continue;
+            $s = trim((string) ($it['symbol'] ?? ''));
+            if ($s === '') continue;
+            $old[$s] = [
+                'in_actual' => !empty($it['in_actual']),
+                'in_required' => !empty($it['in_required']),
+                'value' => (float) ($it['value'] ?? 1),
+            ];
+        }
+        $changed = [];
+        foreach ($newItems as $it) {
+            if (!is_array($it)) continue;
+            $s = trim((string) ($it['symbol'] ?? ''));
+            if ($s === '' || !isset($old[$s])) continue;
+            $new = [
+                'in_actual' => !empty($it['in_actual']),
+                'in_required' => !empty($it['in_required']),
+                'value' => (float) ($it['value'] ?? 1),
+            ];
+            if ($old[$s]['in_actual'] !== $new['in_actual']
+                || $old[$s]['in_required'] !== $new['in_required']
+                || abs($old[$s]['value'] - $new['value']) > 0.0001) {
+                $changed[$s] = true;
+            }
+        }
+        if (!$changed) return ['symbols' => [], 'months' => [], 'people' => 0];
+
+        $hasUnarchived = DB::table('payroll_results')->where('archived', false)
+            ->distinct()->pluck('year_month')->flip()->all();
+        $hasAny = DB::table('payroll_results')->distinct()->pluck('year_month')->flip()->all();
+
+        $months = [];
+        $names = [];
+        $blocks = DB::table('payroll_attendance')->orderBy('year_month')->get(['year_month', 'rows']);
+        foreach ($blocks as $block) {
+            $ym = (string) $block->year_month;
+            // 有核算结果且全部已归档 → 该月金额已冻结，不计入影响面
+            if (isset($hasAny[$ym]) && !isset($hasUnarchived[$ym])) continue;
+            $rows = json_decode((string) $block->rows, true) ?: [];
+            foreach ($rows as $name => $att) {
+                if (!is_array($att)) continue;
+                foreach (($att['days'] ?? []) as $symbol) {
+                    $symbol = trim((string) $symbol);
+                    if ($symbol === '' || !isset($changed[$symbol])) continue;
+                    $months[$ym] = ($months[$ym] ?? 0) + 1;
+                    $names[$ym . '|' . $name] = true;
+                    break;
+                }
+            }
+        }
+        return ['symbols' => array_keys($changed), 'months' => $months, 'people' => count($names)];
     }
 
     /**
@@ -508,27 +674,24 @@ class PayrollCalculator
     /** 单行完整计算 */
     private function computeRow(object $person, array $att, array $symbols, string $ym, $historyByStaff = null, string $category = 'staff'): array
     {
-        $stats = self::attendanceStats($att['days'] ?? [], $symbols);
+        // 统计列一律走存值锚定（缺列才数格子）：出勤/病假/旷工/缺卡/迟到早退等口径与导出、页面一致
+        $stats = self::storedStats($att, $symbols);
 
-        // 应出勤 h 与 实际出勤 actual
-        $h = (float)($att['req_attend'] ?? 0);
-        if ($h <= 0) {
-            // prorate_base=calendar 时按当月自然天数，否则按符号统计应出勤（与旧版/设计文档一致）
-            $h = ($this->rules->str('base_salary.prorate_base', 'required') === 'calendar')
-                ? (float)date('t', strtotime($ym . '-01'))
-                : $stats['required'];
-        }
-        $actual = (float)($att['act_attend'] ?? 0); if ($actual <= 0) $actual = $stats['attend'];
-        if ($h <= 0) $h = $actual > 0 ? (int)date('t', strtotime($ym . '-01')) : 1;
+        // 应出勤 h 与 实际出勤 actual：存值锚定（字段缺失才回退，填 0 就是 0）
+        $hFallback = ($this->rules->str('base_salary.prorate_base', 'required') === 'calendar')
+            ? (float)date('t', strtotime($ym . '-01'))
+            : $stats['required'];
+        $h = (float)self::storedOrFallback($att, 'req_attend', $hFallback);
+        $actual = (float)self::storedOrFallback($att, 'act_attend', $stats['attend']);
 
         // coef 默认从考勤表读（月度法始终用考勤 coef）；季度法后面会查 existingRow 覆盖
         $coef = array_key_exists('coef', $att) && $att['coef'] !== null && $att['coef'] !== ''
             ? (float)$att['coef'] : 1.0;
 
-        // 分母统一为应出勤 H（旧版/设计文档：基本工资=Σ段基本×段出勤/H），
-        // 与 prorate_base=calendar 联动；不再使用旧版未定义的 actual 分支。
+        // 分母：正常情况下等于应出勤存值；存值为 0（异常/手填 0）时只对"除法"兜底，
+        // 展示与落库的 req_att 仍保留存值 0，避免除以 1 把金额放大到整月基数×出勤倍数。
         $denom = $h;
-        if ($denom <= 0) $denom = 1.0;
+        if ($denom <= 0) $denom = $actual > 0 ? (float)date('t', strtotime($ym . '-01')) : 1.0;
 
         // 分段（可关闭 segment_by_date）
         $segments = $this->salarySegments($person, $ym);
@@ -543,8 +706,12 @@ class PayrollCalculator
         }
 
         $segmentAttend = array_fill(0, count($segments), 0.0);
-        $segmentSick   = array_fill(0, count($segments), 0);
-        $segmentAbsent = array_fill(0, count($segments), 0);
+        $segmentSick   = array_fill(0, count($segments), 0.0);
+        $segmentAbsent = array_fill(0, count($segments), 0.0);
+        $segmentDays   = [];
+        foreach ($segments as $i => $seg) {
+            $segmentDays[$i] = (float)($seg['to'] - $seg['from'] + 1);
+        }
         foreach (($att['days'] ?? []) as $dayIndex => $symbol) {
             $day = $dayIndex + 1;
             $item = self::symbolLookup((string)$symbol, $symbols);
@@ -557,8 +724,14 @@ class PayrollCalculator
                 }
             }
         }
-        $symbolAttend = array_sum($segmentAttend);
-        $scale = $symbolAttend > 0 && $actual > 0 ? $actual / $symbolAttend : 1.0;
+
+        // 段出勤锚定整月存值：各段 = 存值 × (本段格子计薪出勤 / 全月格子计薪出勤)，
+        // 余数落在最后一段，保证各段之和严格等于整月存值且不虚高。
+        // 非转正人员只有一段，等于直接用存值；存值为 0 时各段均为 0（不再被格子数反推成满勤）。
+        // 病假/旷工同样锚定统计列存值，只按格子占比切段。
+        $anchoredAttend = self::allocateAnchored($actual, $segmentAttend, $segmentDays);
+        $anchoredSick   = self::allocateAnchored((float)$stats['sick'], $segmentSick, $segmentDays);
+        $anchoredAbsent = self::allocateAnchored((float)$stats['absent'], $segmentAbsent, $segmentDays);
 
         // 病假参数
         $sickEnabled = $this->rules->flag('sick_pay.enabled', true);
@@ -576,7 +749,7 @@ class PayrollCalculator
 
         $basePay = 0.0; $perfPay = 0.0; $sickPay = 0.0; $absentFine = 0.0;
         foreach ($segments as $i => $seg) {
-            $segDays = $segmentAttend[$i] * $scale;
+            $segDays = $anchoredAttend[$i];
             $basePay += $seg['base'] * $segDays / $denom;
 
             if ($perfEnabled && !($perfSkipProbation && !empty($seg['probation']))) {
@@ -584,19 +757,20 @@ class PayrollCalculator
             }
             if ($sickEnabled) {
                 $sickSegBase = $sickBase === 'fixed' ? $seg['fixed'] : $seg['base'];
-                $sickPay += $segmentSick[$i] * $sickSegBase * $factorA * $factorB / $denom;
+                $sickPay += $anchoredSick[$i] * $sickSegBase * $factorA * $factorB / $denom;
             }
             if ($absentEnabled) {
                 // 旷工罚款 = Σ(段基本/H×(倍数−1)×段旷工天数)：旷工当日已在出勤扣回 1 倍，
                 // 罚款仅按「倍数−1」计，避免多扣一倍（与旧版/设计文档 1:1）。
-                $absentFine += $segmentAbsent[$i] * $seg['base'] * max(0, $absentMult - 1) / $denom;
+                $absentFine += $anchoredAbsent[$i] * $seg['base'] * max(0, $absentMult - 1) / $denom;
             }
         }
         // 绩效计薪出勤：仅统计非试用段（试用期不参与绩效计薪，perf_att 显示 0）
+        // 段出勤已锚定整月存值，perf_att 合计不会超过整月实际出勤
         $perfAttend = 0.0;
         foreach ($segments as $i => $seg) {
             if ($perfEnabled && !($perfSkipProbation && !empty($seg['probation']))) {
-                $perfAttend += $segmentAttend[$i] * $scale;
+                $perfAttend += $anchoredAttend[$i];
             }
         }
         $perfAttend = round($perfAttend, 2);
@@ -606,8 +780,8 @@ class PayrollCalculator
         $sickPay = round($sickPay, 2);
 
         // 满勤基准：供"微调"按出勤/系数可恢复地缩放 base_pay、perf_pay
-        $basePayRef = $actual > 0 ? round($basePay * $h / $actual, 2) : $basePay;
-        $perfPayRef = ($actual > 0 && $coef != 0.0) ? round($perfPay * $h / ($actual * $coef), 2) : $perfPay;
+        $basePayRef = $actual > 0 ? round($basePay * $denom / $actual, 2) : $basePay;
+        $perfPayRef = ($actual > 0 && $coef != 0.0) ? round($perfPay * $denom / ($actual * $coef), 2) : $perfPay;
 
         // 季度绩效覆盖：管理/总部人员在季度末月按季度累计计算；7月/1月同时发半年度部分（两笔分开）
         $perfDetail = null;
@@ -1091,24 +1265,29 @@ class PayrollCalculator
         foreach ($newItems as $it) {
             if (is_array($it) && isset($it['symbol'])) $map[trim((string) $it['symbol'])] = $it;
         }
-        $checked = [];
-        $conflicts = []; // 字面 => [record_key,...]
-        $rows = DB::table('payroll_attendance')->orderBy('year_month')->get(['record_key', 'rows']);
+        $conflicts = []; // 字面 => [月份 => 使用人数]
+        $rows = DB::table('payroll_attendance')->orderBy('year_month')->get(['year_month', 'record_key', 'rows']);
         foreach ($rows as $r) {
             $recs = json_decode((string) $r->rows, true) ?: [];
+            $seenInRecord = []; // 同一条考勤块内按人去重，避免一个人重复计次
             foreach ($recs as $rec) {
                 foreach (($rec['days'] ?? []) as $s) {
                     $s = trim((string) $s);
-                    if ($s === '' || isset($checked[$s])) continue;
-                    $checked[$s] = true;
-                    if (!self::symbolLookup($s, $map)) $conflicts[$s][] = $r->record_key;
+                    if ($s === '' || isset($seenInRecord[$s])) continue;
+                    $seenInRecord[$s] = true;
+                    if (!self::symbolLookup($s, $map)) {
+                        $ym = (string) ($r->year_month ?: substr((string) $r->record_key, 0, 7));
+                        $conflicts[$s][$ym] = ($conflicts[$s][$ym] ?? 0) + 1;
+                    }
                 }
             }
         }
         $out = [];
-        foreach ($conflicts as $sym => $keys) {
-            $u = array_values(array_unique($keys));
-            $out[] = "「{$sym}」出现于 " . implode('、', array_slice($u, 0, 3)) . (count($u) > 3 ? ' 等' . count($u) . '条记录' : '');
+        foreach ($conflicts as $sym => $months) {
+            $parts = [];
+            foreach ($months as $ym => $count) $parts[] = "{$ym}（{$count}人）";
+            $out[] = "「{$sym}」仍在历史考勤中使用：" . implode('、', array_slice($parts, 0, 6))
+                . (count($parts) > 6 ? ' 等' . count($parts) . '个月' : '');
         }
         return $out;
     }

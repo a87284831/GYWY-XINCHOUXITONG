@@ -198,7 +198,7 @@
             <div v-for="(v, k) in symFormulas" :key="k"><b>{{ SYM_FORMULA_CN[k] || k }}</b> = {{ v === '0' ? '0' : '=' + v }}</div>
           </div>
           <div style="margin-top:12px;text-align:right">
-            <button class="btn primary" @click="symSave"><Icon name="dot" /> 保存符号库</button>
+            <button class="btn primary" @click="symSave()"><Icon name="dot" /> 保存符号库</button>
           </div>
         </div>
         <div v-else class="hint">加载中...</div>
@@ -371,7 +371,7 @@ async function loadSymbols() {
     symFormulas.value = (fd.formulas || {}).categories || {}
   } catch (e) { symErr.value = e.message }
 }
-async function symSave() {
+async function symSave(confirmChange = false) {
   for (const s of symbols.value) {
     if (!String(s.symbol).trim()) { toast('存在空符号，请检查', false); return }
     s.value = parseFloat(s.value)
@@ -382,10 +382,21 @@ async function symSave() {
     seen.add(s.symbol)
   }
   try {
-    await api('/api/symbols/save', { body: { items: symbols.value } })
+    await api('/api/symbols/save', { body: { items: symbols.value, ...(confirmChange ? { confirm: 1 } : {}) } })
     toast('符号库已保存，考勤表公式已同步')
     loadSymbols()
-  } catch (e) { alert(e.message) }
+  } catch (e) {
+    // 改了 in_actual / in_required / value 会改变未归档月份核算：先把受影响人数/月份摊给用户确认
+    if (e.status === 409 && e.payload && e.payload.need_confirm) {
+      const affected = e.payload.affected || {}
+      const months = Object.entries(affected.months || {}).map(([ym, n]) => `${ym}（${n}人）`).join('、')
+      if (confirm(`修改符号属性会影响以下未归档月份的核算结果：\n${months}\n共 ${affected.people || 0} 人。\n\n确认保存？`)) {
+        return symSave(true)
+      }
+      return
+    }
+    alert(e.message)
+  }
 }
 function symDel(i) {
   if (!confirm(`确认删除符号"${symbols.value[i].symbol}"？删除后需点击"保存符号库"生效。`)) return
