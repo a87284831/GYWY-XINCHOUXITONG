@@ -35,7 +35,7 @@ class PayrollController extends ApiController
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
                 'rows' => [], 'stats' => [], 'locked' => false]);
         }
-        $symbols = \App\Services\PayrollCalculator::symbols(); $stats = [];
+        $symbols = \App\Services\PayrollCalculator::symbols(); $stats = []; $symbolWarnings = [];
         // 缺卡阶梯规则（attView 预览金额与核算一致）
         $rules = new \App\Services\CalcRules();
         $missEnabled = $rules->flag('deduction_rules.miss_punch.enabled', true);
@@ -43,10 +43,22 @@ class PayrollController extends ApiController
         $missAfter3 = $rules->num('deduction_rules.miss_punch.after_3', 50);
         foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
             $stats[$name] = $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3);
+            $unknown = \App\Services\PayrollCalculator::unknownSymbols($attendance['days'] ?? [], $symbols);
+            if ($unknown) {
+                $parts = [];
+                foreach ($unknown as $day => $symbol) {
+                    $parts[] = "{$ym}-" . str_pad((string)$day, 2, '0', STR_PAD_LEFT) . "「{$symbol}」";
+                }
+                $symbolWarnings[] = [
+                    'name' => $name, 'project' => $project, 'ym' => $ym,
+                    'detail' => implode('、', array_slice($parts, 0, 8)) . (count($parts) > 8 ? ' 等' . count($parts) . ' 处' : ''),
+                ];
+            }
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows), 'stats' => $stats,
             'locked' => (bool) $record->locked,
+            'symbol_warnings' => $symbolWarnings,
             'meta' => ['uploaded_at' => $record->updated_at]]);
     }
 
@@ -105,7 +117,8 @@ class PayrollController extends ApiController
     /** 单行考勤统计（含缺卡阶梯扣款预览）：应出勤按符号 value 加权，手填 miss_deduct 优先 */
     private function attendanceRowStats(array $attendance, array $symbols, bool $missEnabled, float $missFirst3, float $missAfter3): array
     {
-        $st = \App\Services\PayrollCalculator::attendanceStats($attendance['days'] ?? [], $symbols);
+        // 统计列一律走存值锚定（缺列才数格子）：与核算、导出同一口径
+        $st = \App\Services\PayrollCalculator::storedStats($attendance, $symbols);
         // 应出勤/实际出勤展示值：与核算、导出共用同一判定（字段缺失才回退，填 0 就是 0）
         $st['req_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'req_attend', $st['required']);
         $st['act_attend'] = \App\Services\PayrollCalculator::storedOrFallback($attendance, 'act_attend', $st['attend']);

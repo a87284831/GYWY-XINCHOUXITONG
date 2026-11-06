@@ -18,12 +18,36 @@ class ConfigController extends ApiController
         $items = $request->input('items', []);
         if (!is_array($items)) return response()->json(['ok' => false, 'error' => '符号数据格式错误'], 400);
         if ($error = $this->validateSymbolItems($items)) return $error;
+        // 改 in_actual / in_required / value 会改变未归档月份的核算结果：先把受影响人数与月份报出来，
+        // 前端二次确认后带 confirm=1 再保存，避免"改一个勾选项，工资静默变化"。
+        $impact = \App\Services\PayrollCalculator::symbolImpact($this->currentSymbolItems(), $items);
+        if ($impact['people'] > 0 && !$request->boolean('confirm')) {
+            $months = [];
+            foreach ($impact['months'] as $ym => $n) $months[] = "{$ym}（{$n}人）";
+            return response()->json([
+                'ok' => false, 'need_confirm' => true, 'affected' => $impact,
+                'error' => '修改符号属性会影响未归档月份的核算：' . implode('、', $months)
+                    . "，共 {$impact['people']} 人。确认无误后请再次保存（confirm=1）。",
+            ], 409);
+        }
         return $this->saveSnapshot($request, 'symbols.json', ['items' => array_values($items)], true);
     }
 
     public function resetSymbols(Request $request): JsonResponse
     {
-        return $this->saveSnapshot($request, 'symbols.json', ['items' => self::defaultSymbols()], true);
+        $items = self::defaultSymbols();
+        // 恢复默认同样要过校验与历史兼容扫描：默认库没有的自定义符号若仍被历史考勤使用，不能静默丢弃
+        if ($error = $this->validateSymbolItems($items)) return $error;
+        return $this->saveSnapshot($request, 'symbols.json', ['items' => $items], true);
+    }
+
+    /** 当前生效的符号库（用于比较属性变更影响面） */
+    private function currentSymbolItems(): array
+    {
+        $snap = DB::table('legacy_json_snapshots')->where('file_name', 'symbols.json')->first();
+        $data = $snap ? ($this->jsonValue($snap->payload) ?: []) : [];
+        $items = $data['items'] ?? [];
+        return is_array($items) ? $items : [];
     }
 
     public function importSymbols(Request $request): JsonResponse
