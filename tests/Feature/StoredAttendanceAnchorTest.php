@@ -458,4 +458,27 @@ class StoredAttendanceAnchorTest extends TestCase
         $ok->assertStatus(200);
         $this->assertTrue($ok->json('ok'));
     }
+
+    /** 考勤页提示条数据源：warnings_only 轻量返回未知符号告警与处数 */
+    public function test_attendance_api_exposes_symbol_warning_count(): void
+    {
+        $this->seedSeptember();
+        $rows = json_decode(DB::table('payroll_attendance')->where('record_key', self::YM . '|' . self::PROJ)->value('rows'), true);
+        $rows['甲']['days'][4] = '★'; // 9/5 放一个符号库中不存在的字符
+        DB::table('payroll_attendance')->where('record_key', self::YM . '|' . self::PROJ)
+            ->update(['rows' => json_encode($rows, JSON_UNESCAPED_UNICODE)]);
+
+        $light = $this->get('/api/attendance?ym=' . self::YM . '&project=' . urlencode(self::PROJ) . '&warnings_only=1',
+            ['X-Token' => $this->adminToken]);
+        $light->assertOk();
+        $this->assertSame('甲', $light->json('symbol_warnings.0.name'));
+        $this->assertSame(1, $light->json('symbol_warnings.0.count'));
+        $this->assertStringContainsString('★', (string) $light->json('symbol_warnings.0.detail'));
+        $this->assertArrayNotHasKey('rows', $light->json(), 'warnings_only 不应返回整表行数据');
+
+        $full = $this->get('/api/attendance?ym=' . self::YM . '&project=' . urlencode(self::PROJ),
+            ['X-Token' => $this->adminToken]);
+        $full->assertOk();
+        $this->assertSame(1, $full->json('symbol_warnings.0.count'));
+    }
 }
