@@ -104,7 +104,7 @@ class PayrollTaxCumStartTest extends TestCase
         $d = array_fill(0, 31, '休');
         for ($i = 1; $i <= 22; $i++) $d[$i - 1] = '√';
         return [
-            'days' => $d, 'req_attend' => 0.0, 'act_attend' => 0.0,
+            'days' => $d, 'req_attend' => null, 'act_attend' => null,
             'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
             'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
             'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,

@@ -672,8 +672,9 @@ class AttendanceController extends ApiController
                 $sheet->setCellValue("{$col}{$row}", $sym);
             }
             $c = fn($off) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($statStart + $off);
-            $sheet->setCellValue("{$c(0)}{$row}", $att['req_attend'] ?? $stats['required'] ?? 0);
-            $sheet->setCellValue("{$c(1)}{$row}", $att['act_attend'] ?? $stats['attend'] ?? 0);
+            // 应出勤/实际出勤：与核算、页面共用 storedOrFallback——字段缺失才回退符号统计，填 0 就是 0
+            $sheet->setCellValue("{$c(0)}{$row}", \App\Services\PayrollCalculator::storedOrFallback($att, 'req_attend', $stats['required']));
+            $sheet->setCellValue("{$c(1)}{$row}", \App\Services\PayrollCalculator::storedOrFallback($att, 'act_attend', $stats['attend']));
             $sheet->setCellValue("{$c(2)}{$row}", $att['coef'] ?? 1);
             $sheet->setCellValue("{$c(3)}{$row}", $stats['personal']);
             $sheet->setCellValue("{$c(4)}{$row}", $stats['sick']);

@@ -137,4 +137,74 @@ class SymbolSaveValidationTest extends TestCase
         $items[] = ['symbol' => '▲', 'name' => '驻场', 'category' => '其他', 'value' => 1, 'in_required' => 1, 'in_actual' => 1];
         $this->save($items)->assertOk();
     }
+
+    /**
+     * 快照必须整份覆盖：删末项、删中间项都要真正生效。
+     * 旧实现用 array_replace_recursive 合并数字索引数组，删末项不生效、删中间项会残留重复。
+     */
+    public function test_deleting_symbols_persists_after_full_overwrite(): void
+    {
+        $this->save($this->baseItems())->assertOk();
+
+        $items = $this->baseItems();
+        array_pop($items); // 删末项「半」
+        $this->save($items)->assertOk();
+        $payload = json_decode(DB::table('legacy_json_snapshots')->where('file_name', 'symbols.json')->value('payload'), true);
+        $this->assertCount(11, $payload['items'], '删除末项后应只剩 11 项');
+        $this->assertNotContains('半', array_column($payload['items'], 'symbol'), '被删除的末项不应残留');
+
+        $items = $this->baseItems();
+        array_splice($items, 5, 1); // 删中间项「产」
+        $this->save($items)->assertOk();
+        $payload = json_decode(DB::table('legacy_json_snapshots')->where('file_name', 'symbols.json')->value('payload'), true);
+        $this->assertCount(11, $payload['items'], '删除中间项后应只剩 11 项');
+        $this->assertNotContains('产', array_column($payload['items'], 'symbol'), '被删除的中间项不应残留');
+        $this->assertSame(11, count(array_unique(array_column($payload['items'], 'symbol'))), '不应出现重复符号');
+    }
+
+    private function import(array $items): \Illuminate\Testing\TestResponse
+    {
+        return $this->post('/api/symbols/import', [
+            'file' => \Illuminate\Http\UploadedFile::fake()->createWithContent(
+                'symbols.json',
+                json_encode(['items' => $items], JSON_UNESCAPED_UNICODE)
+            ),
+        ], ['X-Token' => $this->token]);
+    }
+
+    /** 导入与正常保存共用同一套校验：重复字面必须被拒 */
+    public function test_import_duplicate_literal_rejected(): void
+    {
+        $items = $this->baseItems();
+        $items[11]['symbol'] = '√';
+        $resp = $this->import($items);
+        $resp->assertStatus(400);
+        $this->assertStringContainsString('重复', $resp->json('error'));
+    }
+
+    /** 导入也必须做历史兼容扫描，并说明月份与使用人数 */
+    public function test_import_symbol_used_by_history_attendance_blocked_with_month_and_count(): void
+    {
+        $this->seedAttendance('2026-08|测试项目', '2026-08', '休');
+        $items = $this->baseItems();
+        array_splice($items, 1, 1); // 删掉「休」
+        $resp = $this->import($items);
+        $resp->assertStatus(400);
+        $this->assertStringContainsString('休', $resp->json('error'));
+        $this->assertStringContainsString('2026-08（1人）', $resp->json('error'));
+    }
+
+    public function test_import_invalid_value_rejected(): void
+    {
+        $items = $this->baseItems();
+        $items[0]['value'] = 1.5;
+        $this->import($items)->assertStatus(400);
+    }
+
+    public function test_import_valid_symbols_saves(): void
+    {
+        $this->import($this->baseItems())->assertOk()->assertJsonPath('ok', true);
+        $payload = json_decode(DB::table('legacy_json_snapshots')->where('file_name', 'symbols.json')->value('payload'), true);
+        $this->assertCount(12, $payload['items']);
+    }
 }

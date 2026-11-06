@@ -86,7 +86,7 @@ class PayrollHireDateSegmentTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $att = array_merge([
-            'days' => $this->threeDays(), 'req_attend' => 0.0, 'act_attend' => 0.0,
+            'days' => $this->threeDays(), 'req_attend' => null, 'act_attend' => null,
             'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
             'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
             'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,

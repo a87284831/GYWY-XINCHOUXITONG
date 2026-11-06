@@ -17,7 +17,37 @@ class ConfigController extends ApiController
     {
         $items = $request->input('items', []);
         if (!is_array($items)) return response()->json(['ok' => false, 'error' => '符号数据格式错误'], 400);
+        if ($error = $this->validateSymbolItems($items)) return $error;
+        return $this->saveSnapshot($request, 'symbols.json', ['items' => array_values($items)], true);
+    }
 
+    public function resetSymbols(Request $request): JsonResponse
+    {
+        return $this->saveSnapshot($request, 'symbols.json', ['items' => self::defaultSymbols()], true);
+    }
+
+    public function importSymbols(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        if (!$request->hasFile('file')) return response()->json(['ok' => false, 'error' => '未收到配置文件'], 400);
+        try {
+            $data = json_decode($request->file('file')->get(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $error) {
+            return response()->json(['ok' => false, 'error' => '配置文件解析失败'], 400);
+        }
+        $items = is_array($data) && isset($data['items']) ? $data['items'] : $data;
+        if (!is_array($items)) return response()->json(['ok' => false, 'error' => '配置文件解析失败'], 400);
+        // 导入与正常保存共用同一套校验：非空、0~1、字面查重、历史兼容扫描，避免绕过防线
+        if ($error = $this->validateSymbolItems($items)) return $error;
+        return $this->saveSnapshot($request, 'symbols.json', ['items' => array_values($items)], true);
+    }
+
+    /**
+     * 符号库统一校验（保存与导入共用）。返回 null 表示通过，否则返回 400 响应。
+     */
+    private function validateSymbolItems(array $items): ?JsonResponse
+    {
         // 基础校验：必填、计勤值范围、字面查重（重复符号在 map 构建时后者静默覆盖前者 → 核算错乱）
         $seen = [];
         foreach ($items as $i => $it) {
@@ -43,27 +73,7 @@ class ConfigController extends ApiController
             return response()->json(['ok' => false, 'error' => "保存被阻止：以下符号在历史考勤中实际使用，但新符号库无法识别（会导致相应月份工资核算错误）：\n" . implode("\n", $conflicts) . "\n请先修正符号库，或先在考勤管理中重新上传使用新符号的考勤表"], 400);
         }
 
-        return $this->saveSnapshot($request, 'symbols.json', ['items' => $items]);
-    }
-
-    public function resetSymbols(Request $request): JsonResponse
-    {
-        return $this->saveSnapshot($request, 'symbols.json', ['items' => self::defaultSymbols()]);
-    }
-
-    public function importSymbols(Request $request): JsonResponse
-    {
-        $account = $this->requireAccount($request);
-        if ($account instanceof JsonResponse) return $account;
-        if (!$request->hasFile('file')) return response()->json(['ok' => false, 'error' => '未收到配置文件'], 400);
-        try {
-            $data = json_decode($request->file('file')->get(), true, 512, JSON_THROW_ON_ERROR);
-            $items = is_array($data) && isset($data['items']) ? $data['items'] : $data;
-            if (!is_array($items)) throw new \RuntimeException('invalid symbols');
-            return $this->saveSnapshot($request, 'symbols.json', ['items' => $items]);
-        } catch (\Throwable $error) {
-            return response()->json(['ok' => false, 'error' => '配置文件解析失败'], 400);
-        }
+        return null;
     }
 
     public function savePayslip(Request $request): JsonResponse
@@ -76,14 +86,26 @@ class ConfigController extends ApiController
         return $this->saveSnapshot($request, 'settings.json', $request->input('settings', []));
     }
 
-    private function saveSnapshot(Request $request, string $file, array $payload): JsonResponse
+    /**
+     * 写配置快照。
+     *
+     * $replace=true 时整份覆盖（符号库等"全量提交"配置必须用整份覆盖：
+     * array_replace_recursive 对数字索引数组不会截断，删除末项会不生效、删中间项会残留重复）。
+     * $replace=false 保留深合并，供 settings 这类"分区局部提交"的配置使用，
+     * 避免保存安全设置时把公司信息等其他分区冲掉。
+     */
+    private function saveSnapshot(Request $request, string $file, array $payload, bool $replace = false): JsonResponse
     {
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
         if ($account->role !== 'admin') return response()->json(['ok' => false, 'error' => '仅管理员可修改配置'], 403);
-        $old = DB::table('legacy_json_snapshots')->where('file_name', $file)->first();
-        $data = $old ? ($this->jsonValue($old->payload) ?: []) : [];
-        $data = array_replace_recursive($data, $payload);
+        if ($replace) {
+            $data = $payload;
+        } else {
+            $old = DB::table('legacy_json_snapshots')->where('file_name', $file)->first();
+            $data = $old ? ($this->jsonValue($old->payload) ?: []) : [];
+            $data = array_replace_recursive($data, $payload);
+        }
         DB::table('legacy_json_snapshots')->updateOrInsert(['file_name' => $file], [
             'payload' => json_encode($data, JSON_UNESCAPED_UNICODE), 'imported_at' => now(),
         ]);

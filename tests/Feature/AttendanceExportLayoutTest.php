@@ -167,4 +167,46 @@ class AttendanceExportLayoutTest extends TestCase
 
         @unlink($tmp);
     }
+
+    /** 0 口径：导出与页面一致——存值 0 就导出 0，不能回退成格子数 */
+    public function test_stored_zero_actual_attendance_exports_zero(): void
+    {
+        DB::table('legacy_json_snapshots')->insert([
+            'file_name' => 'symbols.json',
+            'payload' => json_encode(['items' => [
+                ['symbol' => '√', 'name' => '出勤', 'value' => 1.0, 'category' => '正常', 'in_required' => true, 'in_actual' => true],
+            ]], JSON_UNESCAPED_UNICODE),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->seedStaff(30, '零出勤', '正式', null);
+        DB::table('payroll_attendance')->insert([
+            'record_key' => self::YM . '|' . self::PROJ,
+            'year_month' => self::YM, 'project_name' => self::PROJ,
+            'rows' => json_encode([
+                '零出勤' => ['days' => array_fill(0, 30, '√'), 'req_attend' => 0, 'act_attend' => 0],
+            ], JSON_UNESCAPED_UNICODE),
+            'locked' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->getJson('/api/attendance/export?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->token]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getSheet(0);
+        $grid = $sheet->toArray(null, true, false, false);
+        @unlink($tmp);
+
+        $headers = $grid[2];
+        $reqIdx = array_search('应出勤(天)', $headers, true);
+        $actIdx = array_search('实际出勤(天)', $headers, true);
+        $this->assertNotFalse($reqIdx);
+        $this->assertNotFalse($actIdx);
+        $dataRow = null;
+        foreach ($grid as $row) {
+            if (($row[3] ?? '') === '零出勤') { $dataRow = $row; break; }
+        }
+        $this->assertNotNull($dataRow, '应能定位到零出勤这一行');
+        $this->assertEqualsWithDelta(0, $dataRow[$reqIdx], 0.001, '应出勤存值 0 应导出 0');
+        $this->assertEqualsWithDelta(0, $dataRow[$actIdx], 0.001, '实际出勤存值 0 应导出 0，不能回退成 30');
+    }
 }

@@ -46,8 +46,8 @@
             <tbody>
               <tr v-for="n in names" :key="n" :class="{ 'att-hl': hlName === n }" @click="hlName = hlName === n ? '' : n">
                 <td>{{ n }}</td><td>{{ view.rows[n].position }}</td><td>{{ view.rows[n].status || '-' }}</td>
-                <td class="num">{{ view.rows[n].req_attend || '-' }}</td>
-                <td class="num">{{ view.rows[n].act_attend > 0 ? view.rows[n].act_attend : (view.stats[n] || {}).attend }}</td>
+                <td class="num">{{ (view.stats[n] || {}).req_attend ?? view.rows[n].req_attend ?? '-' }}</td>
+                <td class="num">{{ (view.stats[n] || {}).act_attend ?? view.rows[n].act_attend ?? '-' }}</td>
                 <td class="num">{{ (view.stats[n] || {}).required_value ?? (view.stats[n] || {}).required }}</td>
                 <td class="num">{{ (view.stats[n] || {}).personal }}</td>
                 <td class="num">{{ (view.stats[n] || {}).sick }}</td>
