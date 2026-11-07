@@ -1,5 +1,28 @@
 [
   {
+    "version": "v2026.11.07.1",
+    "date": "2026-11-07",
+    "commit": "30c8216",
+    "items": [
+      {
+        "category": "修复",
+        "text": "采购库配置收敛：移除代码中对旧库 gy_procurement 的兜底默认，配置缺失时直接报错并指明缺少 procurement.dbname，避免配置异常时误连已废弃旧库；采购数据唯一事实源统一为 payroll"
+      },
+      {
+        "category": "变更",
+        "text": "旧库 gy_procurement 已全量备份至 /root/gy_procurement_deprecated_20261107.sql.gz 后删除，生产备份脚本同步改为只导出 payroll + gy_finance"
+      },
+      {
+        "category": "修复",
+        "text": "清单外商品审核「新建标准商品入库」不再提交或改写数量，保留员工填报的原数量；修复旧逻辑在无数量输入时把原数量覆盖为 0 的问题"
+      },
+      {
+        "category": "优化",
+        "text": "归入预检接口不再返回数量（前端未使用）；同步更新采购 API 契约与项目交接/开发文档"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.06.1",
     "date": "2026-11-06",
     "commit": "5ab0e80",
