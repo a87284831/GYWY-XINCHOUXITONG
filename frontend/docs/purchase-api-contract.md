@@ -48,7 +48,7 @@
 - **规格归一化 `norm_spec()`**：全角转半角 + 空白折叠，入库/匹配前服务端自动处理（前端无需处理，但展示的 spec 与用户输入可能不完全一致）。
 - **归档锁**：`monthly_archive` 表存在该月记录即锁定；此后填报增删改、确认/退回、导入报价、清单外处理全部拒绝（错误 msg 均含「本月已归档锁定」），导出不受影响。
 - **通知副作用 `notify_user()`**：同时写采购库 `notifications` 表和平台 `payroll.app_messages`（主页铃铛），link 固定为 `https://www.88shangcheng.top/purchase/index.html#/...`。
-- **项目同步副作用**：**每个**采购 API 请求都可能触发一次项目同步（Cache `purchase_sync_projects_tick` 节流，全局每 5 分钟最多 1 次）：以 `org_nodes(type=project, enabled=1)` 为权威源全量 upsert 进 `gy_procurement.projects`，并**删除**组织架构中不存在的项目。前端不应依赖采购库 `projects` 表 id 以外的东西；业务项目 id 统一 = 平台 `payroll_projects.id`。
+- **项目同步副作用**：**每个**采购 API 请求都可能触发一次项目同步（Cache `purchase_sync_projects_tick` 节流，全局每 5 分钟最多 1 次）：以 `org_nodes(type=project, enabled=1)` 为权威源全量 upsert 进采购库 `projects` 表（**采购数据唯一事实源为 `payroll` 主库；旧库 `gy_procurement` 已于 2026-11-07 删除**），并**删除**组织架构中不存在的项目。前端不应依赖采购库 `projects` 表 id 以外的东西；业务项目 id 统一 = 平台 `payroll_projects.id`。
 
 ### 1.5 分页约定
 
@@ -165,7 +165,7 @@ staff 写入的额外状态机约束（fill 模块）：
 | `admin/customs` | GET | 无 | `data:[purchase_items 全字段 + project_name + candidates:[{id, line, category, name, brand, spec, unit}]≤8]` | is_custom=1 且 status='submitted' 的全部记录（跨月，ORDER BY month DESC）；匹配候选时 item_name 会去掉「验收清单外」前缀 |
 | `admin/customs/map` | POST | body `{item_id, product_id, save_alias?}` | `msg:'已归入标准商品「...」'` | 明细改写为标准商品字段、is_custom=0；save_alias 时 INSERT IGNORE 别名；写 `audit_records(action='map')` |
 | `admin/customs/check-duplicate` | POST | body `{name}`（必填） | `data:[{id, line, category, name, brand, spec, unit}]` ≤20 | 纯名称双向包含匹配 |
-| `admin/customs/save` | POST | body `{item_id, mode:'create'\|'merge'}` + 可编辑 `{line, name, category, brand, spec, unit, quantity, stock, use_location, remark, alias?, by?}`（merge 需 `product_id`） | `msg:'已新建标准商品「...」并归入'` / `'已归入标准商品「...」'` | create：必填 line/category/name + 五元组唯一键防重；merge：以目标商品字段为准（只保留员工 quantity/stock/use_location/remark）；alias 默认原 item_name（≠商品名才存）；写 audit_records(action='map'/'new')；事务 |
+| `admin/customs/save` | POST | body `{item_id, mode:'create'\|'merge'}` + 可编辑 `{line, name, category, brand, spec, unit, stock, use_location, remark, alias?, by?}`（merge 需 `product_id`） | `msg:'已新建标准商品「...」并归入'` / `'已归入标准商品「...」'` | **不涉及数量**：`quantity` 不再接收，明细行原数量保持不变（新建标准商品只涉及名称/规格/单位等清单信息）；create：必填 line/category/name + 五元组唯一键防重；merge：以目标商品字段为准（只保留员工 stock/use_location/remark）；alias 默认原 item_name（≠商品名才存）；写 audit_records(action='map'/'new')；事务 |
 
 ### 3.5 预算（budget.php，全部 admin-only）
 
@@ -216,7 +216,7 @@ staff 写入的额外状态机约束（fill 模块）：
 | `projects/{id}` | PUT | 任意 | 恒定失败（同上） | admin | 同上 |
 | `projects/{id}` | DELETE | — | 恒定失败（同上） | admin | 同上 |
 
-> `handle_users_list/create/update/delete` 曾存在于 system.php 且从未注册路由（死代码），2026-09-30 已随 gy_procurement.users 废弃一并删除；采购旧登录 handlers/auth.php（login/logout/me）同批删除。账号统一走平台 /api/login。
+> `handle_users_list/create/update/delete` 曾存在于 system.php 且从未注册路由（死代码），2026-09-30 已随 gy_procurement.users 废弃一并删除（旧库 `gy_procurement` 已于 2026-11-07 整体删除）；采购旧登录 handlers/auth.php（login/logout/me）同批删除。账号统一走平台 /api/login。
 
 ### 3.9 导出导入（export_import.php）
 
