@@ -40,7 +40,7 @@ class AdminController extends ApiController
                 // 表可能不存在（如未迁移），跳过
             }
         }
-        // 3. 采购系统业务表（gy_procurement 独立库，与一键清除范围一致）
+        // 3. 采购系统业务表（采购库默认在主库 payroll，与一键清除范围一致）
         $procTables = [
             'purchase_items', 'archived_purchases', 'audit_records', 'budget_plan',
             'monthly_archive', 'notifications', 'op_logs', 'products', 'product_synonyms',
@@ -61,15 +61,19 @@ class AdminController extends ApiController
         $zip->close(); return response()->json(['ok' => true, 'file' => $name]);
     }
 
-    /** gy_procurement 采购库 PDO 连接（与采购模块同一套配置） */
+    /** 采购库 PDO 连接（与采购模块同一套配置，默认主库 payroll） */
     private function procDb(): \PDO
     {
         static $pdo = null;
         if ($pdo === null) {
             $d = config('procurement', []);
+            $dbname = $d['dbname'] ?? null;
+            if (!is_string($dbname) || $dbname === '') {
+                throw new \RuntimeException('采购库配置缺失：procurement.dbname（请检查 config/procurement.php 的 dbname 与 .env 的 PROC_DB_NAME）');
+            }
             $pdo = new \PDO(
                 sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-                    $d['host'] ?? '127.0.0.1', (int) ($d['port'] ?? 3306), $d['dbname'] ?? 'gy_procurement'),
+                    $d['host'] ?? '127.0.0.1', (int) ($d['port'] ?? 3306), $dbname),
                 $d['user'] ?? 'payroll', (string) ($d['pass'] ?? ''),
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
             );
@@ -123,7 +127,7 @@ class AdminController extends ApiController
                 $cleared[$t] = 'ERR: ' . $e->getMessage();
             }
         }
-        // 采购系统业务数据（gy_procurement 独立库；保留项目/账号/填报窗口/系统设置等配置）
+        // 采购系统业务数据（采购库默认在主库 payroll；保留项目/账号/填报窗口/系统设置等配置）
         $procTables = [
             'purchase_items', 'archived_purchases', 'audit_records', 'budget_plan',
             'monthly_archive', 'notifications', 'op_logs', 'products', 'product_synonyms',

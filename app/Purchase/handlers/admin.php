@@ -302,7 +302,7 @@ function handle_admin_customs_map_preview() {
         'item' => [
             'id' => (int)$item['id'], 'month' => $item['month'], 'project_name' => $pname,
             'item_name' => $item['item_name'], 'brand' => $item['brand'], 'spec' => $item['spec'],
-            'unit' => $item['unit'], 'quantity' => $item['quantity'],
+            'unit' => $item['unit'],
         ],
         'product' => [
             'id' => (int)$prod['id'], 'name' => $prod['name'], 'brand' => $prod['brand'],
@@ -418,7 +418,8 @@ function handle_admin_customs_check_duplicate() {
 }
 
 // 清单外「编辑入库」：mode=create 新建标准商品；mode=merge 归入已有商品；mode=add_spec 给已有商品新增规格。
-// 管理员可修改员工填的所有字段：条线/分类/名称/品牌/规格/单位/数量/现有库存/使用地点/备注；别名可改（默认员工原填名称）。
+// 管理员可修改员工填的字段：条线/分类/名称/品牌/规格/单位/现有库存/使用地点/备注；别名可改（默认员工原填名称）。
+// 数量不在此处修改：新建标准商品只涉及名称/规格/单位等清单信息，明细行原有数量保持不变。
 function handle_admin_customs_save() {
     require_admin();
     $in = json_decode(file_get_contents('php://input'), true) ?? $_POST;
@@ -437,7 +438,6 @@ function handle_admin_customs_save() {
     $brand = trim((string)($in['brand'] ?? ''));
     $spec = norm_spec($in['spec'] ?? '');
     $unit = trim((string)($in['unit'] ?? ''));
-    $quantity = (float)($in['quantity'] ?? $item['quantity'] ?? 0);
     $stock = (float)($in['stock'] ?? $item['stock'] ?? 0);
     $use_location = trim((string)($in['use_location'] ?? $item['use_location'] ?? ''));
     $remark = trim((string)($in['remark'] ?? $item['remark'] ?? ''));
@@ -491,8 +491,8 @@ function handle_admin_customs_save() {
     try {
         $aliasSaved = 0;
         if ($mode === 'merge') {
-            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, quantity=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
-                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $quantity, $stock, $use_location, $remark, $item_id]);
+            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
+                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $stock, $use_location, $remark, $item_id]);
             if ($alias !== '' && $alias !== $name) {
                 $aliasSaved = 1;
                 try {
@@ -507,8 +507,8 @@ function handle_admin_customs_save() {
             db()->prepare('INSERT INTO products (line, category, name, brand, spec, unit, status) VALUES (?,?,?,?,?,?,1)')
                 ->execute([$line, $category, $name, $brand, $spec, $unit]);
             $product_id = (int) db()->lastInsertId();
-            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, quantity=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
-                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $quantity, $stock, $use_location, $remark, $item_id]);
+            db()->prepare('UPDATE purchase_items SET product_id=?, item_name=?, line=?, brand=?, spec=?, unit=?, stock=?, use_location=?, remark=?, is_custom=0 WHERE id=?')
+                ->execute([$product_id, $name, $line, $brand, $spec, $unit, $stock, $use_location, $remark, $item_id]);
             if ($alias !== '' && $alias !== $name) {
                 $aliasSaved = 1;
                 try {

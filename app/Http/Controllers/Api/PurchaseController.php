@@ -114,7 +114,7 @@ class PurchaseController extends ApiController
      * 业务项目 id 仍为平台 payroll_projects.id（由 handle_projects_list 映射），本表仅作兼容/展示层。
      */
     /**
-     * 同步节流：gy_procurement.projects 仅为兼容/展示层，允许最多 5 分钟滞后。
+     * 同步节流：采购库 projects 仅为兼容/展示层，允许最多 5 分钟滞后。
      * 用原子 Cache::add 保证全局每 5 分钟最多执行一次完整同步，
      * 避免每个采购 API 请求都跑几十条 prepared statement（模块响应慢的主因之一）。
      */

@@ -11,7 +11,7 @@ const rows = ref([])
 const loading = ref(false)
 
 const editVisible = ref(false)
-const editForm = ref({ name:'', brand:'', spec:'', unit:'', line:'', category:'', alias:'', quantity:'', stock:'', use_location:'', remark:'' })
+const editForm = ref({ name:'', brand:'', spec:'', unit:'', line:'', category:'', alias:'', stock:'', use_location:'', remark:'' })
 const editRow = ref(null)
 const lines = ref([])
 const cats = ref([])

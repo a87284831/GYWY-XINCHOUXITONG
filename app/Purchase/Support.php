@@ -56,15 +56,19 @@ namespace {
     use App\Purchase\PurchaseStop;
     use App\Purchase\Support;
 
-    /** 数据库连接（gy_procurement 独立库，PDO 单例） */
+    /** 数据库连接（采购库，默认连平台主库 payroll，PDO 单例） */
     function db(): \PDO
     {
         static $pdo = null;
         if ($pdo === null) {
+            $dbname = config('procurement.dbname');
+            if (!is_string($dbname) || $dbname === '') {
+                throw new PurchaseStop(['ok' => false, 'msg' => '采购库配置缺失：procurement.dbname（请检查 config/procurement.php 的 dbname 与 .env 的 PROC_DB_NAME）'], 500);
+            }
             $d = [
                 'host'    => config('procurement.host', '127.0.0.1'),
                 'port'    => (int) config('procurement.port', 3306),
-                'dbname'  => config('procurement.dbname', 'gy_procurement'),
+                'dbname'  => $dbname,
                 'user'    => config('procurement.user', 'payroll'),
                 'pass'    => (string) config('procurement.pass', ''),
                 'charset' => 'utf8mb4',

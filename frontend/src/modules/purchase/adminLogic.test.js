@@ -99,15 +99,16 @@ describe('adminLogic', () => {
     expect(budgetYears(new Date('2026-09-01T00:00:00'))).toEqual([2025, 2026, 2027, 2028, 2029, 2030])
   })
 
-  it('seedCustomForm: 填报行→编辑表单（name/alias 默认 item_name，category 恒空，quantity/use_location 清空）', () => {
+  it('seedCustomForm: 填报行→编辑表单（name/alias 默认 item_name，category 恒空，use_location 清空，不含 quantity）', () => {
     const f = seedCustomForm({
       item_name: '拖把', brand: '妙洁', spec: '大号', unit: '把', line: '行政',
       stock: 5, remark: '急用',
     })
     expect(f).toEqual({
       name: '拖把', brand: '妙洁', spec: '大号', unit: '把', line: '行政', category: '',
-      alias: '拖把', quantity: '', stock: 5, use_location: '', remark: '急用',
+      alias: '拖把', stock: 5, use_location: '', remark: '急用',
     })
+    expect(f).not.toHaveProperty('quantity')
   })
 
   it('mapPayload: 归入候选商品（含规格/单位/冲突动作，默认 add）', () => {
@@ -160,7 +161,7 @@ describe('adminLogic', () => {
     expect(buildMapPlan({ spec: '12', unit: '箱' }, null).canSubmit).toBe(false)
   })
 
-  it('saveCustomPayload: create 不带 product_id；merge 带 product_id', () => {
+  it('saveCustomPayload: create 不带 product_id；merge 带 product_id；均不提交 quantity', () => {
     const form = {
       name: 'A', brand: 'B', spec: 'S', unit: 'U', line: '工程', category: '五金',
       alias: 'A旧名', quantity: 2, stock: 1, use_location: '地下室', remark: 'r',
@@ -171,9 +172,11 @@ describe('adminLogic', () => {
     expect(c.item_id).toBe(3)
     expect(c.created_by).toBe(7)
     expect(c).not.toHaveProperty('product_id')
+    expect(c).not.toHaveProperty('quantity')
     const m = saveCustomPayload(form, row, 'merge', 55, 7)
     expect(m.mode).toBe('merge')
     expect(m.product_id).toBe(55)
+    expect(m).not.toHaveProperty('quantity')
   })
 
   it('hasBudgetMonth: 全年速览 ✓ 判定', () => {

@@ -148,7 +148,7 @@ class AuthController extends ApiController
     }
 
     /**
-     * 采购操作日志（op_logs 位于 gy_procurement 库，供采购模块日志页审计）
+     * 采购操作日志（op_logs 位于采购库，默认在主库 payroll，供采购模块日志页审计）
      */
     private function purchaseLog(int $uid, string $username, string $role, string $action, string $detail = ''): void
     {

@@ -73,7 +73,7 @@ export function budgetYears(now) {
 }
 
 // 清单外审核：填报行 → 编辑入库表单
-// （purchase_items 无 category 字段恒空；quantity/use_location 不继承，员工值仅在 merge 时由后端保留）
+// （purchase_items 无 category 字段恒空；use_location 不继承；数量不参与入库，由后端保留原明细值）
 export function seedCustomForm(row) {
   return {
     name: row.item_name || '',
@@ -83,7 +83,6 @@ export function seedCustomForm(row) {
     line: row.line || '',
     category: '',
     alias: row.item_name || '',
-    quantity: '',
     stock: row.stock ?? '',
     use_location: '',
     remark: row.remark || '',
@@ -131,6 +130,7 @@ export function mapPayload(row, uid, opts = {}) {
 }
 
 // 「保存入库」请求体：create 无 product_id；merge 带 product_id
+// 不提交 quantity：标准商品入库不涉及数量，明细行原数量由后端保持不动
 export function saveCustomPayload(form, row, mode, pid, uid) {
   const payload = {
     item_id: row.id,
@@ -142,7 +142,6 @@ export function saveCustomPayload(form, row, mode, pid, uid) {
     line: form.line,
     category: form.category,
     alias: form.alias,
-    quantity: form.quantity,
     stock: form.stock,
     use_location: form.use_location,
     remark: form.remark,
