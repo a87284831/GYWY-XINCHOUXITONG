@@ -9,7 +9,7 @@
         "text": "采购库配置收敛：移除代码中对旧库 gy_procurement 的兜底默认，配置缺失时直接报错并指明缺少 procurement.dbname，避免配置异常时误连已废弃旧库；采购数据唯一事实源统一为 payroll"
       },
       {
-        "category": "变更",
+        "category": "运维",
         "text": "旧库 gy_procurement 已全量备份至 /root/gy_procurement_deprecated_20261107.sql.gz 后删除，生产备份脚本同步改为只导出 payroll + gy_finance"
       },
       {
