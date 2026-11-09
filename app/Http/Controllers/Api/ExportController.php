@@ -463,7 +463,7 @@ class ExportController extends ApiController
         if ($allMgrs->isNotEmpty()) {
             $mgrSheet = $book->createSheet();
             $mgrSheet->setTitle('管理人员');
-            $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($allMgrs->values()->all()))->values(), $ym . '管理人员工资表', true);
+            $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($allMgrs->values()->all()))->values(), $ym . '管理人员工资表');
         }
         // ===== 案场人员 Sheet（所有项目案场人员明细） =====
         if ($allCases->isNotEmpty()) {
@@ -475,7 +475,7 @@ class ExportController extends ApiController
         if ($allHq->isNotEmpty()) {
             $hqSheet = $book->createSheet();
             $hqSheet->setTitle('总部人员');
-            $this->fillSheet($hqSheet, collect(\App\Services\PayrollCalculator::orderRows($allHq->values()->all()))->values(), $ym . '总部人员工资表', true);
+            $this->fillSheet($hqSheet, collect(\App\Services\PayrollCalculator::orderRows($allHq->values()->all()))->values(), $ym . '总部人员工资表');
         }
         $book->setActiveSheetIndex(0);
         return $this->xlsx($book, '工资全量数据包_' . $ym . '.xlsx');
@@ -692,6 +692,34 @@ class ExportController extends ApiController
             'perf_pay' => $perfPay, 'status' => '', 'blocks' => [],
         ];
 
+        // 季度绩效法新口径：优先读 perf_quarter（季末月），不再逐月展开
+        $q = is_array($row['perf_quarter'] ?? null) ? $row['perf_quarter'] : null;
+        if ($q !== null) {
+            $qErr = $q['error'] ?? null;
+            if ($qErr) {
+                $entry['mode'] = '季度兑现失败';
+                $entry['status'] = '季度：' . (self::PERF_ERROR_LABELS[$qErr] ?? $qErr);
+                return $entry;
+            }
+            $months = is_array($q['months'] ?? null) ? $q['months'] : [];
+            $entry['grade'] = (string) ($q['pay_grade'] ?? '');
+            $entry['mode'] = '季度兑现';
+            $entry['coef'] = (float) ($q['coef'] ?? 0);
+            $entry['base'] = (float) ($q['base'] ?? 0);
+            if ($months) {
+                $entry['blocks'][] = [
+                    'kind' => '季度', 'period' => (string) ($q['period'] ?? ''),
+                    'coef' => (float) ($q['coef'] ?? 0),
+                    'ratio' => (float) ($q['ratio'] ?? 0),
+                    'months' => $months,
+                ];
+                $entry['status'] = '正常';
+            } else {
+                $entry['status'] = '季内无有效月度数据';
+            }
+            return $entry;
+        }
+
         $d = is_array($row['perf_detail'] ?? null) ? $row['perf_detail'] : null;
         if ($d === null) {
             // 月度发放：基数按"应发÷月系数"反推（保证 基数×系数≈应发 可核对）；系数 0 时基数无意义留空
@@ -699,6 +727,17 @@ class ExportController extends ApiController
             $entry['coef'] = $coef;
             $entry['base'] = $coef != 0.0 ? round($perfPay / $coef, 2) : '';
             $entry['status'] = $perfPay > 0 ? '正常' : '本月绩效为0';
+            return $entry;
+        }
+
+        // 旧季度绩效法（升级前落库的 perf_detail：无 ratio/半年度字段、无 error）→ 显示历史月度数据
+        if (empty($d['error']) && !array_key_exists('ratio', $d) && !array_key_exists('half_year', $d)) {
+            $entry['mode'] = '历史月度数据';
+            $entry['coef'] = (float) ($d['coef'] ?? 0);
+            $entry['base'] = isset($d['months']) && is_array($d['months'])
+                ? round(array_sum(array_map(fn ($m) => (float) ($m['amount'] ?? 0), $d['months'])), 2)
+                : '';
+            $entry['status'] = '历史月度数据（旧季度口径）';
             return $entry;
         }
 
@@ -976,7 +1015,7 @@ class ExportController extends ApiController
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无管理人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
         $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '管理人员工资表', true);
+        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '管理人员工资表');
         return $this->xlsx($book, '管理人员工资表_' . $ym . '.xlsx');
     }
 
@@ -995,7 +1034,7 @@ class ExportController extends ApiController
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无总部人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
         $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '总部人员工资表', true);
+        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '总部人员工资表');
         return $this->xlsx($book, '总部人员工资表_' . $ym . '.xlsx');
     }
     /** 分项目管理人员工资表导出（仅总部）：选项目 → 该项目管理人员单独一张 Excel */
@@ -1016,7 +1055,7 @@ class ExportController extends ApiController
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '该项目无管理人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
         $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '管理人员工资表', true);
+        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '管理人员工资表');
         return $this->xlsx($book, $project . '_管理人员工资表_' . $ym . '.xlsx');
     }
 
@@ -1039,7 +1078,7 @@ class ExportController extends ApiController
 
         $book = new Spreadsheet();
         $mgrSheet = $book->getActiveSheet();
-        $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values(), $ym . '管理人员工资表', true);
+        $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values(), $ym . '管理人员工资表');
         $mgrSheet->setTitle('管理人员工资表');
 
         $sumSheet = $book->createSheet();
@@ -1113,36 +1152,39 @@ class ExportController extends ApiController
         $ms->freezePane('A3');
     }
 
-    private function fillSheet($sheet, $rows, string $title, bool $withPerfDetail = false): void
+    /**
+     * 第 39 列「季度绩效说明」（文本）：季末月输出
+     * `2026Q4｜10-12月｜出勤62/63｜系数1.0`；非季末月/非季度绩效法/错误行留空。
+     */
+    private function quarterPerfNote(array $row): string
+    {
+        $q = $row['perf_quarter'] ?? null;
+        if (!is_array($q) || !empty($q['error'])) return '';
+        $months = is_array($q['months'] ?? null) ? $q['months'] : [];
+        if (!$months) return '';
+        $period = str_replace('-Q', 'Q', (string) ($q['period'] ?? ''));
+        $first = (int) substr((string) ($months[0]['ym'] ?? ''), 5, 2);
+        $last = (int) substr((string) (end($months)['ym'] ?? ''), 5, 2);
+        $range = count($months) === 1 ? "{$first}月" : "{$first}-{$last}月";
+        $att = $this->numText((float) ($q['att'] ?? 0));
+        $req = $this->numText((float) ($q['req'] ?? 0));
+        $coef = $this->numText((float) ($q['coef'] ?? 0), 1);
+        return implode('｜', [$period, $range, "出勤{$att}/{$req}", "系数{$coef}"]);
+    }
+
+    /** 数字文本：整数不带小数；非整保留最多 2 位（$minDecimals 用于系数保留 1 位） */
+    private function numText(float $v, int $minDecimals = 0): string
+    {
+        $v = round($v, 2);
+        if (abs($v - round($v)) < 0.00001) return number_format($v, $minDecimals, '.', '');
+        return rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
+    }
+
+    private function fillSheet($sheet, $rows, string $title): void
     {
         $sheet->setTitle(preg_replace('#[\[\]:*?/\\\\]#u', '_', mb_substr($title, 0, 31)));
-        // 季度绩效逐月明细列（管理/总部工资表）：key = "Q1|2026-01" / "H1|2026-04"
-        $detailCols = [];
-        if ($withPerfDetail) {
-            foreach ($rows as $row) {
-                $d = $row['perf_detail'] ?? null;
-                if (!is_array($d) || isset($d['error']) || !is_array($d['months'] ?? null)) continue;
-                $qTag = substr((string)($d['period'] ?? ''), 5) ?: 'Q';
-                foreach ($d['months'] as $m) {
-                    $k = $qTag . '|' . $m['ym'];
-                    $detailCols[$k] = $qTag . '·' . (int)substr($m['ym'], 5, 2) . '月绩效';
-                }
-                $h = $d['half_year'] ?? null;
-                if (is_array($h) && !isset($h['error']) && is_array($h['months'] ?? null)) {
-                    $hTag = substr((string)($h['period'] ?? ''), 5) ?: 'H';
-                    foreach ($h['months'] as $m) {
-                        $k = $hTag . '|' . $m['ym'];
-                        $detailCols[$k] = $hTag . '·' . (int)substr($m['ym'], 5, 2) . '月绩效';
-                    }
-                }
-            }
-            // 按月排序；同月内季度列(Q)在前、半年度列(H)在后，与页面子行顺序一致
-            uksort($detailCols, fn ($a, $b) => strcmp(
-                substr($a, -7) . (str_starts_with($a, 'H') ? '~' : '') . $a,
-                substr($b, -7) . (str_starts_with($b, 'H') ? '~' : '') . $b
-            ));
-        }
-        $headers = array_merge(self::COLUMNS, array_values($detailCols));
+        // 季度绩效不再逐月展开：固定 38 列主表 + 第 39 列「季度绩效说明」（文本，非金额）
+        $headers = array_merge(self::COLUMNS, ['季度绩效说明']);
         $colCount = count($headers);
         $lastLetter = Coordinate::stringFromColumnIndex($colCount);
 
@@ -1168,10 +1210,7 @@ class ExportController extends ApiController
 
         // ===== 数据行 =====
         $rowNumber = 3;
-        $baseColCount = count(self::COLUMNS);
-        $detailIdx = array_keys($detailCols);
         $moneyCols = [8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37];
-        for ($c = $baseColCount + 1; $c <= $colCount; $c++) $moneyCols[] = $c;
         foreach ($rows->values() as $index => $row) {
             $values = [$index + 1, $row['project'] ?? '', $row['department'] ?? '', $row['position'] ?? '', $row['name'] ?? '',
                 $row['status'] ?? '', $row['hire_date'] ?? '', $row['fixed'] ?? 0, $row['base'] ?? 0, $row['req_att'] ?? 0, $row['act_att'] ?? 0,
@@ -1179,20 +1218,8 @@ class ExportController extends ApiController
                 $row['night'] ?? 0, $row['meal'] ?? 0, $row['title_sub'] ?? 0, $row['reward'] ?? 0, $row['backpay'] ?? 0, $row['welfare'] ?? 0,
                 $row['punish'] ?? 0, $row['late_d'] ?? 0, $row['miss_d'] ?? 0, $row['other_d'] ?? 0, $row['uniform_d'] ?? 0,
                 $row['gross'] ?? 0, $row['pen'] ?? 0, $row['med'] ?? 0, $row['une'] ?? 0, $row['house'] ?? 0, $row['big'] ?? 0,
-                $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['tax_diff'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? ''];
-            // 逐月绩效明细列值（无该月明细 → 空）
-            foreach ($detailIdx as $k) {
-                [$tag, $ym] = explode('|', $k);
-                $amt = '';
-                $d = $row['perf_detail'] ?? null;
-                if (is_array($d) && !isset($d['error'])) {
-                    $src = str_starts_with($tag, 'H') ? ($d['half_year']['months'] ?? []) : ($d['months'] ?? []);
-                    foreach ($src as $m) {
-                        if (($m['ym'] ?? '') === $ym) { $amt = $m['amount'] ?? 0; break; }
-                    }
-                }
-                $values[] = $amt;
-            }
+                $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['tax_diff'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? '',
+                $this->quarterPerfNote($row)];
             $sheet->fromArray($values, null, 'A' . $rowNumber);
             // 显式重写数值（fromArray 会跳过 float(0) 单元格，导致 0 值列留空）
             foreach ($values as $ci => $v) {
@@ -1208,8 +1235,8 @@ class ExportController extends ApiController
                     $cellStyle->getAlignment()->setHorizontal('right');
                 } elseif (in_array($c, [10, 11, 12], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
-                } elseif ($c === 38) {
-                    $cellStyle->getAlignment()->setHorizontal('left'); // 备注列左对齐
+                } elseif ($c === 38 || $c === 39) {
+                    $cellStyle->getAlignment()->setHorizontal('left')->setVertical('center'); // 备注/季度绩效说明左对齐
                 } else {
                     $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
                 }
@@ -1224,7 +1251,6 @@ class ExportController extends ApiController
         // ===== 合计行 =====
         $totalRow = $rowNumber;
         $sumCols = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37];
-        for ($c = $baseColCount + 1; $c <= $colCount; $c++) $sumCols[] = $c;
         $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
         $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);
         $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal('right');
@@ -1266,9 +1292,9 @@ class ExportController extends ApiController
         }
 
         // ===== 列宽 =====
-        // 38 列（含补发工资；备注 16 宽）
+        // 39 列（含补发工资；备注 16 宽；第 39 列季度绩效说明 34 宽）
         $widths = [6, 14, 12, 14, 10, 8, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
-            10, 10, 10, 10, 11, 8, 12, 12, 10, 12, 16, 16];
+            10, 10, 10, 10, 11, 8, 12, 12, 10, 12, 16, 16, 34];
         for ($c = 1; $c <= $colCount; $c++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);
         }

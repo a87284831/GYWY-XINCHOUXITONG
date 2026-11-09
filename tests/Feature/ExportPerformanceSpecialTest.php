@@ -83,16 +83,17 @@ class ExportPerformanceSpecialTest extends TestCase
     {
         // 基层员工：月度发放 coef=1 perf_pay=500
         $this->seedRow(['ym' => '2026-04', 'staff_id' => 1, 'name' => '李四', 'coef' => 1, 'perf_pay' => 500]);
-        // 经理：季度兑现（Q1，季度系数 1，逐月计提 1000×3，兑现 3000）
+        // 经理：季度兑现（Q1，季度系数 1，逐月基数 1000×3，兑现 3000）
         $this->seedRow([
             'ym' => '2026-04', 'staff_id' => 2, 'name' => '张三', 'department' => '管理部',
-            'position' => '经理', 'perf_pay' => 3000, 'coef' => 0,
-            'perf_detail' => [
-                'period' => '2026-Q1', 'pay_grade' => '经理级', 'coef' => 1.0,
+            'position' => '经理', 'perf_pay' => 3000, 'coef' => 1,
+            'perf_quarter' => [
+                'period' => '2026-Q1', 'base' => 3000, 'att' => 66, 'req' => 66,
+                'ratio' => 1, 'coef' => 1.0, 'amount' => 3000, 'pay_grade' => '经理级',
                 'months' => [
-                    ['ym' => '2026-01', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
-                    ['ym' => '2026-02', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
-                    ['ym' => '2026-03', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
+                    ['ym' => '2026-01', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
+                    ['ym' => '2026-02', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
+                    ['ym' => '2026-03', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
                 ],
             ],
         ], ['manager' => true]);
@@ -130,6 +131,30 @@ class ExportPerformanceSpecialTest extends TestCase
         $this->assertEquals(3000, (float) $zhang[9]); // Σ 逐月计提
         $this->assertEquals(3000, (float) $zhang[10]);
         $this->assertSame('正常', $zhang[11]);
+    }
+
+    public function test_legacy_quarter_detail_shows_history_monthly_data(): void
+    {
+        // 升级前落库的季度绩效法 perf_detail（无 ratio）→ 台账标注历史月度数据
+        $this->seedRow([
+            'ym' => '2026-04', 'staff_id' => 9, 'name' => '钱九', 'perf_pay' => 3000, 'coef' => 1,
+            'perf_detail' => [
+                'period' => '2026-Q1', 'pay_grade' => '经理级', 'coef' => 1.0,
+                'months' => [
+                    ['ym' => '2026-01', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
+                    ['ym' => '2026-02', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
+                    ['ym' => '2026-03', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
+                ],
+            ],
+        ], ['manager' => true]);
+        $res = $this->getJson('/api/export/performance?ym=2026-04', ['X-Token' => $this->token]);
+        $book = $this->loadBook($res->streamedContent());
+        $qian = $this->findRow($this->sheetGrid($book->getSheet(0)), '钱九');
+        $this->assertNotNull($qian);
+        $this->assertSame('历史月度数据', $qian[7]);
+        $this->assertEquals(3000, (float) $qian[9]);
+        $this->assertStringContainsString('历史', (string) $qian[11]);
+        $this->assertSame(1, $book->getSheetCount(), '历史数据不再逐月展开 Sheet2');
     }
 
     public function test_sheet2_expands_period_months_with_subtotal(): void

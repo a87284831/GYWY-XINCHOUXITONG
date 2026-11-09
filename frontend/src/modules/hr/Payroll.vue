@@ -172,7 +172,6 @@
               <table class="tb" :ref="(el) => (typeTableEls[tp] = el)">
                 <thead><tr>
                   <th v-for="h in payHeadsData" :key="h">{{ h }}</th>
-                  <th v-for="c in perfCols[tp]" :key="c.key" style="color:#64748b">{{ c.label }}</th>
                   <th>操作</th>
                   <th>备注</th>
                 </tr></thead>
@@ -203,7 +202,6 @@
                       <td class="num">{{ money(r.actual_tax) }}</td>
                       <td class="num">{{ money(r.tax_diff) }}</td>
                       <td class="num" :class="isZeroPayRow(r) ? 'zero-pay' : 'pay-pos'" :title="isZeroPayRow(r) ? `实发${r.net}元（出勤${r.act_att ?? 0}天）` : ''">{{ money(r.net) }}</td>
-                      <td v-for="c in perfCols[tp]" :key="c.key" class="num" style="color:#64748b">{{ perfAmt(r, c.key) }}</td>
                       <td><button class="btn sm" :disabled="!!typeAdjustReason(tp)" :title="typeAdjustReason(tp) || '人工微调该行薪资'" @click.stop="openAdjust(r)">微调</button></td>
                       <td class="remark-cell">{{ r.remark || '' }}</td>
                     </tr>
@@ -225,7 +223,6 @@
                     <td class="num">{{ money(typeTot[tp].sums.actual_tax) }}</td>
                     <td class="num">{{ money(typeTot[tp].sums.tax_diff) }}</td>
                     <td class="num" style="color:#16a34a;font-weight:bold">{{ money(typeTot[tp].sums.net) }}</td>
-                    <td v-for="c in perfCols[tp]" :key="'t' + c.key"></td>
                     <td></td><td></td>
                   </tr>
                 </tfoot>
@@ -487,7 +484,7 @@ import { money } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
-import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, perfDetailCols, perfDetailCell, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
+import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
 import CalcNotice from './CalcNotice.vue'
 import Icon from '@/components/Icon.vue'
 
@@ -597,17 +594,6 @@ const typeTot = computed(() => ({
   hq: payTotalRow(typeFiltered.value.hq),
 }))
 
-// 季度绩效逐月明细：横向列（季度末月且有 perf_detail 的行才有），列头/键与 Excel 导出一致
-const perfCols = computed(() => ({
-  mgr: perfDetailCols(typeFiltered.value.mgr),
-  case: perfDetailCols(typeFiltered.value.case),
-  hq: perfDetailCols(typeFiltered.value.hq),
-}))
-// 明细单元格：无该月明细显示空（与导出一致），有则显示两位小数金额
-function perfAmt(r, key) {
-  const v = perfDetailCell(r, key)
-  return v === null ? '' : money(v)
-}
 // 微调日志：列表接口已按 id 倒序（最新在前），最多展示 50 条
 const empLogs = computed(() => (empMeta.value.logs || []).slice(0, 50))
 // 微调高亮：本月有微调日志的人员集合（后端 adjusted_staff_ids），行标黄+“调”标签

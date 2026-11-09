@@ -123,40 +123,6 @@ export function coefEntryLabel(ym) {
   return h ? `录入 ${q} 季度 + ${h} 半年度系数` : `录入 ${q} 季度系数`
 }
 
-/**
- * 工资表横向逐月绩效列（管理/总部，季度末月）：返回 [{key, label}]。
- * key 与 Excel 导出一致："Q1|2026-01" / "H1|2026-04"；按月排序，同月 Q 在前 H 在后。
- */
-export function perfDetailCols(rows) {
-  const cols = {}
-  for (const r of rows || []) {
-    const d = r && r.perf_detail
-    if (!d || d.error || !Array.isArray(d.months)) continue
-    const qTag = String(d.period || '').slice(5) || 'Q'
-    for (const m of d.months) cols[`${qTag}|${m.ym}`] = `${qTag}·${Number(m.ym.slice(5, 7))}月绩效`
-    const h = d.half_year
-    if (h && !h.error && Array.isArray(h.months)) {
-      const hTag = String(h.period || '').slice(5) || 'H'
-      for (const m of h.months) cols[`${hTag}|${m.ym}`] = `${hTag}·${Number(m.ym.slice(5, 7))}月绩效`
-    }
-  }
-  const byte = (x, y) => (x < y ? -1 : x > y ? 1 : 0) // 字节序（localeCompare 会弱化 ~ | 符号，导致 Q/H 顺序错乱）
-  return Object.entries(cols)
-    .sort((a, b) => byte(a[0].slice(-7) + (a[0].startsWith('H') ? '~' : '') + a[0], b[0].slice(-7) + (b[0].startsWith('H') ? '~' : '') + b[0]))
-    .map(([key, label]) => ({ key, label }))
-}
-
-/** 横向明细单元格金额：key = "Q1|2026-01"；无该列数据 → null（系数已统一到主表 coef 列，不再走横向列） */
-export function perfDetailCell(row, key) {
-  const d = row && row.perf_detail
-  if (!d || d.error) return null
-  const [tag, rest] = String(key).split('|')
-  const src0 = tag.startsWith('H') ? d.half_year : d
-  const src = src0 && !src0.error && Array.isArray(src0.months) ? src0.months : []
-  const m = src.find((x) => x.ym === rest)
-  return m ? m.amount : null
-}
-
 // ---------------- 数据缺口防护（Task 4 纯函数） ----------------
 
 /** 判断是否为 0 工资/负工资行（用于表格高亮）。

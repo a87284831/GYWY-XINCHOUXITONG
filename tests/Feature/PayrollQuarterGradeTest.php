@@ -168,7 +168,10 @@ class PayrollQuarterGradeTest extends TestCase
         $this->seedManager(1, '张三');
         $r = $this->calcManagers('2026-03', ['张三'])['张三'];
         $this->assertEquals(0.0, (float) $r['perf_pay'], '季度型季度中月绩效为 0');
-        $this->assertNull($r['perf_detail'] ?? null);
+        $this->assertNull($r['perf_quarter'] ?? null);
+        // 新口径：季度中月份仍按月落库 perf_req / perf_base_month，供季末读取
+        $this->assertEquals(22.0, (float) ($r['perf_req'] ?? 0));
+        $this->assertEquals(1000.0, (float) ($r['perf_base_month'] ?? 0));
     }
 
     public function test_quarter_grade_quarter_type_pays_q1_full_without_ratio(): void
@@ -178,16 +181,19 @@ class PayrollQuarterGradeTest extends TestCase
         foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
         $this->seedCoef(1, 'quarterly', '2026-Q1', 0.9);
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
-        // Σ(1000×22/22)×3 = 3000；3000 × 季度系数0.9 = 2700（无比例、全额）
+        // 季度满勤基数 3×1000=3000；出勤率 66/66=1；3000 × 1 × 0.9 = 2700
         $this->assertEquals(2700.0, (float) $r['perf_pay']);
-        $d = $r['perf_detail'] ?? null;
-        $this->assertNotNull($d);
-        $this->assertEquals('2026-Q1', $d['period']);
-        $this->assertEquals('quarterly', $d['type']);
-        $this->assertArrayNotHasKey('ratio', $d, '季度绩效法无比例字段');
-        $this->assertArrayNotHasKey('half_year', $d, '季度绩效法无半年度部分');
-        $this->assertEquals(0.9, (float) $d['coef']);
-        $this->assertEquals(['2026-01', '2026-02', '2026-03'], array_column($d['months'], 'ym'));
+        $q = $r['perf_quarter'] ?? null;
+        $this->assertNotNull($q);
+        $this->assertEquals('2026-Q1', $q['period']);
+        $this->assertEquals(3000.0, (float) $q['base']);
+        $this->assertEquals(66.0, (float) $q['att']);
+        $this->assertEquals(66.0, (float) $q['req']);
+        $this->assertEquals(1.0, (float) $q['ratio']);
+        $this->assertEquals(0.9, (float) $q['coef']);
+        $this->assertEquals(2700.0, (float) $q['amount']);
+        $this->assertEquals(['2026-01', '2026-02', '2026-03'], array_column($q['months'], 'ym'));
+        $this->assertNull($r['perf_detail'] ?? null, '季度绩效法不再写 perf_detail');
     }
 
     public function test_quarter_grade_quarter_type_july_no_half_year(): void
@@ -199,8 +205,8 @@ class PayrollQuarterGradeTest extends TestCase
         $r = $this->calcManagers('2026-07', ['张三'])['张三'];
         // 仅 Q2：3 × 1000 × 1.0 = 3000，无 H1 加发
         $this->assertEquals(3000.0, (float) $r['perf_pay']);
-        $this->assertEquals('2026-Q2', $r['perf_detail']['period'] ?? null);
-        $this->assertArrayNotHasKey('half_year', $r['perf_detail']);
+        $this->assertEquals('2026-Q2', $r['perf_quarter']['period'] ?? null);
+        $this->assertArrayNotHasKey('half_year', $r['perf_quarter'] ?? []);
     }
 
     public function test_quarter_grade_quarter_missing_coef_marks_error(): void
@@ -210,8 +216,8 @@ class PayrollQuarterGradeTest extends TestCase
         foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
         $this->assertEquals(0.0, (float) $r['perf_pay']);
-        $this->assertEquals('missing_coef', $r['perf_detail']['error'] ?? null);
-        $this->assertEquals('2026-Q1', $r['perf_detail']['period'] ?? null);
+        $this->assertEquals('missing_coef', $r['perf_quarter']['error'] ?? null);
+        $this->assertEquals('2026-Q1', $r['perf_quarter']['period'] ?? null);
     }
 
     public function test_quarter_grade_missing_and_invalid_grade_mark_error(): void
@@ -227,9 +233,9 @@ class PayrollQuarterGradeTest extends TestCase
         $this->seedCoef(2, 'quarterly', '2026-Q1', 1.0);
         $all = $this->calcManagers('2026-04', ['张三', '李四']);
         $this->assertEquals(0.0, (float) $all['张三']['perf_pay']);
-        $this->assertEquals('missing_pay_grade', $all['张三']['perf_detail']['error'] ?? null);
+        $this->assertEquals('missing_pay_grade', $all['张三']['perf_quarter']['error'] ?? null);
         $this->assertEquals(0.0, (float) $all['李四']['perf_pay']);
-        $this->assertEquals('invalid_pay_grade', $all['李四']['perf_detail']['error'] ?? null);
+        $this->assertEquals('invalid_pay_grade', $all['李四']['perf_quarter']['error'] ?? null);
     }
 
     public function test_quarter_grade_monthly_type_pays_every_month_with_coef(): void
@@ -272,7 +278,7 @@ class PayrollQuarterGradeTest extends TestCase
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
         // 仅累计在职的 2/3 月：2000 × 1.0 = 2000
         $this->assertEquals(2000.0, (float) $r['perf_pay']);
-        $this->assertEquals(['2026-02', '2026-03'], array_column($r['perf_detail']['months'], 'ym'));
+        $this->assertEquals(['2026-02', '2026-03'], array_column($r['perf_quarter']['months'], 'ym'));
     }
 
     /** 回归（2026-10-21 总部 4 月事故）：专员级同样走季度型，录入 1.00 必须视为已录入 */
@@ -283,7 +289,7 @@ class PayrollQuarterGradeTest extends TestCase
         foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory(1, $m);
         $this->seedCoef(1, 'quarterly', '2026-Q1', 1.0);
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
-        $this->assertArrayNotHasKey('error', $r['perf_detail'] ?? [], '1.00 是合法系数，不得判为未录入');
+        $this->assertArrayNotHasKey('error', $r['perf_quarter'] ?? [], '1.00 是合法系数，不得判为未录入');
         $this->assertEquals(3000.0, (float) $r['perf_pay']);
         $this->assertEquals(1.0, (float) $r['coef']);
     }
@@ -300,7 +306,7 @@ class PayrollQuarterGradeTest extends TestCase
             ->update(['row_data' => json_encode(['coef' => 1.0, 'fixed' => 6000, 'base' => 5000,
                 'perf_att' => 22, 'req_att' => 22, 'name' => '张三'], JSON_UNESCAPED_UNICODE)]);
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
-        $this->assertArrayNotHasKey('error', $r['perf_detail'] ?? []);
+        $this->assertArrayNotHasKey('error', $r['perf_quarter'] ?? []);
         $this->assertEquals(3300.0, (float) $r['perf_pay'], '按录入值 1.1 计发');
         $this->assertEquals(1.1, (float) $r['coef'], '主表 coef 应回写为录入值');
     }
@@ -319,7 +325,7 @@ class PayrollQuarterGradeTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
-        $this->assertEquals('missing_coef', $r['perf_detail']['error'] ?? null);
+        $this->assertEquals('missing_coef', $r['perf_quarter']['error'] ?? null);
         $this->assertEquals(0.0, (float) $r['perf_pay']);
     }
 }

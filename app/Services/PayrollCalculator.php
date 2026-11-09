@@ -621,11 +621,18 @@ class PayrollCalculator
     }
 
     /**
-     * 提取行的绩效错误码：顶层 perf_detail.error 优先；为空再取嵌套
-     * perf_detail.half_year.error；均无或 perf_detail 不存在返回 null。
+     * 提取行的绩效错误码：季度绩效法新口径取 perf_quarter.error；否则顶层
+     * perf_detail.error 优先，为空再取嵌套 perf_detail.half_year.error；
+     * 均无或字段不存在返回 null。
      */
     public static function perfErrorCode(array $rowData): ?string
     {
+        // 季度绩效法新口径：错误挂在 perf_quarter.error
+        $quarter = $rowData['perf_quarter'] ?? null;
+        if (is_array($quarter)) {
+            $qe = trim((string)($quarter['error'] ?? ''));
+            if ($qe !== '') return $qe;
+        }
         $detail = $rowData['perf_detail'] ?? null;
         if (!is_array($detail)) return null;
         $top = trim((string)($detail['error'] ?? ''));
@@ -775,6 +782,13 @@ class PayrollCalculator
         }
         $perfAttend = round($perfAttend, 2);
 
+        // 季度绩效法（新口径）落库键：perf_req=剔除试用段后的应出勤，
+        // perf_base_month=当月满勤基数（max(0,fixed-base)，按薪资段加权、入/离职按在职日历天数折算）。
+        // 仅季度型人员写入，月度/分期兑现人员 row_data 保持原样。
+        $perfReq = null;
+        $perfBaseMonth = null;
+        $perfQuarter = null;
+
         $basePay = round($basePay, 2);
         $perfPay = round($perfPay, 2);
         $sickPay = round($sickPay, 2);
@@ -871,38 +885,77 @@ class PayrollCalculator
                     $gradeError = 'invalid_pay_grade';
                 }
                 if ($isQuarterMode) {
+                    // 新口径开关 performance.quarter_sum（默认开）：季度绩效 = 季度满勤基数 × 季度出勤率 × 季度系数；
+                    // 关闭即回退旧算法（季度系数 × Σ(当月基数 × 当月出勤/应出勤)），用于紧急回滚。
+                    $quarterSum = $this->rules->flag('performance.quarter_sum', true);
+                    if ($quarterSum) {
+                        $perfReq = $this->monthlyPerfReq($att, $symbols, $segments, $h, $perfEnabled, $perfSkipProbation);
+                        $perfBaseMonth = $this->monthlyPerfBase($person, $segments, $ym);
+                    }
                     if ($this->isQuarterEnd($month)) {
                         [$qKey, $qYms] = $this->quarterPeriod($year, $month);
                         if ($gradeError) {
                             $perfPay = 0.0;
-                            $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
+                            $perfQuarter = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                         } else {
-                            [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
                             // 「是否已录入」以周期系数表为显式凭证：1.00 是合法系数，不能用 coef==1.0 判空；
                             // 未走弹窗双写的历史/导入行仅在 coef≠1.0 时兼容读取
                             $periodCoef = $this->periodCoef((int)$person->legacy_id, 'quarterly', $qKey);
                             $qCoef = $periodCoef ?? (($rowCoef !== null && $rowCoef != 1.0) ? $rowCoef : null);
-                            if ($qCoef === null) {
-                                $perfPay = 0.0;
-                                $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
+                            if ($quarterSum) {
+                                // 新口径：季内缺考勤/缺工资行的月份直接跳过（不进分子分母）；三月全缺 → 记 0 + info
+                                [$qBase, $qAtt, $qReq, $qMonths] = $this->accumulateQuarterPerf($person, $category, $qYms, $historyByStaff);
+                                if (!$qMonths) {
+                                    $perfPay = 0.0;
+                                    \Illuminate\Support\Facades\Log::info('季度绩效：季内无有效月度数据，按 0 计', [
+                                        'staff_id' => $person->legacy_id, 'name' => $person->name,
+                                        'period' => $qKey, 'ym' => $ym,
+                                    ]);
+                                    $perfQuarter = [
+                                        'period' => $qKey, 'months' => [], 'base' => 0.0,
+                                        'att' => 0.0, 'req' => 0.0, 'ratio' => 0.0,
+                                        'coef' => $qCoef, 'amount' => 0.0, 'pay_grade' => $payGrade,
+                                    ];
+                                } elseif ($qCoef === null) {
+                                    $perfPay = 0.0;
+                                    $perfQuarter = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
+                                } else {
+                                    $qRatio = $qReq > 0 ? $qAtt / $qReq : 0.0;
+                                    $amount = round($qBase * $qRatio * $qCoef, 2);
+                                    $coef = $qCoef;
+                                    $perfPay = $amount;
+                                    $perfQuarter = [
+                                        'period' => $qKey, 'months' => $qMonths,
+                                        'base' => $qBase, 'att' => $qAtt, 'req' => $qReq,
+                                        'ratio' => round($qRatio, 4), 'coef' => $qCoef, 'amount' => $amount,
+                                        'pay_grade' => $payGrade,
+                                    ];
+                                }
                             } else {
-                                $coef = $qCoef;
-                                $perfPay = round($qBase * $qCoef, 2);
-                                $perfDetail = [
-                                    'period' => $qKey, 'type' => 'quarterly', 'pay_grade' => $payGrade,
-                                    'coef' => $qCoef, 'months' => $qMonths,
-                                ];
+                                // legacy 旧算法（回滚用）
+                                [$qBase, $qMonths] = $this->accumulatePeriodPerf($person, $category, $qYms, $historyByStaff);
+                                if ($qCoef === null) {
+                                    $perfPay = 0.0;
+                                    $perfDetail = ['error' => 'missing_coef', 'period' => $qKey, 'pay_grade' => $payGrade];
+                                } else {
+                                    $coef = $qCoef;
+                                    $perfPay = round($qBase * $qCoef, 2);
+                                    $perfDetail = [
+                                        'period' => $qKey, 'type' => 'quarterly', 'pay_grade' => $payGrade,
+                                        'coef' => $qCoef, 'months' => $qMonths,
+                                    ];
+                                }
                             }
                         }
                     } else {
-                        // 季度型·季度中月份：绩效为 0
+                        // 季度型·季度中月份：绩效为 0（perf_req/perf_base_month 仍按月落库，供季末读取）
                         $perfPay = 0.0;
                     }
                 } elseif ($gradeError && $this->isQuarterEnd($month)) {
-                    // 月度型档位异常仅在季度末月挂错（非末月无 perf_detail 展示位，当月按常规段发放）
+                    // 季度绩效法档位异常仅在季度末月挂错（非末月无展示位，当月按常规段发放）
                     $perfPay = 0.0;
                     [$qKey] = $this->quarterPeriod($year, $month);
-                    $perfDetail = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
+                    $perfQuarter = ['error' => $gradeError, 'period' => $qKey, 'pay_grade' => $payGrade];
                 }
                 // 月度型且档位正常：保留常规段 perfPay，无 perf_detail，不查询季度系数
             }
@@ -1059,7 +1112,7 @@ class PayrollCalculator
         $__cfResult = [];
         $__cfList = $this->rules->raw('custom_fields', []);
         if (is_array($__cfList)) { foreach ($__cfList as $__f) { if (empty($__f['enabled'])) continue; $__cn = trim((string)($__f['name'] ?? '')); if ($__cn !== '') $__cfResult[$__cn] = round((float)($att['cf_' . $__cn] ?? $__f['default'] ?? 0), 2); } }
-        return array_merge([
+        $rowData = array_merge([
             'staff_id' => $person->legacy_id, 'project' => $person->project_name,
             'department' => self::deptName($person->dept_path ?? null, $person->project_name),
             'position' => $person->position ?: '', 'name' => $person->name,
@@ -1092,6 +1145,15 @@ class PayrollCalculator
             'bank_card' => $data['bank_card'] ?? '', 'overrides' => [],
             'perf_detail' => $perfDetail,
         ], $__cfResult);
+        // 季度绩效法专用键：仅季度型人员写入（月度/分期兑现人员 row_data 保持原样）
+        if ($perfReq !== null || $perfQuarter !== null) {
+            if ($perfReq !== null) {
+                $rowData['perf_req'] = $perfReq;
+                $rowData['perf_base_month'] = $perfBaseMonth;
+            }
+            $rowData['perf_quarter'] = $perfQuarter;
+        }
+        return $rowData;
     }
 
     /** 微调后重算派生列（gross/net/tax），保持行内其它字段不变。 */
@@ -1600,6 +1662,99 @@ class PayrollCalculator
             }
         }
         return [round($total, 2), $months];
+    }
+
+    /**
+     * 新口径：累计一个季度内已落库的月度数据 → [季度满勤基数, Σ绩效出勤, Σ绩效应出勤, 逐月明细]。
+     * 季内某月没有该员工的工资行（无考勤/无工资行）→ 直接跳过该月，既不进分子也不进分母；
+     * 不阻断、不报错、不按 0 处理。读取键优先用新落库的 perf_base_month / perf_req，
+     * 老月份缺这两个键时回退 fixed−base / req_att（历史数据近似）。
+     */
+    private function accumulateQuarterPerf(object $person, string $category, array $yms, $historyByStaff): array
+    {
+        $base = 0.0; $att = 0.0; $req = 0.0; $months = [];
+        foreach ($yms as $m) {
+            $histRow = $historyByStaff ? $historyByStaff->firstWhere('year_month', $m) : null;
+            if (!$histRow) {
+                $histRow = DB::table('payroll_results')
+                    ->where('staff_legacy_id', $person->legacy_id)
+                    ->where('year_month', $m)
+                    ->where('is_manager_row', $category === 'manager')
+                    ->where('is_case_row', false)
+                    ->where('is_hq_row', $category === 'hq')
+                    ->first();
+            }
+            if (!$histRow) continue; // 缺月跳过
+            $histData = $this->jsonValue($histRow->row_data) ?: [];
+            $monthBase = array_key_exists('perf_base_month', $histData) && is_numeric($histData['perf_base_month'])
+                ? (float)$histData['perf_base_month']
+                : max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
+            $monthAtt = (float)($histData['perf_att'] ?? $histData['act_att'] ?? 0);
+            $monthReq = array_key_exists('perf_req', $histData) && is_numeric($histData['perf_req'])
+                ? (float)$histData['perf_req']
+                : (float)($histData['req_att'] ?? 0);
+            $monthBase = round($monthBase, 2);
+            $monthAtt = round($monthAtt, 2);
+            $monthReq = round($monthReq, 2);
+            $base += $monthBase; $att += $monthAtt; $req += $monthReq;
+            // amount 存当月满勤基数：绩效专项表 Sheet2 用 Σ月基数 × 季度系数 × 季度出勤率 复核季度额
+            $months[] = ['ym' => $m, 'base' => $monthBase, 'perf_att' => $monthAtt, 'perf_req' => $monthReq, 'amount' => $monthBase];
+        }
+        return [round($base, 2), round($att, 2), round($req, 2), $months];
+    }
+
+    /**
+     * 当月绩效应出勤（剔除试用段）：按考勤格子中"应出勤"天数占比切分整月存值 req_attend，
+     * 与 perf_att 的"存值锚定"口径一致。整月试用 → 0；无试用段 → 等于整月应出勤。
+     */
+    private function monthlyPerfReq(array $att, array $symbols, array $segments, float $h, bool $perfEnabled, bool $skipProbation): float
+    {
+        $total = 0; $perf = 0;
+        foreach (($att['days'] ?? []) as $i => $symbol) {
+            $item = self::symbolLookup((string)$symbol, $symbols);
+            if (!$item || empty($item['in_required'])) continue;
+            $total++;
+            $day = $i + 1;
+            foreach ($segments as $seg) {
+                if ($day >= $seg['from'] && $day <= $seg['to']) {
+                    if ($perfEnabled && !($skipProbation && !empty($seg['probation']))) $perf++;
+                    break;
+                }
+            }
+        }
+        if ($total <= 0) return 0.0;
+        return round($h * $perf / $total, 2);
+    }
+
+    /**
+     * 当月满勤绩效基数 = Σ(段内 max(0,fixed−base) × 段天数 / 当月天数) × 在职日历天数占比。
+     * 段加权覆盖季内调薪；在职占比覆盖入/离职当月（如 11/20 离职 → 20/30）。
+     */
+    private function monthlyPerfBase(object $person, array $segments, string $ym): float
+    {
+        $days = (int)date('t', strtotime($ym . '-01'));
+        if ($days <= 0) return 0.0;
+        $full = 0.0;
+        foreach ($segments as $seg) {
+            $segDays = (float)($seg['to'] - $seg['from'] + 1);
+            $full += max(0.0, (float)$seg['fixed'] - (float)$seg['base']) * $segDays / $days;
+        }
+        return round($full * $this->employmentRatio($person, $ym), 2);
+    }
+
+    /** 当月在职日历天数占比：入职/离职当月按实际在职天数折算，其余月份为 1.0。 */
+    private function employmentRatio(object $person, string $ym): float
+    {
+        $days = (int)date('t', strtotime($ym . '-01'));
+        $mStart = $ym . '-01';
+        $mEnd = date('Y-m-t', strtotime($ym . '-01'));
+        $hire = substr((string)($person->hire_date ?? ''), 0, 10);
+        $resign = substr((string)($person->resign_date ?? ''), 0, 10);
+        $from = ($hire !== '' && $hire > $mStart) ? $hire : $mStart;
+        $to = ($resign !== '' && $resign < $mEnd) ? $resign : $mEnd;
+        if ($to < $from) return 0.0;
+        $worked = (int)round((strtotime($to) - strtotime($from)) / 86400) + 1;
+        return max(0.0, min(1.0, $worked / $days));
     }
 
     /** 查周期系数；未录入返回 null（quarterly 法专用，quarter_grade 法走主表 coef） */

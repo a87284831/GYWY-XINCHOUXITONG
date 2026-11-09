@@ -45,7 +45,7 @@
       <button class="btn" @click="go('perf')">③ 绩效工资专项表（发放台账）</button>
       <span class="hint" style="margin:0;display:inline">全员四类人员绩效工资台账（月度发放/季度·半年度兑现、系数、计提基数、应发；缺系数等异常红字标注），季度兑现另附逐月基数 Sheet。</span>
     </div>
-    <div class="hint">工资表类导出均为 Excel 文件，文件名自动携带核算月份与项目名称，表结构与核算结果明细完全一致（34列）；绩效工资专项表为独立台账口径（12列+逐月基数Sheet）。</div>
+    <div class="hint">工资表类导出均为 Excel 文件，文件名自动携带核算月份与项目名称，表结构与核算结果明细完全一致（39列，末列为季度绩效说明）；绩效工资专项表为独立台账口径（12列+逐月基数Sheet）。</div>
   </div>
 </template>
 

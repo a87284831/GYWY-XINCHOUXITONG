@@ -339,6 +339,10 @@ class PayrollWriteController extends ApiController
         if ($record->archived) return response()->json(['ok' => false, 'error' => '已归档，不能微调'], 400);
         $row = $this->jsonValue($record->row_data) ?: [];
         $userGaveTax = array_key_exists('actual_tax', $changes);
+        // 季度绩效法季末月：命中 perf_quarter 时，出勤/系数微调必须按季度公式重算季度额，
+        // 不允许退回"单月 基数×出勤/应出勤×系数"公式回写（否则会把季度额覆盖成单月额）。
+        $pqBefore = is_array($row['perf_quarter'] ?? null) && empty($row['perf_quarter']['error']) ? $row['perf_quarter'] : null;
+        $oldPerfAtt = (float)($row['perf_att'] ?? 0);
         // 日志明细：记录每个字段旧值→新值（旧值取微调前的 row）
         $changeItems = [];
         foreach ($changes as $field => $value) {
@@ -360,14 +364,32 @@ class PayrollWriteController extends ApiController
             $coef = (float)($row['coef'] ?? 1);
             if ($req > 0) {
                 $baseRef = (float)($row['base_pay_ref'] ?? ($row['base_pay'] ?? 0));
-                $perfRef = (float)($row['perf_pay_ref'] ?? ($row['perf_pay'] ?? 0));
                 $row['base_pay'] = round($baseRef * $act / $req, 2);
-                $row['perf_pay'] = round($perfRef * $perf / $req * $coef, 2);
-                // 锚定基准，避免多次微调互相复合
                 $row['base_pay_ref'] = round($baseRef, 2);
-                $row['perf_pay_ref'] = round($perfRef, 2);
             } else {
                 $row['base_pay'] = 0.0;
+            }
+            if ($pqBefore !== null) {
+                // 季末月季度绩效：base/att/req 取季内已落库累计，按季度公式重算；
+                // perf_att 被带走时把差额并入季度出勤（分母仍为季内 Σperf_req）。
+                if (array_key_exists('perf_att', $changes)) {
+                    $pqBefore['att'] = round(max(0.0, (float)($pqBefore['att'] ?? 0) + ($perf - $oldPerfAtt)), 2);
+                }
+                $qReq = (float)($pqBefore['req'] ?? 0);
+                $qBaseAmt = (float)($pqBefore['base'] ?? 0);
+                $qRatio = $qReq > 0 ? (float)$pqBefore['att'] / $qReq : 0.0;
+                $pqBefore['ratio'] = round($qRatio, 4);
+                $pqBefore['coef'] = $coef;
+                $pqBefore['amount'] = round($qBaseAmt * $qRatio * $coef, 2);
+                $row['perf_quarter'] = $pqBefore;
+                $row['perf_pay'] = $pqBefore['amount'];
+                $row['perf_pay_ref'] = $pqBefore['amount'];
+            } elseif ($req > 0) {
+                $perfRef = (float)($row['perf_pay_ref'] ?? ($row['perf_pay'] ?? 0));
+                $row['perf_pay'] = round($perfRef * $perf / $req * $coef, 2);
+                // 锚定基准，避免多次微调互相复合
+                $row['perf_pay_ref'] = round($perfRef, 2);
+            } else {
                 $row['perf_pay'] = 0.0;
             }
         }

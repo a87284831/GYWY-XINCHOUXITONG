@@ -9,8 +9,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
 /**
- * 管理/总部工资表导出：季度绩效逐月明细列。
- * 表头在 36 个标准列之后追加 "Q1·1月绩效" / "H1·1月绩效" 列，数据行填金额，合计行求和。
+ * 管理/总部工资表导出：季度绩效不再逐月展开，固定 38 列 + 第 39 列「季度绩效说明」。
  */
 class ExportPerfDetailTest extends TestCase
 {
@@ -30,8 +29,8 @@ class ExportPerfDetailTest extends TestCase
         Cache::put('payroll_api_token:' . $this->token, $id, now()->addHours(8));
     }
 
-    /** 造一行带 perf_detail 的管理人员核算结果 */
-    private function seedMgrRow(int $staffId, string $ym, array $perfDetail): void
+    /** 造一行管理人员核算结果（可带 perf_quarter / perf_detail） */
+    private function seedMgrRow(int $staffId, string $ym, array $extra): void
     {
         DB::table('payroll_results')->insert([
             'year_month' => $ym, 'staff_legacy_id' => $staffId, 'project_name' => '测试项目',
@@ -43,7 +42,8 @@ class ExportPerfDetailTest extends TestCase
                 'punish' => 0, 'late_d' => 0, 'miss_d' => 0, 'other_d' => 0, 'uniform_d' => 0,
                 'gross' => 7850, 'pen' => 0, 'med' => 0, 'une' => 0, 'house' => 0, 'big' => 0,
                 'soc_total' => 0, 'spec_total' => 0, 'actual_tax' => 0, 'net' => 7850, 'remark' => '',
-            ], ['perf_detail' => $perfDetail]), JSON_UNESCAPED_UNICODE),
+                'perf_detail' => null,
+            ], $extra), JSON_UNESCAPED_UNICODE),
             'archived' => false, 'is_manager_row' => true, 'is_case_row' => false, 'is_hq_row' => false,
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -58,69 +58,57 @@ class ExportPerfDetailTest extends TestCase
         return $sheet;
     }
 
-    public function test_managers_export_appends_quarterly_detail_columns(): void
+    public function test_manager_export_has_fixed_39_columns_and_quarter_note(): void
     {
-        $this->seedMgrRow(1, '2026-04', [
-            'type' => 'quarterly', 'period' => '2026-Q1', 'ratio' => 0.95, 'coef' => 1.0,
-            'total' => 3000, 'amount' => 2850,
+        $this->seedMgrRow(1, '2026-04', ['perf_quarter' => [
+            'period' => '2026-Q1', 'months' => [
+                ['ym' => '2026-01', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
+                ['ym' => '2026-02', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
+                ['ym' => '2026-03', 'base' => 1000, 'perf_att' => 22, 'perf_req' => 22, 'amount' => 1000],
+            ],
+            'base' => 3000, 'att' => 66, 'req' => 66, 'ratio' => 1, 'coef' => 1.0, 'amount' => 3000,
+        ]]);
+        $res = $this->getJson('/api/export/managers?ym=2026-04', ['X-Token' => $this->token]);
+        $res->assertOk();
+        $sheet = $this->loadSheet($res->streamedContent());
+
+        // 固定 39 列：AL=备注（38），AM=季度绩效说明（39）
+        $this->assertSame('备注', $sheet->getCell('AL2')->getValue());
+        $this->assertSame('季度绩效说明', $sheet->getCell('AM2')->getValue());
+        $this->assertSame('AM', $sheet->getHighestColumn(), '不得再追加逐月明细列');
+        // 说明文本：季末月写季度口径
+        $this->assertSame('2026Q1｜1-3月｜出勤66/66｜系数1.0', $sheet->getCell('AM3')->getValue());
+        // 主表第 14 列（N）仍是季度绩效总额
+        $this->assertEquals(2850, (float) $sheet->getCell('N3')->getValue());
+    }
+
+    public function test_non_quarter_row_note_blank_and_note_not_money_formatted(): void
+    {
+        $this->seedMgrRow(1, '2026-03', ['perf_detail' => null]);
+        $res = $this->getJson('/api/export/managers?ym=2026-03', ['X-Token' => $this->token]);
+        $res->assertOk();
+        $sheet = $this->loadSheet($res->streamedContent());
+        $this->assertSame('季度绩效说明', $sheet->getCell('AM2')->getValue());
+        $this->assertNull($sheet->getCell('AM3')->getValue(), '非季末月/非季度绩效法人员留空');
+        $this->assertSame('General', $sheet->getStyle('AM3')->getNumberFormat()->getFormatCode(), '说明列不得套金额格式');
+    }
+
+    public function test_legacy_quarter_detail_keeps_amount_and_no_detail_columns(): void
+    {
+        // 升级前落库的季度明细（无 ratio）→ 金额原样展示，但不生成逐月列
+        $this->seedMgrRow(1, '2026-04', ['perf_detail' => [
+            'period' => '2026-Q1', 'pay_grade' => '经理级', 'coef' => 1.0,
             'months' => [
                 ['ym' => '2026-01', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
                 ['ym' => '2026-02', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
                 ['ym' => '2026-03', 'perf_att' => 22, 'base' => 1000, 'amount' => 1000],
             ],
-        ]);
+        ]]);
         $res = $this->getJson('/api/export/managers?ym=2026-04', ['X-Token' => $this->token]);
         $res->assertOk();
         $sheet = $this->loadSheet($res->streamedContent());
-        // 38 个标准列之后应有 3 个明细列（含入职日期与补发工资列）
-        $this->assertEquals('Q1·1月绩效', $sheet->getCell('AM2')->getValue(), 'AM2 应为 Q1·1月绩效（第39列表头）');
-        $this->assertEquals('Q1·2月绩效', $sheet->getCell('AN2')->getValue());
-        $this->assertEquals('Q1·3月绩效', $sheet->getCell('AO2')->getValue());
-        // 数据行（第3行）明细列金额
-        $this->assertEquals(1000, (float) $sheet->getCell('AM3')->getValue());
-        $this->assertEquals(1000, (float) $sheet->getCell('AO3')->getValue());
-        // 合计行（第4行）求和公式
-        $this->assertEquals('=SUM(AM3:AM3)', $sheet->getCell('AM4')->getValue());
-    }
-
-    public function test_managers_export_distinguishes_half_year_columns(): void
-    {
-        $this->seedMgrRow(1, '2026-07', [
-            'type' => 'quarterly', 'period' => '2026-Q2', 'ratio' => 0.95, 'coef' => 1.0,
-            'total' => 3000, 'amount' => 2850,
-            'months' => [
-                ['ym' => '2026-04', 'perf_att' => 22, 'base' => 1000, 'amount' => 950],
-            ],
-            'half_year' => [
-                'type' => 'half_year', 'period' => '2026-H1', 'ratio' => 0.05, 'coef' => 1.0,
-                'total' => 6000, 'amount' => 300,
-                'months' => [
-                    ['ym' => '2026-04', 'perf_att' => 22, 'base' => 1000, 'amount' => 50],
-                ],
-            ],
-        ]);
-        $res = $this->getJson('/api/export/managers?ym=2026-07', ['X-Token' => $this->token]);
-        $res->assertOk();
-        $sheet = $this->loadSheet($res->streamedContent());
-        $this->assertEquals('Q2·4月绩效', $sheet->getCell('AM2')->getValue());
-        $this->assertEquals('H1·4月绩效', $sheet->getCell('AN2')->getValue(), '半年度明细列应与季度同月列区分');
-        $this->assertEquals(950, (float) $sheet->getCell('AM3')->getValue());
-        $this->assertEquals(50, (float) $sheet->getCell('AN3')->getValue());
-    }
-
-    public function test_export_without_perf_detail_keeps_37_columns(): void
-    {
-        $this->seedMgrRow(1, '2026-03', []);
-        // perf_detail 为空数组 → 不追加明细列
-        DB::table('payroll_results')->where('staff_legacy_id', 1)
-            ->update(['row_data' => json_encode(array_merge(
-                json_decode(DB::table('payroll_results')->where('staff_legacy_id', 1)->value('row_data'), true),
-                ['perf_detail' => null]
-            ))]);
-        $res = $this->getJson('/api/export/managers?ym=2026-03', ['X-Token' => $this->token]);
-        $res->assertOk();
-        $sheet = $this->loadSheet($res->streamedContent());
-        $this->assertEquals('备注', $sheet->getCell('AL2')->getValue(), 'AL2 应为第38列备注（含入职日期与补发工资列）');
-        $this->assertNull($sheet->getCell('AM2')->getValue(), '无 perf_detail 时不应有第39列');
+        $this->assertSame('AM', $sheet->getHighestColumn());
+        $this->assertNull($sheet->getCell('AM3')->getValue());
+        $this->assertEquals(2850, (float) $sheet->getCell('N3')->getValue());
     }
 }
