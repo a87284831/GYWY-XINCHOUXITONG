@@ -150,6 +150,13 @@
             class="btn warn"
             @click="openCoefDialog(tp)"
           >{{ coefEntryLabel(ui.month) }}</button>
+          <span
+            v-if="coefStatusText(tp)"
+            class="tag"
+            :class="coefStatus[tp] && coefStatus[tp].saved >= coefStatus[tp].total ? 'green' : 'orange'"
+            style="margin-left:4px"
+            :title="`${coefStatus[tp].period || ''} 季度系数已录 ${coefStatus[tp].saved}/${coefStatus[tp].total}`"
+          >{{ coefStatusText(tp) }}</span>
           <span v-html="typeArchiveHtml[tp]"></span>
           <span style="flex:1"></span>
           <button class="btn danger" @click="openDeleteDialog(tp)">删除当月{{ TP_META[tp].noun }}薪资数据</button>
@@ -571,6 +578,8 @@ const adjHistoryLoading = ref(false)
 
 // 季度/半年度系数录入弹窗
 const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
+// 管理/总部 tab 季度系数录入状态（季度末月才加载），用于页面级「已录/未录」提示
+const coefStatus = reactive({ mgr: null, hq: null })
 
 // 按维度删除当月薪资数据：确认弹窗 + 删除日志弹窗（tp 为前端 tab 键，apiType 为后端维度参数）
 const DELETE_TYPE_LABEL = { staff: '员工', mgr: '管理人员', case: '案场人员', hq: '总部人员' }
@@ -733,6 +742,7 @@ async function loadType(tp) {
     typeProjFilter[tp] = ''
     typeSel[tp] = ''
     nextTick(() => initStickyCols(typeTableEls[tp], 4))
+    loadCoefStatus(tp)
   } catch (e) { typeErr[tp] = e.message }
 }
 
@@ -991,6 +1001,29 @@ async function saveAdjust() {
   } catch (e) { alert(e.message) }
 }
 
+async function loadCoefStatus(tp) {
+  coefStatus[tp] = null
+  if ((tp !== 'mgr' && tp !== 'hq') || !isQuarterEndMonth(ui.month)) return
+  try {
+    const cat = tp === 'hq' ? 'hq' : 'manager'
+    const r = await api(`/api/payroll/period-coef/pending?ym=${ui.month}&category=${cat}`)
+    if (!r.ok) return
+    const items = r.items || []
+    coefStatus[tp] = {
+      period: r.period,
+      total: items.length,
+      saved: items.filter((x) => x.coef !== null && x.coef !== undefined && x.coef !== '').length,
+    }
+  } catch (e) { coefStatus[tp] = null }
+}
+
+// 页面级提示：本季度系数已录/未录（未录或漏录时季度绩效会按 0 计并报 missing_coef）
+function coefStatusText(tp) {
+  const s = coefStatus[tp]
+  if (!s || !s.total) return ''
+  return s.saved >= s.total ? `季度系数已录 ${s.saved}/${s.total}` : `季度系数未录全 ${s.saved}/${s.total}`
+}
+
 async function openCoefDialog(tab) {
   coefDialog.show = true
   coefDialog.loading = true
@@ -1044,6 +1077,7 @@ async function saveCoef() {
     }
     toast('系数已保存')
     closeCoefDialog()
+    if (payTab.value === 'mgr' || payTab.value === 'hq') loadCoefStatus(payTab.value)
   } catch (e) { alert(e.message) } finally { coefDialog.saving = false }
 }
 
