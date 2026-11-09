@@ -121,9 +121,12 @@ body { font-family:var(--font); background:var(--bg-page); color:var(--text-1); 
 .row { display:flex; gap:var(--sp-3); flex-wrap:wrap; align-items:center; }
 .row.end { justify-content:flex-end; }
 label.fld { display:inline-flex; align-items:center; gap:6px; font-size:var(--fs-m); color:var(--text-2); }
-input[type=text],input[type=password],input[type=number],input[type=date],input[type=month],select,textarea {
+/* 注意：必须排除 Element Plus 下拉内部输入框 .el-select__input。
+   EP 用该输入框承载搜索词，选中项的 label 以 z-index:-1 垫在其下方；
+   若这里给它套上白底/边框/内边距，就会把选中项文字盖住（下拉显示空白）。 */
+input[type=text]:not(.el-select__input),input[type=password]:not(.el-select__input),input[type=number]:not(.el-select__input),input[type=date]:not(.el-select__input),input[type=month]:not(.el-select__input),select,textarea {
   padding:7px 10px; border:1px solid var(--border); border-radius:var(--r-s); font-size:var(--fs-m); font-family:inherit; background:var(--bg-card); color:var(--text-1); transition:border-color .15s, box-shadow .15s; }
-input:focus,select:focus,textarea:focus { outline:none; border-color:var(--brand-600); box-shadow:0 0 0 3px rgba(22,93,255,.1); }
+input:focus:not(.el-select__input),select:focus,textarea:focus { outline:none; border-color:var(--brand-600); box-shadow:0 0 0 3px rgba(22,93,255,.1); }
 .btn { padding:7px 16px; border:none; border-radius:var(--r-s); font-size:var(--fs-m); cursor:pointer; background:var(--divider); color:var(--text-2); transition:filter .15s, box-shadow .15s; }
 .btn:hover { filter:brightness(.97); }
 .btn.primary { background:var(--brand-600); color:#fff; }
