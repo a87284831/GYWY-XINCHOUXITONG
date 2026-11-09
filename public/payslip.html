@@ -237,6 +237,20 @@ function renderPayslip(data) {
   function mrowNz(label, v, cls) {
     return (v > 0) ? mrow(label, v, cls) : "";
   }
+  // 季度绩效法：季末月显示季度绩效（含月份区间），季内前两月隐藏该行；
+  // 月度绩效法/分期兑现法保持原样。
+  const pq = (r.perf_quarter && !r.perf_quarter.error) ? r.perf_quarter : null;
+  const pqMonths = (pq && Array.isArray(pq.months)) ? pq.months : [];
+  const isQuarterPerson = !!pq || (r.perf_base_month !== undefined && r.perf_base_month !== null);
+  function pqRange(ms) {
+    if (!ms.length) return "";
+    const f = Number(String(ms[0].ym || "").slice(5, 7));
+    const l = Number(String(ms[ms.length - 1].ym || "").slice(5, 7));
+    return ms.length === 1 ? `${f}月` : `${f}-${l}月`;
+  }
+  const perfRow = pqMonths.length
+    ? mrow(`季度绩效（${pqRange(pqMonths)}）`, r.perf_pay)
+    : (isQuarterPerson ? "" : mrow("绩效工资", r.perf_pay));
   const html = `
     <div class="ps-header">
       <h2>${data.month} 工资条</h2>
@@ -256,7 +270,7 @@ function renderPayslip(data) {
     <div class="ps-section">
       <h3>应发项目</h3>
       ${mrow("基本工资（折算）", r.base_pay)}
-      ${mrow("绩效工资", r.perf_pay)}
+      ${perfRow}
       ${r.sick_days > 0 ? row("病假天数", r.sick_days + " 天") : ""}
       ${mrowNz("病假工资", r.sick_pay)}
       ${mrowNz("夜班/话费补贴", r.night)}
