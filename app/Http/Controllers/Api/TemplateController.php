@@ -618,7 +618,8 @@ class TemplateController extends ApiController
                 if (!empty($it['symbol'])) $symbols[] = (string) $it['symbol'];
             }
         }
-        $dropStart = 7;
+        // 与数据首行（$dataStart）保持一致：曾因硬编码 7 漏掉首行人员的下拉框
+        $dropStart = $dataStart;
         $dropEnd = max(6 + $formulaRows + 15, $dropStart + 9); // 覆盖人员行并预留增行余量
         for ($c = $dateStart; $c <= $dateEnd; $c++) {
             $cLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);

@@ -406,6 +406,154 @@ class AttendanceGroupTemplateTest extends TestCase
         $this->assertSame(88, (int) $sheet->getCell("{$welfareCol}{$row}")->getValue(), '虚拟组模板应带出福利值');
     }
 
+    // ===== 首行数据行下拉/保护（2026-11-09 回归：sqref 曾从第 7 行开始，漏掉第 6 行首人）=====
+
+    /** 下载响应 → [sheetXml, stylesXml, Spreadsheet] */
+    private function templateXml(\Illuminate\Testing\TestResponse $resp): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'tpl') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $zip = new \ZipArchive();
+        $zip->open($tmp);
+        $sheetXml = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+        $stylesXml = (string) $zip->getFromName('xl/styles.xml');
+        $zip->close();
+        $book = IOFactory::load($tmp);
+        @unlink($tmp);
+        return [$sheetXml, $stylesXml, $book];
+    }
+
+    /** 取某单元格在 sheet XML 中的样式索引 s */
+    private function cellStyleId(string $xml, string $coord): ?int
+    {
+        if (!preg_match('/<c r="' . preg_quote($coord, '/') . '"[^>]*\bs="(\d+)"/', $xml, $m)) return null;
+        return (int) $m[1];
+    }
+
+    /** 样式索引 s 是否可编辑（protection locked="false"） */
+    private function styleIsUnlocked(string $stylesXml, int $styleId): bool
+    {
+        if (!preg_match('/<cellXfs[^>]*>(.*?)<\/cellXfs>/s', $stylesXml, $m)) return false;
+        preg_match_all('/<xf\b[^>]*\/>|<xf\b[^>]*>.*?<\/xf>/s', $m[1], $xfs);
+        $xf = $xfs[0][$styleId] ?? '';
+        return str_contains($xf, 'locked="false"');
+    }
+
+    /** 某列所有 dataValidation 的 sqref 起始行（正则返回 [起始行, 结束行]） */
+    private function validationRowsForColumn(string $sheetXml, string $letter): array
+    {
+        $rows = [];
+        preg_match_all('/<dataValidation\b[^>]*\bsqref="([^"]+)"/', $sheetXml, $m);
+        foreach ($m[1] as $sqref) {
+            foreach (preg_split('/\s+/', trim($sqref)) as $range) {
+                if (preg_match('/^' . preg_quote($letter, '/') . '(\d+):' . preg_quote($letter, '/') . '(\d+)$/', $range, $r)) {
+                    $rows[] = [(int) $r[1], (int) $r[2]];
+                }
+            }
+        }
+        return $rows;
+    }
+
+    public function test_first_data_row_has_symbol_dropdown_and_editable_cells(): void
+    {
+        $this->seedWorld();
+        $ym = '2026-10';
+        $days = (int) date('t', strtotime($ym . '-01'));
+        foreach (['物业公司总部', '甲项目', '__managers__', '__case__'] as $project) {
+            $resp = $this->get('/api/attendance/template?ym=' . $ym . '&project=' . $project, ['X-Token' => $this->adminToken]);
+            $resp->assertOk();
+            [$sheetXml, $stylesXml, $book] = $this->templateXml($resp);
+            $sheet = $book->getActiveSheet();
+
+            // 定位姓名列与每日出勤首列（姓名列后第 3 列：员工状态、入职日期）
+            $nameCol = null;
+            for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+                $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+                if (trim((string) $sheet->getCell("{$L}4")->getValue()) === '姓名') { $nameCol = $L; break; }
+            }
+            $this->assertNotNull($nameCol, "{$project} 模板缺少姓名列");
+            $startIdx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($nameCol) + 3;
+            $firstDataName = trim((string) $sheet->getCell("{$nameCol}6")->getValue());
+            $this->assertNotSame('', $firstDataName, "{$project} 第 6 行应为数据首行");
+
+            // 首行数据行的每个日期列都必须有下拉，且范围从第 6 行开始
+            for ($i = 0; $i < $days; $i++) {
+                $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startIdx + $i);
+                $ranges = $this->validationRowsForColumn($sheetXml, $L);
+                $this->assertNotEmpty($ranges, "{$project} {$L} 列缺少考勤符号下拉");
+                $this->assertSame(6, $ranges[0][0], "{$project} {$L} 列下拉未覆盖数据首行（第 6 行）");
+                $this->assertGreaterThanOrEqual(6, $ranges[0][1]);
+            }
+
+            // 第 6 行与第 7 行保护状态一致，且为可编辑（日期列 + 应出勤 + 数值列 + 备注）
+            $statL = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startIdx + $days);
+            $moneyL = null;
+            for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+                $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+                if (trim((string) $sheet->getCell("{$L}4")->getValue()) === '月度奖励') { $moneyL = $L; break; }
+            }
+            $this->assertNotNull($moneyL, "{$project} 模板缺少数值列「月度奖励」");
+            $tailL = $sheet->getHighestColumn();
+            $checkCols = [
+                \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startIdx) => '日期首列',
+                $statL => '应出勤',
+                $moneyL => '月度奖励',
+                $tailL => '备注',
+            ];
+            foreach ($checkCols as $L => $label) {
+                $s6 = $this->cellStyleId($sheetXml, $L . '6');
+                $s7 = $this->cellStyleId($sheetXml, $L . '7');
+                $this->assertNotNull($s6, "{$project} {$L}6 缺少样式");
+                $this->assertNotNull($s7, "{$project} {$L}7 缺少样式");
+                // 保护状态一致（样式 ID 可因边框/字体不同而不同，不能直接比 ID）
+                $this->assertSame(
+                    $this->styleIsUnlocked($stylesXml, $s7),
+                    $this->styleIsUnlocked($stylesXml, $s6),
+                    "{$project} {$L}6 与 {$L}7 保护状态不一致"
+                );
+                $this->assertTrue($this->styleIsUnlocked($stylesXml, $s6), "{$project} {$L}6 应可编辑");
+            }
+        }
+    }
+
+    public function test_downloaded_template_first_row_roundtrips_on_upload(): void
+    {
+        $this->seedWorld();
+        $ym = '2026-10';
+        $resp = $this->get('/api/attendance/template?ym=' . $ym . '&project=甲项目', ['X-Token' => $this->adminToken]);
+        $resp->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'rt') . '.xlsx';
+        file_put_contents($tmp, $resp->streamedContent());
+        $sheet = IOFactory::load($tmp)->getActiveSheet();
+        $nameCol = null; $startIdx = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            if (trim((string) $sheet->getCell("{$L}4")->getValue()) === '姓名') {
+                $nameCol = $L;
+                $startIdx = $c + 3;
+                break;
+            }
+        }
+        $this->assertNotNull($nameCol);
+        $firstName = trim((string) $sheet->getCell("{$nameCol}6")->getValue());
+        $this->assertNotSame('', $firstName);
+        $days = (int) date('t', strtotime($ym . '-01'));
+        for ($i = 0; $i < $days; $i++) {
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startIdx + $i) . '6', '√');
+        }
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($sheet->getParent()))->save($tmp);
+        $up = $this->post('/api/attendance/upload', [
+            'ym' => $ym, 'project' => '甲项目',
+            'file' => new UploadedFile($tmp, 'tpl.xlsx', null, null, true),
+        ], ['X-Token' => $this->adminToken]);
+        @unlink($tmp);
+        $up->assertOk()->assertJson(['ok' => true]);
+        $block = DB::table('payroll_attendance')->where('record_key', $ym . '|甲项目')->first();
+        $rows = $block ? (json_decode((string) $block->rows, true) ?: []) : [];
+        $this->assertArrayHasKey($firstName, $rows, '首行人员的填写必须被上传解析入库');
+        $this->assertSame('√', $rows[$firstName]['days'][0] ?? null, '首行第 1 天的符号应入库');
+    }
+
     public function test_upload_accepts_new_status_header(): void
     {
         // 回归：2026-10-09 模板表头「人员状态」改为「员工状态」但解析端未同步，
