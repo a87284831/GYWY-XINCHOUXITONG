@@ -125,23 +125,23 @@ class AttendanceController extends ApiController
         if ($group) {
             [$rows, $errors, $warnings] = $this->parseWorkbook($request->file('file')->getPathname(), $forceStats);
             if ($errors) {
-                return response()->json(['ok' => false, 'error' => $ctx . implode('；', array_slice($errors, 0, 30))], 400);
+                return $this->uploadReject($ctx, $errors);
             }
             return $this->uploadVirtualGroup($ym, $group, $rows, $dryRun, $warnings);
         }
 
         if (!DB::table('payroll_projects')->where('name', $project)->exists()) {
-            return response()->json(['ok' => false, 'error' => '项目不存在'], 400);
+            return $this->uploadReject($ctx, [$this->noticeItem('project_missing', '项目不存在')]);
         }
         if ($this->isArchived($ym, $project)) {
-            return response()->json(['ok' => false, 'error' => '该月工资已归档，不能重传考勤'], 400);
+            return $this->uploadReject($ctx, [$this->noticeItem('archived', '该月工资已归档，不能重传考勤')]);
         }
         if ($this->isLocked($ym, $project)) {
-            return response()->json(['ok' => false, 'error' => '该项目考勤已锁定为最终版本，如需修改请先解锁'], 400);
+            return $this->uploadReject($ctx, [$this->noticeItem('locked', '该项目考勤已锁定为最终版本，如需修改请先解锁')]);
         }
         [$rows, $errors, $warnings] = $this->parseWorkbook($request->file('file')->getPathname(), $forceStats);
         if ($errors) {
-            return response()->json(['ok' => false, 'error' => $ctx . implode('；', array_slice($errors, 0, 30))], 400);
+            return $this->uploadReject($ctx, $errors);
         }
         // 离职人员不参与同名校验：与模板下载 resignGuard 一致口径
         // （status='离职' 且 resign_date 早于当月 1 日的人不进 staffRows，避免离职档案挡住同名在岗人员上传）
@@ -150,17 +150,25 @@ class AttendanceController extends ApiController
                 $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
                   ->orWhere('resign_date', '>=', $ym . '-01');
             })
-            ->get(['legacy_id', 'name', 'dingtalk_userid']);
+            ->get(['legacy_id', 'name', 'dingtalk_userid', 'status', 'resign_date']);
         $staffNames = $staffRows->pluck('name')->all();
         $unknown = array_values(array_diff(array_keys($rows), $staffNames));
         if ($unknown) {
-            return response()->json(['ok' => false, 'error' => '以下人员不在本项目人员档案中：' . implode('、', array_slice($unknown, 0, 10))], 400);
+            $items = [];
+            foreach (array_slice($unknown, 0, 10) as $n) {
+                $items[] = $this->noticeItem('unknown_staff', "人员不在本项目人员档案中：{$n}", '不在本项目人员档案中', ['name' => $n]);
+            }
+            return $this->uploadReject($ctx, $items);
         }
         // 同名人员会让"按姓名匹配考勤"产生归属歧义（核算时无法确定考勤行是谁的），直接拒绝上传
         $dupNames = $staffRows->countBy('name')->filter(fn ($c) => $c > 1)->keys()->all();
         if ($dupNames) {
-            return response()->json(['ok' => false, 'error' => '以下姓名在本项目人员档案中存在多条记录，按姓名匹配考勤会产生歧义，请先处理同名人员（钉钉同步后每人有唯一ID）：'
-                . implode('、', array_slice($dupNames, 0, 10))], 400);
+            $items = [];
+            foreach (array_slice($dupNames, 0, 10) as $n) {
+                $items[] = $this->noticeItem('dup_staff', "姓名在本项目人员档案中存在多条记录，按姓名匹配考勤会产生歧义：{$n}",
+                    '档案中存在多条记录，按姓名匹配有歧义，请先处理同名人员', ['name' => $n]);
+            }
+            return $this->uploadReject($ctx, $items);
         }
         // 给每行考勤打上人员标记：核算时优先按 dingtalk_userid / staff_id 匹配，姓名仅作旧数据兜底
         $staffByName = $staffRows->keyBy('name');
@@ -171,11 +179,13 @@ class AttendanceController extends ApiController
                 $rows[$name]['dingtalk_userid'] = trim((string) ($s->dingtalk_userid ?? ''));
             }
         }
+        // 本月离职人员不阻断上传，仅作为提示（离职当月仍可能有考勤）
+        $infoItems = $this->resignedInfos($ym, array_keys($rows), $staffByName);
         $key = $ym . '|' . $project;
         $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();
         // 季度绩效法人员不得在考勤表带系数（系数走季度末月弹窗），整单拒绝、不部分写入
-        if ($err = $this->guardQuarterCoef($ym, $rows)) {
-            return response()->json(['ok' => false, 'error' => $err], 400);
+        if ($badCoef = $this->guardQuarterCoefItems($ym, $rows)) {
+            return $this->uploadReject($ctx, $badCoef);
         }
         $response = ['preview' => $dryRun, 'count' => count($rows), 'overwrite' => (bool) $existing,
             'names' => array_slice(array_keys($rows), 0, 50),
@@ -184,7 +194,7 @@ class AttendanceController extends ApiController
             // 整表覆盖：新表完全替换旧块，旧表有而新表没有的人员行随之移除（2026-10-18 用户口径）
             $this->overwriteBlock($ym, $project, $rows);
         }
-        return response()->json(['ok' => true] + $response + ($warnings ? ['warnings' => $warnings] : []));
+        return $this->uploadOk($response, $warnings, $infoItems);
     }
 
     /**
@@ -201,7 +211,7 @@ class AttendanceController extends ApiController
                 $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
                   ->orWhere('resign_date', '>=', $ym . '-01');
             })
-            ->get(['legacy_id', 'name', 'project_name', 'dingtalk_userid'])
+            ->get(['legacy_id', 'name', 'project_name', 'dingtalk_userid', 'status', 'resign_date'])
             ->filter(function ($p) use ($catMap, $category) {
                 if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
                 // 物业总部人员（含管理人员标记）走物业总部自己的项目入口，避免重复数据源
@@ -210,8 +220,12 @@ class AttendanceController extends ApiController
 
         $unknown = array_values(array_diff(array_keys($rows), $candidates->pluck('name')->all()));
         if ($unknown) {
-            return response()->json(['ok' => false, 'error' => "以下人员不在全公司{$label}档案中（{$label}表只受理{$label}，基层/案场/物业总部人员请走各自项目表）："
-                . implode('、', array_slice($unknown, 0, 10))], 400);
+            $items = [];
+            foreach (array_slice($unknown, 0, 10) as $n) {
+                $items[] = $this->noticeItem('unknown_staff', "人员不在全公司{$label}档案中：{$n}",
+                    "不在全公司{$label}档案中（基层/案场/物业总部人员请走各自项目表）", ['name' => $n]);
+            }
+            return $this->uploadReject("", $items);
         }
         $byName = [];
         foreach ($candidates as $p) { $byName[$p->name][] = $p; }
@@ -220,12 +234,12 @@ class AttendanceController extends ApiController
         foreach (array_keys($rows) as $nm) {
             if (count($byName[$nm] ?? []) > 1) {
                 $projs = implode('、', array_values(array_unique(array_map(fn ($p) => $p->project_name, $byName[$nm]))));
-                $ambiguous[] = "{$nm}（{$projs}）";
+                $ambiguous[] = $this->noticeItem('dup_staff', "姓名在{$label}档案中存在多条记录，跨项目无法按姓名匹配：{$nm}（{$projs}）",
+                    "档案中存在多条记录（{$projs}），请先处理同名", ['name' => $nm]);
             }
         }
         if ($ambiguous) {
-            return response()->json(['ok' => false, 'error' => "以下姓名在{$label}档案中存在多条记录，跨项目无法按姓名匹配，请先在人员档案中处理同名（钉钉同步后每人有唯一ID）："
-                . implode('、', array_slice($ambiguous, 0, 10))], 400);
+            return $this->uploadReject("", $ambiguous);
         }
 
         $byProject = [];
@@ -237,18 +251,19 @@ class AttendanceController extends ApiController
         }
         foreach (array_keys($byProject) as $proj) {
             if ($this->isArchived($ym, $proj)) {
-                return response()->json(['ok' => false, 'error' => "项目「{$proj}」{$ym}工资已归档，请先撤销该项目归档后再上传{$label}表"], 400);
+                return $this->uploadReject("", [$this->noticeItem('archived', "项目「{$proj}」{$ym}工资已归档，请先撤销该项目归档后再上传{$label}表")]);
             }
             if ($this->isLocked($ym, $proj)) {
-                return response()->json(['ok' => false, 'error' => "项目「{$proj}」考勤已锁定为最终版本，请先解锁该项目后再上传{$label}表"], 400);
+                return $this->uploadReject("", [$this->noticeItem('locked', "项目「{$proj}」考勤已锁定为最终版本，请先解锁该项目后再上传{$label}表")]);
             }
         }
         // 季度绩效法人员不得在考勤表带系数（系数走季度末月弹窗），整单拒绝、不部分写入
         foreach ($byProject as $incoming) {
-            if ($err = $this->guardQuarterCoef($ym, $incoming)) {
-                return response()->json(['ok' => false, 'error' => $err], 400);
+            if ($badCoef = $this->guardQuarterCoefItems($ym, $incoming)) {
+                return $this->uploadReject("", $badCoef);
             }
         }
+        $infoItems = $this->resignedInfos($ym, array_keys($rows), collect($candidates->all())->keyBy('name'));
 
         $projects = array_keys($byProject);
         $existingKeys = DB::table('payroll_attendance')->where('year_month', $ym)
@@ -261,7 +276,7 @@ class AttendanceController extends ApiController
                 $this->mergeBlock($ym, $proj, $incoming);
             }
         }
-        return response()->json(['ok' => true] + $response + ($warnings ? ['warnings' => $warnings] : []));
+        return $this->uploadOk($response, $warnings, $infoItems);
     }
 
     /**
@@ -284,24 +299,27 @@ class AttendanceController extends ApiController
     /**
      * 季度绩效法人员禁止通过考勤表上传绩效系数（2026-10-21 用户口径：只能走季度末月弹窗录入）。
      * 模板该列默认预填 1.0（中性值，等价于未录入），故仅拿「非 1.0 的值」判定为违规；
-     * 返回错误文案，全部合规返回 null。
+     * 返回违规条目数组，全部合规返回空数组。
      */
-    private function guardQuarterCoef(string $ym, array $rows): ?string
+    private function guardQuarterCoefItems(string $ym, array $rows): array
     {
         $rules = new \App\Services\CalcRules();
         $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
-        $bad = [];
+        $items = [];
         foreach ($rows as $name => $rec) {
             $coef = $rec['coef'] ?? null;
             if ($coef === null || (float) $coef === 1.0) continue;
             $sid = (int) ($rec['staff_id'] ?? 0);
             if ($sid <= 0) continue;
             $cycle = $rules->getPayRule($catMap[$sid] ?? 'staff')['cycle'] ?? 'monthly';
-            if ($cycle !== 'monthly') $bad[] = "{$name}（{$coef}）";
+            if ($cycle !== 'monthly') {
+                $items[] = $this->noticeItem('quarter_coef',
+                    "{$name}（{$coef}）为季度绩效法，绩效系数不能在考勤表上传（请把「绩效系数」列留空或填 1）",
+                    '季度绩效法人员，绩效系数须走季度末月弹窗录入（该列请留空或填 1）',
+                    ['name' => $name]);
+            }
         }
-        if (!$bad) return null;
-        return '以下人员为季度绩效法，绩效系数不能在考勤表上传（请把「绩效系数」列留空或填 1，'
-            . '改由季度末月弹窗录入）：' . implode('、', array_slice($bad, 0, 10));
+        return $items;
     }
 
     /** 整表覆盖写入一个项目的考勤块：新表完全替换旧数据（调用方需先做归档/锁定拦截） */
@@ -780,7 +798,7 @@ class AttendanceController extends ApiController
         try {
             $sheet = IOFactory::load($path)->getActiveSheet();
         } catch (\Throwable $e) {
-            return [[], ['文件解析失败，请确认上传的是有效的考勤表 Excel 文件（xls / xlsx）'], []];
+            return [[], [$this->noticeItem('file_parse', '文件解析失败，请确认上传的是有效的考勤表 Excel 文件（xls / xlsx）')], []];
         }
         $headerRow = null; $columns = []; $days = [];
         $highestColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn());
@@ -791,7 +809,7 @@ class AttendanceController extends ApiController
                 }
             }
         }
-        if (!$headerRow) return [[], ['未找到“姓名”表头'], []];
+        if (!$headerRow) return [[], [$this->noticeItem('template_structure', '未找到“姓名”表头')], []];
         $__cfSnap = \Illuminate\Support\Facades\DB::table('legacy_json_snapshots')->where('file_name', 'calc_rules.json')->first();
         $__cfPayload = $__cfSnap ? (json_decode((string)$__cfSnap->payload, true) ?: []) : [];
         $__cfFields = $__cfPayload['rules']['custom_fields'] ?? [];
@@ -802,7 +820,7 @@ class AttendanceController extends ApiController
             if (preg_match('/^\d{1,2}$/', $value) && (int) $value >= 1 && (int) $value <= 31) $days[(int) $value] = $col;
             if (isset($dynamicMap[$value])) $columns[$dynamicMap[$value]] = $col;
         }
-        if (!isset($columns['name']) || count($days) < 28) return [[], ['模板列结构不完整'], []];
+        if (!isset($columns['name']) || count($days) < 28) return [[], [$this->noticeItem('template_structure', '模板列结构不完整')], []];
         $symbols = \App\Services\PayrollCalculator::symbols(); $rows = []; $errors = []; $warnings = [];
         // 统计列与格子数一致性校验：模板统计列是 COUNTIF 公式，正常应与符号库数出来的一致；
         // 人手改过或换过符号库就会不一致，此时按"列值"算工资会与考勤表格子对不上，默认整单拒绝。
@@ -822,12 +840,18 @@ class AttendanceController extends ApiController
             $name = trim((string) $this->cellValue($sheet, $columns['name'], $row));
             if ($name === '' || $name === '星期') continue;
             if (in_array($name, ['合计', '小计'], true)) break;
-            if (isset($rows[$name])) { $errors[] = "第{$row}行姓名重复：{$name}"; continue; }
+            if (isset($rows[$name])) {
+                $errors[] = $this->noticeItem('dup_name', "第{$row}行姓名重复：{$name}", '姓名重复，无法确定归属', ['row' => $row, 'name' => $name]);
+                continue;
+            }
             $daysData = [];
             for ($day = 1; $day <= 31; $day++) {
                 $value = $days[$day] ?? null;
                 $symbol = $value ? trim((string) $this->cellValue($sheet, $value, $row)) : '';
-                if ($symbol !== '' && !\App\Services\PayrollCalculator::symbolLookup($symbol, $symbols)) $errors[] = "第{$row}行第{$day}日符号无效：{$symbol}";
+                if ($symbol !== '' && !\App\Services\PayrollCalculator::symbolLookup($symbol, $symbols)) {
+                    $errors[] = $this->noticeItem('invalid_symbol', "第{$row}行第{$day}日符号无效：{$symbol}",
+                        "第{$day}日符号「{$symbol}」不在符号库中", ['row' => $row, 'day' => $day, 'name' => $name]);
+                }
                 $daysData[] = $symbol;
             }
             $record = ['days' => $daysData];
@@ -857,14 +881,87 @@ class AttendanceController extends ApiController
                 if (abs($filled - $counted) <= 0.001) continue;
                 $msg = "第{$row}行 {$name}：{$chk['label']}列填 " . rtrim(rtrim(number_format($filled, 2, '.', ''), '0'), '.')
                     . '，按符号统计为 ' . rtrim(rtrim(number_format($counted, 2, '.', ''), '0'), '.');
+                $item = $this->noticeItem('stat_mismatch', $msg,
+                    "{$chk['label']}列填 " . rtrim(rtrim(number_format($filled, 2, '.', ''), '0'), '.')
+                    . '，按符号统计为 ' . rtrim(rtrim(number_format($counted, 2, '.', ''), '0'), '.'),
+                    ['row' => $row, 'name' => $name, 'field' => $key, 'label' => $chk['label'],
+                     'filled' => $filled, 'counted' => $counted]);
                 if ($forceStats) {
-                    $warnings[] = $msg;
+                    $warnings[] = $item;
                 } else {
-                    $errors[] = $msg . '（请核对格子符号，或把该列留空让系统按符号统计；确认无误可勾选“仍然上传”）';
+                    $errors[] = $item;
                 }
             }
             $rows[$name] = $record;
         }
-        return [$rows, array_slice($errors, 0, 30), $warnings];
+        return [$rows, $errors, $warnings];
+    }
+
+    /**
+     * 统一的上传提示条目：message 用于兼容旧的 error 拼接串与日志，
+     * reason 用于前端分组明细（姓名/行号已拆到独立字段，不再重复）。
+     */
+    private function noticeItem(string $code, string $message, string $reason = '', array $extra = []): array
+    {
+        return array_merge([
+            'code' => $code, 'row' => null, 'day' => null, 'name' => '',
+            'field' => '', 'label' => '', 'filled' => null, 'counted' => null,
+            'message' => $message, 'reason' => $reason !== '' ? $reason : $message,
+        ], $extra);
+    }
+
+    /** 上传拒单：保留旧 error 字符串（最多 30 条），新增结构化条目供前端分组展示 */
+    private function uploadReject(string $ctx, array $items): JsonResponse
+    {
+        $canForce = false;
+        foreach ($items as $it) {
+            if (($it['code'] ?? '') === 'stat_mismatch') { $canForce = true; break; }
+        }
+        $messages = array_map(fn ($it) => (string) $it['message'], $items);
+        $error = $ctx . implode('；', array_slice($messages, 0, 30));
+        if (count($messages) > 30) $error .= "（共 " . count($messages) . ' 条，仅显示前 30 条）';
+        if ($canForce) {
+            $error .= '（请核对格子符号，或把该列留空让系统按符号统计；确认无误可勾选“仍然上传”）';
+        }
+        return response()->json([
+            'ok' => false,
+            'error' => $error,
+            'error_items' => $items,
+            'error_total' => count($items),
+            'error_shown' => count($items),
+            'can_force' => $canForce,
+        ], 400);
+    }
+
+    /** 上传成功：warnings 保留旧字符串数组，新增 warning_items / info_items 结构化条目 */
+    private function uploadOk(array $response, array $warnItems, array $infoItems = []): JsonResponse
+    {
+        $payload = ['ok' => true] + $response;
+        if ($warnItems) {
+            $payload['warnings'] = array_map(fn ($it) => (string) $it['message'], $warnItems);
+            $payload['warning_items'] = $warnItems;
+        }
+        if ($infoItems) {
+            $payload['info_items'] = $infoItems;
+        }
+        return response()->json($payload);
+    }
+
+    /** 本月离职人员提示（不阻断上传）：离职日期落在本月内且出现在上传表中 */
+    private function resignedInfos(string $ym, array $names, $staffByName): array
+    {
+        $monthEnd = date('Y-m-t', strtotime($ym . '-01'));
+        $items = [];
+        foreach ($names as $name) {
+            $s = $staffByName[$name] ?? null;
+            if (!$s) continue;
+            $rd = substr((string) ($s->resign_date ?? ''), 0, 10);
+            if ($rd === '' || $rd < $ym . '-01' || $rd > $monthEnd) continue;
+            $items[] = $this->noticeItem('resigned_in_month',
+                "{$name} 本月离职（离职日期 {$rd}），已计入上传，请确认考勤天数",
+                "本月离职（离职日期 {$rd}），请确认考勤天数",
+                ['name' => $name]);
+        }
+        return $items;
     }
 }
