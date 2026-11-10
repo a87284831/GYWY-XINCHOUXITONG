@@ -10,13 +10,14 @@ function errWith(payload, message = '') {
 describe('buildAttendanceErrorNotice（考勤校验拒单）', () => {
   it('按结构化条目分组并给出计数，仅统计列不一致时允许仍然上传', () => {
     const items = Array.from({ length: 15 }, (_, i) => ({
-      code: 'stat_mismatch', row: i + 7, name: `员工${i + 1}`, label: '应出勤',
-      filled: 24, counted: 25, reason: '应出勤列填 24，按符号统计为 25', message: '第7行 员工1：应出勤列填 24，按符号统计为 25',
+      code: 'stat_mismatch', row: i + 7, name: `员工${i + 1}`, label: '实际出勤',
+      filled: 24, counted: 25, reason: '实际出勤列填 24，按符号统计为 25', message: '第7行 员工1：实际出勤列填 24，按符号统计为 25',
     }))
     const n = buildAttendanceErrorNotice(errWith({ error_items: items, error_total: 15, can_force: true }), { context: 'a.xlsx · 项目A · 2026-10' })
     expect(n.kind).toBe('warn')
     expect(n.danger).toHaveLength(15)
     expect(n.danger[0]).toMatchObject({ name: '员工1', tag: '第7行' })
+    expect(n.danger[0].reason).toBe('实际出勤列填 24，按符号统计为 25')
     expect(n.pill).toBe('15 项需处理')
     expect(n.context).toContain('a.xlsx')
     expect(n.actions.force).toBe(true)
