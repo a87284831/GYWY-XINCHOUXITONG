@@ -504,6 +504,31 @@ class PayrollCalculator
     }
 
     /**
+     * 考勤块人员行序：上传时按 Excel 行序写入 data.order。
+     * MySQL JSON 类型会重排对象键，rows 自身的键序不可靠，必须靠该数组还原上传行序；
+     * 旧数据没有 data.order 时退回 rows 现有键序（并在末尾补上任何遗漏的姓名）。
+     *
+     * @param object|null $record payroll_attendance 行（含 rows/data 字段）
+     * @param array $rows 已解析的 rows（姓名 => 考勤）
+     * @return string[]
+     */
+    public static function attendanceOrder($record, array $rows): array
+    {
+        $data = is_object($record) ? ($record->data ?? null) : null;
+        if (is_string($data)) $data = json_decode($data, true) ?: [];
+        if (!is_array($data)) $data = [];
+        $order = [];
+        foreach ((array) ($data['order'] ?? []) as $name) {
+            $name = (string) $name;
+            if ($name !== '' && isset($rows[$name]) && !in_array($name, $order, true)) $order[] = $name;
+        }
+        foreach (array_keys($rows) as $name) {
+            if (!in_array($name, $order, true)) $order[] = (string) $name;
+        }
+        return $order;
+    }
+
+    /**
      * 把整月存值按权重分摊到各薪资段：
      *  - 权重之和 > 0 时按权重比例分摊（每段 <= 存值）；
      *  - 权重全为 0 时退回按日历天数分摊（保证各段之和仍等于存值）；

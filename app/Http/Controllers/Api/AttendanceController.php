@@ -290,8 +290,9 @@ class AttendanceController extends ApiController
         $existing = DB::table('payroll_attendance')->where('record_key', $key)->first();
         $oldRows = $existing ? ($this->jsonValue((string) $existing->rows) ?: []) : [];
         $merged = $incoming;
-        foreach ($oldRows as $nm => $rec) {
-            if (!array_key_exists($nm, $merged)) $merged[$nm] = $rec;
+        // 未参与本次上传的旧人员按原行序追加（旧块可能是 MySQL JSON，键序已乱，需用 data.order 还原）
+        foreach (\App\Services\PayrollCalculator::attendanceOrder($existing, $oldRows) as $nm) {
+            if (!array_key_exists($nm, $merged)) $merged[$nm] = $oldRows[$nm];
         }
         $this->overwriteBlock($ym, $project, $merged);
     }
@@ -330,7 +331,8 @@ class AttendanceController extends ApiController
             ['record_key' => $key],
             ['year_month' => $ym, 'project_name' => $project,
              'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE),
-             'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $rows], JSON_UNESCAPED_UNICODE),
+             // order：上传表格行序。MySQL JSON 会重排对象键，rows 键序无法保证显示/导出顺序
+             'data' => json_encode(['ym' => $ym, 'project' => $project, 'rows' => $rows, 'order' => array_keys($rows)], JSON_UNESCAPED_UNICODE),
              'updated_at' => now(), 'created_at' => now()]
         );
     }
@@ -396,7 +398,8 @@ class AttendanceController extends ApiController
             foreach ($targets as $proj => $record) {
                 $rowsData = $this->jsonValue((string) $record->rows) ?: [];
                 $kept = [];
-                foreach ($rowsData as $nm => $rec) {
+                foreach (\App\Services\PayrollCalculator::attendanceOrder($record, $rowsData) as $nm) {
+                    $rec = $rowsData[$nm];
                     if (isset($namesByProject[$proj][$nm])) { $rows++; $names[] = $nm; }
                     else { $kept[$nm] = $rec; }
                 }
@@ -405,7 +408,7 @@ class AttendanceController extends ApiController
                 if ($kept) {
                     DB::table('payroll_attendance')->where('id', $record->id)->update([
                         'rows' => json_encode($kept, JSON_UNESCAPED_UNICODE),
-                        'data' => json_encode(['ym' => $ym, 'project' => $proj, 'rows' => $kept], JSON_UNESCAPED_UNICODE),
+                        'data' => json_encode(['ym' => $ym, 'project' => $proj, 'rows' => $kept, 'order' => array_keys($kept)], JSON_UNESCAPED_UNICODE),
                         'updated_at' => now(),
                     ]);
                 } else {
@@ -547,11 +550,13 @@ class AttendanceController extends ApiController
             $projects = $projectsWithData;
         }
 
-        // 收集考勤数据
+        // 收集考勤数据；order 为上传表格行序（MySQL JSON 会重排对象键，行序只能靠 data.order 数组记住）
         $attByProject = [];
+        $orderByProject = [];
         foreach ($projects as $p) {
             $row = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $p)->first();
             $attByProject[$p] = $this->jsonValue($row->rows) ?: [];
+            $orderByProject[$p] = \App\Services\PayrollCalculator::attendanceOrder($row, $attByProject[$p]);
         }
 
         // 查员工档案，按人员类型筛选（与工资核算的管理/案场/总部/员工分类同源）
@@ -579,24 +584,22 @@ class AttendanceController extends ApiController
                 return !($wantCat === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
             });
         }
-        // PHP 端排序：项目→部门→岗位→姓名（与 PayrollCalculator::orderRows 一致）
         foreach ($staff as $person) {
             $person->_dept = \App\Services\PayrollCalculator::deptName($person->dept_path ?? null, $person->project_name);
         }
-        $staff = $staff->all();
-        usort($staff, function ($a, $b) {
-            foreach (['project_name', '_dept', 'position', 'name'] as $k) {
-                $cmp = strcmp((string)($a->$k ?? ''), (string)($b->$k ?? ''));
-                if ($cmp !== 0) return $cmp;
-            }
-            return 0;
-        });
+        // 行序严格跟随上传表格行序（同项目内），不再按部门/岗位/姓名重排；多项目按项目顺次拼接
+        $staffByName = [];
+        foreach ($staff->all() as $person) {
+            $staffByName[$person->project_name][$person->name][] = $person;
+        }
         $filtered = [];
-        foreach ($staff as $person) {
-            $att = $attByProject[$person->project_name][$person->name] ?? null;
-            if (!$att) continue;
-            $person->_att = $att;
-            $filtered[] = $person;
+        foreach ($projects as $p) {
+            foreach ($orderByProject[$p] ?? [] as $nm) {
+                foreach ($staffByName[$p][$nm] ?? [] as $person) {
+                    $person->_att = $attByProject[$p][$nm];
+                    $filtered[] = $person;
+                }
+            }
         }
         if (!$filtered) {
             return response()->json(['ok' => false, 'error' => '没有符合条件的考勤数据'], 404);

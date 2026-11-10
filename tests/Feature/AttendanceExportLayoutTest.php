@@ -60,7 +60,9 @@ class AttendanceExportLayoutTest extends TestCase
         }
         DB::table('payroll_attendance')->updateOrInsert(
             ['record_key' => self::YM . '|' . self::PROJ],
-            ['year_month' => self::YM, 'project_name' => self::PROJ, 'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE), 'locked' => true, 'created_at' => now(), 'updated_at' => now()]
+            ['year_month' => self::YM, 'project_name' => self::PROJ, 'rows' => json_encode($rows, JSON_UNESCAPED_UNICODE), 'locked' => true,
+             'data' => json_encode(['ym' => self::YM, 'project' => self::PROJ, 'rows' => $rows, 'order' => array_keys($rows)], JSON_UNESCAPED_UNICODE),
+             'created_at' => now(), 'updated_at' => now()]
         );
     }
 
@@ -134,13 +136,14 @@ class AttendanceExportLayoutTest extends TestCase
         @unlink($tmp);
     }
 
-    public function test_staff_ordered_by_project_dept_position_name(): void
+    public function test_staff_ordered_by_upload_row_order(): void
     {
-        // 同项目不同部门、同部门不同岗位——验证排序
+        // 人员档案顺序：张三(客服部)、李四(客服部)、王五(工程部)
         $this->seedStaff(20, '张三', '正式', null, '2026-01-01', '测试项目/客服部');
         $this->seedStaff(21, '李四', '正式', null, '2026-01-01', '测试项目/客服部');
         $this->seedStaff(22, '王五', '正式', null, '2026-01-01', '测试项目/工程部');
-        $this->seedAttendance(['张三', '李四', '王五']);
+        // 上传表格行序：王五 → 张三 → 李四（与部门/姓名排序都不同）
+        $this->seedAttendance(['王五', '张三', '李四']);
 
         $resp = $this->getJson('/api/attendance/export?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->token]);
         $resp->assertOk();
@@ -149,21 +152,13 @@ class AttendanceExportLayoutTest extends TestCase
         $sheet = IOFactory::load($tmp)->getSheet(0);
         $grid = $sheet->toArray(null, true, false, false);
 
-        // 收集数据行的姓名（D 列，index 3，第 3 行起）
+        // 收集数据行的姓名（D 列，index 3；跳过表头）
         $names = [];
         for ($i = 2; $i < count($grid); $i++) {
             $n = trim((string)($grid[$i][3] ?? ''));
-            if ($n !== '') $names[] = $n;
+            if ($n !== '' && $n !== '姓名') $names[] = $n;
         }
-        // 客服部（张三/李四）在工程部（王五）前面
-        $zhaoIdx = array_search('张三', $names);
-        $liIdx = array_search('李四', $names);
-        $wangIdx = array_search('王五', $names);
-        $this->assertNotFalse($zhaoIdx);
-        $this->assertNotFalse($liIdx);
-        $this->assertNotFalse($wangIdx);
-        $this->assertLessThan($wangIdx, $zhaoIdx, '客服部应在工程部前面');
-        $this->assertLessThan($wangIdx, $liIdx, '客服部应在工程部前面');
+        $this->assertSame(['王五', '张三', '李四'], $names, '导出必须严格跟随上传表格行序，不得按部门/岗位/姓名重排');
 
         @unlink($tmp);
     }

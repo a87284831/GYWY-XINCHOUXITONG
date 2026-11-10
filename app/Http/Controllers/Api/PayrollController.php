@@ -33,7 +33,7 @@ class PayrollController extends ApiController
             ->where('year_month', $ym)->where('project_name', $project)->first();
         if (!$record) {
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-                'rows' => [], 'stats' => [], 'locked' => false, 'symbol_warnings' => []]);
+                'rows' => [], 'order' => [], 'stats' => [], 'locked' => false, 'symbol_warnings' => []]);
         }
         $rows = $this->jsonValue($record->rows) ?: [];
         // 顶部提示条只需未知符号告警：轻量返回，不计算整表统计
@@ -52,7 +52,10 @@ class PayrollController extends ApiController
             $stats[$name] = $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3);
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-            'rows' => $this->jsonValue($record->rows), 'stats' => $stats,
+            'rows' => $this->jsonValue($record->rows),
+            // 上传表格行序（MySQL JSON 会重排对象键，前端按该数组渲染）
+            'order' => \App\Services\PayrollCalculator::attendanceOrder($record, $rows),
+            'stats' => $stats,
             'locked' => (bool) $record->locked,
             'symbol_warnings' => $symbolWarnings,
             'meta' => ['uploaded_at' => $record->updated_at]]);
@@ -113,7 +116,10 @@ class PayrollController extends ApiController
         foreach ($byProject as $proj => $namesInProj) {
             $record = DB::table('payroll_attendance')->where('record_key', $ym . '|' . $proj)->first();
             if (!$record) continue;
-            foreach (($this->jsonValue($record->rows) ?: []) as $name => $attendance) {
+            $recordRows = $this->jsonValue($record->rows) ?: [];
+            // 块内按上传表格行序（MySQL JSON 会重排对象键，需用 data.order 还原）
+            foreach (\App\Services\PayrollCalculator::attendanceOrder($record, $recordRows) as $name) {
+                $attendance = $recordRows[$name];
                 if (!isset($namesInProj[$name])) continue;
                 $entries[] = ['name' => $name, 'project' => $proj, 'att' => $attendance,
                     'st' => $warningsOnly ? [] : $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3)];
@@ -128,7 +134,8 @@ class PayrollController extends ApiController
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
                 'symbol_warnings' => $warnings]);
         }
-        usort($entries, fn ($a, $b) => strcmp($a['project'], $b['project']) ?: strcmp($a['name'], $b['name']));
+        // 虚拟组跨项目合并：只按项目归组（既定顺序），组内保持各项目上传表格行序
+        usort($entries, fn ($a, $b) => strcmp($a['project'], $b['project']));
         $nameCounts = [];
         foreach ($entries as $e) { $nameCounts[$e['name']] = ($nameCounts[$e['name']] ?? 0) + 1; }
         $rows = []; $stats = [];
@@ -138,7 +145,7 @@ class PayrollController extends ApiController
             $stats[$key] = $e['st'];
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-            'rows' => $rows, 'stats' => $stats, 'locked' => false,
+            'rows' => $rows, 'order' => array_keys($rows), 'stats' => $stats, 'locked' => false,
             'meta' => ['uploaded_at' => '']]);
     }
 
