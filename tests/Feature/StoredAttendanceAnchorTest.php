@@ -401,6 +401,52 @@ class StoredAttendanceAnchorTest extends TestCase
         $this->assertStringContainsString('att.xlsx', $msg);
         $this->assertStringContainsString('项目 ' . self::PROJ, $msg);
         $this->assertStringContainsString('月份 ' . self::YM, $msg);
+        // 校验口径锁定在「实际出勤」：条目字段/Label 必须是 act_attend，不能串回应出勤
+        $item = $resp->json('error_items.0');
+        $this->assertSame('act_attend', $item['field']);
+        $this->assertSame('实际出勤', $item['label']);
+        $items = json_encode($resp->json('error_items'), JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('应出勤', $items, '应出勤(手填) 是月级手填值，不参与符号数格子校验');
+    }
+
+    /**
+     * 应出勤(手填) 与格子里的 in_required 符号数不同属于正常业务（人力填当月标准工作日），
+     * 不得据此整单拒绝；实际出勤匹配时就应正常通过并保留应出勤存值。
+     */
+    public function test_upload_ignores_req_attend_handfill_mismatch(): void
+    {
+        $days = $this->seedUploadStaff(); // 22 个 √ + 8 个 休 → required=22 / attend=22
+        $path = $this->makeWorkbook([['name' => '上传甲', 'days' => $days, 'stats' => [
+            '应出勤(手填)' => 26, '实际出勤(天)' => 22,
+        ]]]);
+        try {
+            $resp = $this->upload($path);
+        } finally {
+            @unlink($path);
+        }
+        $resp->assertStatus(200);
+        $this->assertTrue($resp->json('ok'));
+        $this->assertNull($resp->json('error_items'));
+        $row = json_decode(DB::table('payroll_attendance')->where('record_key', self::YM . '|' . self::PROJ)->value('rows'), true)['上传甲'];
+        $this->money(26, $row['req_attend'], '应出勤手填值仍须原样落库');
+        $this->money(22, $row['act_attend']);
+    }
+
+    /** 实际出勤显式填 0 是真实值（存值锚定），必须参与比对而不是当作空跳过 */
+    public function test_upload_checks_explicit_zero_actual_attend(): void
+    {
+        $days = $this->seedUploadStaff();
+        $path = $this->makeWorkbook([['name' => '上传甲', 'days' => $days, 'stats' => [
+            '实际出勤(天)' => 0,
+        ]]]);
+        try {
+            $resp = $this->upload($path, ['dry_run' => 1]);
+        } finally {
+            @unlink($path);
+        }
+        $resp->assertStatus(400);
+        $this->assertStringContainsString('实际出勤列填 0，按符号统计为 22', (string) $resp->json('error'));
+        $this->assertTrue($resp->json('can_force'));
     }
 
     public function test_upload_force_stats_keeps_column_value_and_returns_warning(): void

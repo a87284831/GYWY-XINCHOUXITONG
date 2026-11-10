@@ -822,10 +822,11 @@ class AttendanceController extends ApiController
         }
         if (!isset($columns['name']) || count($days) < 28) return [[], [$this->noticeItem('template_structure', '模板列结构不完整')], []];
         $symbols = \App\Services\PayrollCalculator::symbols(); $rows = []; $errors = []; $warnings = [];
-        // 统计列与格子数一致性校验：模板统计列是 COUNTIF 公式，正常应与符号库数出来的一致；
+        // 统计列与格子数一致性校验：实际出勤与各假别列在模板里是 COUNTIF 公式，正常应与符号库数出来的一致；
         // 人手改过或换过符号库就会不一致，此时按"列值"算工资会与考勤表格子对不上，默认整单拒绝。
+        // 「应出勤(手填)」不参与本校验：它是人力按当月标准工作日手填的月级值（模板该列无公式），
+        // 与格子中 in_required 符号数本来就可能不同；仍照常解析落库 req_attend，核算/导出/页面口径不变。
         $statChecks = [
-            'req_attend' => ['label' => '应出勤', 'stat' => 'required'],
             'act_attend' => ['label' => '实际出勤', 'stat' => 'attend'],
             'stat_personal' => ['label' => '事假', 'stat' => 'personal'],
             'stat_sick' => ['label' => '病假', 'stat' => 'sick'],
