@@ -63,13 +63,14 @@ class ExportController extends ApiController
         $ym = $request->string('ym')->toString();
         $deny = $this->denyProjectNotArchived($account, $ym);
         if ($deny) return $deny;
-        $project = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
-        if ($project === '') return response()->json(['ok' => false, 'error' => '项目不能为空'], 400);
-        $rows = $this->rows($ym, $project);
+        $project = $this->isProjectScope($account) ? (string) $account->project_name : trim($request->string('project')->toString());
+        // 项目留空 = 导出"全部项目"明细（页面项目筛选为"全部项目"时的默认行为）
+        $rows = $this->rows($ym, $project === '' ? null : $project);
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+        $label = $project !== '' ? $project : '全部项目';
         $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
-        return $this->xlsx($book, $project . '_' . $ym . '工资表.xlsx');
+        $this->fillSheet($book->getActiveSheet(), $rows, $label . ' ' . $ym . '工资表');
+        return $this->xlsx($book, $label . '_' . $ym . '工资表.xlsx');
     }
 
     public function summary(Request $request)
@@ -954,11 +955,13 @@ class ExportController extends ApiController
         return $this->xlsx($book, '薪资驾驶舱_' . $ym . '.xlsx');
     }
 
-    private function rows(string $ym, string $project)
+    private function rows(string $ym, ?string $project = null)
     {
-        $rows = DB::table('payroll_results')->where('year_month', $ym)->where('project_name', $project)
-            ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
-            ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->all();
+        $query = DB::table('payroll_results')->where('year_month', $ym)
+            ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+        // 项目为空 = 总部导出"全部项目"（项目账号已在入口强制成自己的项目）
+        if ($project !== null && $project !== '') $query->where('project_name', $project);
+        $rows = $query->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->all();
         return collect(\App\Services\PayrollCalculator::orderRows($rows))->values();
     }
 

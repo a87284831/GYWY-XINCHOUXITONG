@@ -132,7 +132,17 @@ const warnClosed = ref(false)
 const symbolWarnCount = computed(() => symbolWarnings.value.reduce((n, w) => n + (Number(w.count) || 1), 0))
 const showSymbolWarn = computed(() => symbolWarnCount.value > 0 && !warnClosed.value)
 
-const names = computed(() => Object.keys(view.value.rows || {}))
+// 行序按后端 order（上传表格行序）渲染；旧数据无 order 时退回对象键序
+const names = computed(() => {
+  const rows = view.value.rows || {}
+  const seen = new Set()
+  const out = []
+  for (const n of view.value.order || []) {
+    if (rows[n] != null && !seen.has(n)) { seen.add(n); out.push(n) }
+  }
+  for (const n of Object.keys(rows)) if (!seen.has(n)) out.push(n)
+  return out
+})
 const curStatus = computed(() => {
   if (isVirtual.value) {
     // 虚拟组 has_data 来自后端 status 接口的 virtual 字段（null=查询失败/未加载，保守放行）

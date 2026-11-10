@@ -449,6 +449,52 @@ class StoredAttendanceAnchorTest extends TestCase
         $this->assertTrue($resp->json('can_force'));
     }
 
+    /**
+     * 上传乱序（王五 → 张三 → 李四，与姓名/工号/部门排序都不同）后，
+     * 页面查看与导出都必须保持 Excel 行序（MySQL JSON 会重排对象键，靠 data.order 还原）。
+     */
+    public function test_upload_keeps_excel_row_order_for_view_and_export(): void
+    {
+        $days = array_fill(0, 30, '休');
+        for ($i = 0; $i < 22; $i++) $days[$i] = '√';
+        foreach ([['王五', 21], ['张三', 22], ['李四', 23]] as [$nm, $id]) {
+            $this->staff($nm, '2026-07-01', '2026-06-01', [
+                ['effective_date' => '2026-06-01', 'fixed_monthly' => 9000, 'base_salary' => 7000, 'type' => '初始', 'note' => ''],
+            ], $id);
+        }
+        $path = $this->makeWorkbook([
+            ['name' => '王五', 'days' => $days],
+            ['name' => '张三', 'days' => $days],
+            ['name' => '李四', 'days' => $days],
+        ]);
+        try {
+            $resp = $this->upload($path);
+        } finally {
+            @unlink($path);
+        }
+        $resp->assertStatus(200);
+
+        // 页面查看：order 严格等于 Excel 行序
+        $view = $this->get('/api/attendance?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->adminToken]);
+        $view->assertOk();
+        $this->assertSame(['王五', '张三', '李四'], $view->json('order'), '页面必须按上传表格行序渲染');
+
+        // 导出（需锁定）：姓名列同样按上传行序
+        DB::table('payroll_attendance')->where('record_key', self::YM . '|' . self::PROJ)->update(['locked' => true]);
+        $export = $this->get('/api/attendance/export?ym=' . self::YM . '&project=' . self::PROJ, ['X-Token' => $this->adminToken]);
+        $export->assertOk();
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx') . '.xlsx';
+        file_put_contents($tmp, $export->streamedContent());
+        $grid = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getSheet(0)->toArray(null, true, false, false);
+        @unlink($tmp);
+        $names = [];
+        foreach ($grid as $row) {
+            $n = trim((string) ($row[3] ?? ''));
+            if ($n !== '' && $n !== '姓名') $names[] = $n;
+        }
+        $this->assertSame(['王五', '张三', '李四'], $names, '导出必须保持上传表格行序');
+    }
+
     public function test_upload_force_stats_keeps_column_value_and_returns_warning(): void
     {
         $days = $this->seedUploadStaff();

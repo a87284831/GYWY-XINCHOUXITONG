@@ -949,8 +949,11 @@ function onPayProjChange() {
 }
 
 function exportProject() {
-  const p = payProjFilter.value || auth.projects[0]
-  download(`/api/export/project?ym=${ui.month}&project=${encodeURIComponent(p)}`, `${p}_${ui.month}工资表.xlsx`)
+  // 项目筛选=全部项目时导出全部项目明细（后端 project 留空即全部），不能再回退到 auth.projects[0]——
+  // 首个项目通常是物业公司总部，其总部人员行被项目表排除，会误报"无核算数据"
+  const p = payProjFilter.value || ''
+  const label = p || '全部项目'
+  download(`/api/export/project?ym=${ui.month}&project=${encodeURIComponent(p)}`, `${label}_${ui.month}工资表.xlsx`)
 }
 function exportType(tp) {
   TP_META[tp].export()

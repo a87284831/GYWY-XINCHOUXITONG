@@ -42,10 +42,10 @@ class PayrollExportLayoutTest extends TestCase
      * 种一条核算结果行（row_data JSON），模拟 PayrollCalculator::computeRow 输出。
      * 关键字段：project/department/position/name/status/hire_date + 货币列。
      */
-    private function seedResult(int $staffId, string $name, string $department, string $position, string $status, string $hireDate): void
+    private function seedResult(int $staffId, string $name, string $department, string $position, string $status, string $hireDate, string $project = self::PROJ): void
     {
         $row = [
-            'staff_id' => $staffId, 'project' => self::PROJ, 'department' => $department,
+            'staff_id' => $staffId, 'project' => $project, 'department' => $department,
             'position' => $position, 'name' => $name, 'status' => $status, 'hire_date' => $hireDate,
             'fixed' => 5000, 'base' => 4000, 'req_att' => 22, 'act_att' => 22, 'coef' => 1,
             'base_pay' => 4000, 'perf_pay' => 1000, 'sick_pay' => 0,
@@ -56,7 +56,7 @@ class PayrollExportLayoutTest extends TestCase
             'remark' => '', 'perf_detail' => null,
         ];
         DB::table('payroll_results')->insert([
-            'year_month' => self::YM, 'project_name' => self::PROJ,
+            'year_month' => self::YM, 'project_name' => $project,
             'staff_legacy_id' => $staffId, 'archived' => true,
             'is_manager_row' => false, 'is_case_row' => false, 'is_hq_row' => false,
             'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE),
@@ -141,5 +141,61 @@ class PayrollExportLayoutTest extends TestCase
         $this->assertSame('center', $align->getVertical());
 
         @unlink($tmp);
+    }
+
+    /**
+     * 回归：页面项目筛选默认「全部项目」（project 传空），总部必须能导出；
+     * 且锁定（archived=true）与未锁定（archived=false）两种情况都能导出。
+     */
+    public function test_export_all_projects_default_works_locked_and_unlocked(): void
+    {
+        $this->seedResult(50, '张三', '客服部', '专员', '正式', '2026-01-01', '甲项目');
+        $this->seedResult(51, '李四', '工程部', '工程师', '正式', '2026-02-01', '乙项目');
+
+        foreach ([true, false] as $archived) {
+            DB::table('payroll_results')->update(['archived' => $archived]);
+
+            $resp = $this->getJson('/api/export/project?ym=' . self::YM . '&project=', ['X-Token' => $this->token]);
+            $resp->assertOk();
+            $content = $resp->streamedContent();
+            $this->assertNotEmpty($content, 'archived=' . var_export($archived, true) . ' 时应能导出');
+
+            $tmp = tempnam(sys_get_temp_dir(), 'xlsx') . '.xlsx';
+            file_put_contents($tmp, $content);
+            $grid = IOFactory::load($tmp)->getSheet(0)->toArray(null, true, false, false);
+            @unlink($tmp);
+
+            $names = array_map(fn ($r) => trim((string) ($r[4] ?? '')), $grid);
+            $this->assertContains('张三', $names, 'project 留空应导出全部项目明细');
+            $this->assertContains('李四', $names, 'project 留空应导出全部项目明细');
+        }
+    }
+
+    /** 回归：项目账号的核定（archived）前置校验不能被削弱 */
+    public function test_project_account_export_still_gated_by_archived(): void
+    {
+        DB::table('payroll_roles')->insert([
+            'role_key' => 'project', 'name' => '项目人力', 'scope' => 'project',
+            'permissions' => null, 'data' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $pid = DB::table('payroll_accounts')->insertGetId([
+            'legacy_id' => 9002, 'username' => 'proj', 'name' => '项目会计',
+            'role' => 'project', 'project_name' => self::PROJ, 'password_hash' => 'x',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $ptok = str_repeat('p', 64);
+        Cache::put('payroll_api_token:' . $ptok, $pid, now()->addHours(8));
+
+        $this->seedResult(60, '张三', '客服部', '专员', '正式', '2026-01-01');
+        DB::table('payroll_results')->update(['archived' => false]);
+
+        // 未核定 → 仍拒绝
+        $this->getJson('/api/export/project?ym=' . self::YM . '&project=', ['X-Token' => $ptok])
+            ->assertStatus(403);
+
+        DB::table('payroll_results')->update(['archived' => true]);
+        $resp = $this->getJson('/api/export/project?ym=' . self::YM . '&project=', ['X-Token' => $ptok]);
+        $resp->assertOk();
+        $this->assertNotEmpty($resp->streamedContent());
     }
 }
