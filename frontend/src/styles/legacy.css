@@ -164,7 +164,7 @@ table.tb tbody tr.att-hl td.sticky-col { background:#D3E2FF !important; }
 .msg.ok { background:var(--success-bg); color:#0E8A22; border:1px solid #C4EFCD; }
 .msg.err { background:var(--danger-bg); color:#C42020; border:1px solid #FBC9C9; }
 .msg.info { background:var(--info-bg); color:var(--brand-700); border:1px solid #C2D8FF; }
-/* 核算结果提示卡片（CalcNotice.vue，员工/管理/案场/总部四 tab 复用） */
+/* 结果提示卡片（ResultNotice.vue，核算结果与考勤上传校验共用） */
 .pn { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--r-m); margin:10px 0; overflow:hidden; }
 .pn-head { display:flex; align-items:center; gap:var(--sp-2); padding:10px 14px; border-bottom:1px solid var(--border); }
 .pn-ico { width:28px; height:28px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex:none; }
@@ -172,20 +172,22 @@ table.tb tbody tr.att-hl td.sticky-col { background:#D3E2FF !important; }
 .pn--warn .pn-ico { background:var(--danger-bg); color:var(--danger); }
 .pn-title { font-size:var(--fs-l); font-weight:600; color:var(--text-1); }
 .pn-pill { margin-left:auto; font-size:var(--fs-s); font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; }
-.pn--ok .pn-pill { background:var(--success-bg); color:#0E8A22; }
-.pn--warn .pn-pill { background:var(--danger-bg); color:#C42020; }
+.pn--ok .pn-pill { background:var(--success-bg); color:var(--success-text); }
+.pn--warn .pn-pill { background:var(--danger-bg); color:var(--danger-text); }
+.pn-ctx { padding:8px 14px; border-bottom:1px solid var(--border); font-size:var(--fs-s); color:var(--text-3); word-break:break-all; }
 .pn-stats { display:flex; gap:var(--sp-2); flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid var(--border); }
 .pn-chip { font-size:var(--fs-s); padding:3px 10px; border-radius:999px; background:var(--divider); color:var(--text-2); display:inline-flex; gap:5px; align-items:center; }
 .pn-chip b { font-weight:700; font-variant-numeric:tabular-nums; }
-.pn-chip.dg { background:var(--danger-bg); color:#C42020; }
+.pn-chip.dg { background:var(--danger-bg); color:var(--danger-text); }
 .pn-chip.if { background:var(--info-bg); color:var(--brand-700); }
 .pn-body { padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
 .pn-sect { border:1px solid var(--border); border-left:3px solid var(--text-4); border-radius:var(--r-s); background:var(--bg-subtle); overflow:hidden; }
 .pn-sect.dg { border-left-color:var(--danger); }
 .pn-sect.if { border-left-color:var(--brand-600); }
 .pn-sect-h { display:flex; align-items:center; gap:6px; padding:8px 12px; font-size:var(--fs-s); font-weight:600; color:var(--text-2); }
-.pn-sect.dg .pn-sect-h { color:#C42020; }
+.pn-sect.dg .pn-sect-h { color:var(--danger-text); }
 .pn-sect.if .pn-sect-h { color:var(--brand-700); }
+.pn-sect-hint { padding:0 12px 8px; font-size:var(--fs-s); color:var(--text-3); }
 .pn-how { margin-left:auto; color:var(--text-3); font-weight:400; }
 .pn-row { display:flex; align-items:baseline; gap:var(--sp-2); padding:7px 12px; border-top:1px solid var(--border); }
 .pn-name { font-size:var(--fs-m); font-weight:600; color:var(--text-1); flex:none; }
@@ -196,6 +198,7 @@ table.tb tbody tr.att-hl td.sticky-col { background:#D3E2FF !important; }
 .pn-skip { font-size:var(--fs-s); color:var(--text-3); padding:0 2px; }
 .pn-skip b { color:var(--text-2); font-weight:600; }
 .pn-foot { font-size:var(--fs-s); color:var(--text-3); border-top:1px solid var(--border); padding:8px 14px; background:var(--bg-subtle); }
+.pn-actions { display:flex; flex-wrap:wrap; gap:var(--sp-2); padding:10px 14px; border-top:1px solid var(--border); background:var(--bg-card); }
 /* 弹窗 */
 .modal-mask { position:fixed; inset:0; background:rgba(29,33,41,.45); display:flex; align-items:center; justify-content:center; z-index:99; }
 .modal { background:var(--bg-card); border-radius:var(--r-m); padding:22px 24px; width:640px; max-width:94vw; max-height:88vh; overflow:auto; box-shadow:var(--sh-3); }

@@ -149,7 +149,7 @@ export function groupNotices(missing, warnings) {
 }
 
 /**
- * 组装核算结果提示卡片（CalcNotice.vue）数据：
+ * 组装核算结果提示卡片（ResultNotice.vue）数据：
  * 头部标题 + 核算人数 + 分级明细（danger/info）+ 跳过名单。
  * kind：danger 非空为 'warn'（需处理后重新核算），否则 'ok'。
  */

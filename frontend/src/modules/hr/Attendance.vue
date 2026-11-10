@@ -23,7 +23,13 @@
         <button class="btn success" :disabled="!!blockReason('export')" :title="blockReason('export') || '导出本项目本月考勤 Excel'" @click="attExport">导出考勤</button>
         <button class="btn danger sm" :disabled="!!blockReason('delete') || (!isVirtual && !curStatus.has_data)" :title="deleteBtnTitle" @click="attDelete">{{ deleteBtnText }}</button>
       </div>
-      <div v-if="attMsg" v-html="attMsg"></div>
+      <ResultNotice v-if="attNotice" :notice="attNotice">
+        <template #actions>
+          <button v-if="attNotice.actions?.confirm" class="btn success" data-act="confirm-upload">③ 确认上传</button>
+          <button v-if="attNotice.actions?.force" class="btn warn" data-act="force-upload">仍然上传（统计列与格子不一致）</button>
+          <button v-if="attNotice.actions?.cancel" class="btn" data-act="cancel-upload">取消</button>
+        </template>
+      </ResultNotice>
       <div v-if="isVirtual" class="hint">跨项目汇总表：列出全公司{{ projLabel }}（与当月工资核算同口径，管理人员不含物业总部），<b>下载时自动带出各项目已上传的考勤</b>，可直接查看或修改后回传（回传按人合并，只更新该类人员，块内其他人员数据保留）；查看 / 导出 / 删除 在当月已有该类人员考勤数据时可直接操作（无数据月份置灰），删除将把各项目考勤块中该类人员的行剔除（其他人员数据保留，某项目块删空则整块删除）；锁定 请选择具体项目。</div>
       <div v-else class="hint">流程：先下载模板→项目人力按符号填写→上传。上传校验：姓名必须在本项目人员档案中；符号必须在符号库内（超管可在"考勤符号库设置"维护）；同月重复上传为<b>整表覆盖</b>——新表完全替换旧数据，旧表有而新表没有的人员会被移除；也可先用"删除本项目本月考勤"整块清空后再传。</div>
     </div>
@@ -93,6 +99,8 @@ import { useUiStore } from '@/stores/ui'
 import { moneyOrDash, fmtEmpty } from '@/utils/format'
 import { toast } from '@/utils/toast'
 import { VIRTUAL_ATT_GROUPS, isVirtualAttGroup, attProjectLabel, attBlockedAction, pickProjectStatus } from './attendanceGroups'
+import { buildAttendanceErrorNotice, buildAttendancePreviewNotice, buildAttendanceBusyNotice } from './attendanceNotice'
+import ResultNotice from './ResultNotice.vue'
 import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()
@@ -105,7 +113,7 @@ const projLabel = computed(() => attProjectLabel(curProj.value))
 
 const attProj = ref(auth.projects[0] || '')
 const fileEl = ref(null)
-const attMsg = ref('')
+const attNotice = ref(null)
 const pendingFile = ref(null)
 // 统计列与格子数不一致时的显式覆盖开关：默认拒绝，用户点"仍然上传"后才带 force_stats
 const forceStats = ref(false)
@@ -182,8 +190,12 @@ async function attUpload(e) {
   await attDryRun(f)
 }
 
+function noticeContext(f) {
+  return [f && f.name ? f.name : '', curProj.value, ui.month].filter(Boolean).join(' · ')
+}
+
 async function attDryRun(f) {
-  attMsg.value = `<div class="msg info">正在校验考勤表...</div>`
+  attNotice.value = buildAttendanceBusyNotice('正在校验考勤表…', noticeContext(f))
   const form = new FormData()
   form.append('ym', ui.month)
   form.append('project', curProj.value)
@@ -192,35 +204,24 @@ async function attDryRun(f) {
   if (forceStats.value) form.append('force_stats', '1')
   try {
     const r = await api('/api/attendance/upload', { form })
-    // 防御：后端返回非预期结构时不让 .join 把整个错误盖住
+    // 防御：后端返回非预期结构时不让提示区失去落点
     if (!r || typeof r !== 'object' || !('names' in r)) {
       throw new Error(r && r.error ? r.error : '校验失败：服务端返回数据异常，请重试或联系管理员')
     }
-    let warnHtml = ''
-    if (r.resigned && r.resigned.length) warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 以下人员本月之前已离职，不参与核算：${r.resigned.slice(0, 10).join('、')}${r.resigned.length > 10 ? '等' : ''}</div>`
-    if (r.has_calc) warnHtml += `<div style="color:#dc2626;margin-top:6px">⚠ ${ui.month} 已有${isVirtual.value ? '相关项目' : '该项目'}核算结果，确认上传后需重新核算！</div>`
-    if (r.overwrite) warnHtml += isVirtual.value
-      ? `<div style="color:#d97706;margin-top:6px">⚠ 将更新已有的考勤数据（按人合并，块内其他人员保留）！</div>`
-      : `<div style="color:#dc2626;margin-top:6px">⚠ 将<b>整表覆盖</b>已有的考勤数据：新表完全替换旧数据，旧表有而新表没有的人员将被移除！</div>`
-    if (r.warnings && r.warnings.length) {
-      warnHtml += `<div style="color:#d97706;margin-top:6px">⚠ 已勾选“仍然上传”，以下统计列与格子不一致，将按列值入库：<br>${r.warnings.slice(0, 5).join('<br>')}${r.warnings.length > 5 ? '<br>…' : ''}</div>`
-    }
-    attMsg.value = `<div class="msg ok" style="border-color:#16a34a">
-      <div style="font-weight:600;margin-bottom:6px">校验通过：${r.count} 人${r.overwrite ? '（将覆盖旧数据）' : ''}</div>
-      <div style="font-size:12px;color:#64748b;max-height:120px;overflow-y:auto">${(r.names || []).join('、')}</div>
-      ${warnHtml}
-      <div class="row" style="margin-top:10px">
-        <button class="btn success" data-act="confirm-upload">③ 确认上传</button>
-        <button class="btn" data-act="cancel-upload">取消</button>
-      </div>
-    </div>`
+    attNotice.value = buildAttendancePreviewNotice(r, {
+      mode: 'preview',
+      context: noticeContext(f),
+      isVirtual: isVirtual.value,
+      ym: ui.month,
+      forceStats: forceStats.value,
+    })
   } catch (e2) {
     // 统计列与格子数不一致：默认拒绝，并按需给出"仍然上传"的显式覆盖入口
-    const canForce = !forceStats.value && String(e2.message).includes('按符号统计为')
-    attMsg.value = `<div class="msg err">${e2.message}`
-      + (canForce ? `<div style="margin-top:8px"><button class="btn" data-act="force-upload">仍然上传（统计列与格子不一致）</button></div>` : '')
-      + '</div>'
-    if (!canForce) pendingFile.value = null
+    attNotice.value = buildAttendanceErrorNotice(e2, {
+      context: noticeContext(f),
+      forceStats: forceStats.value,
+    })
+    if (!attNotice.value.actions.force) pendingFile.value = null
   }
 }
 
@@ -231,13 +232,16 @@ async function attUploadConfirm() {
   form.append('project', curProj.value)
   form.append('file', pendingFile.value)
   if (forceStats.value) form.append('force_stats', '1')
-  attMsg.value = `<div class="msg info">正在正式上传...</div>`
+  attNotice.value = buildAttendanceBusyNotice('正在正式上传…', noticeContext(pendingFile.value))
   try {
     const r = await api('/api/attendance/upload', { form })
-    const warnText = (r.warnings && r.warnings.length)
-      ? '<br>⚠ 统计列与格子不一致（已按“仍然上传”入库）：' + r.warnings.slice(0, 3).join('；')
-      : ''
-    attMsg.value = `<div class="msg ok">上传成功：${r.count} 人${r.overwrite ? (isVirtual.value ? '（已按人合并旧数据）' : '（已整表覆盖旧数据）') : ''}${r.warning ? '<br>⚠ ' + r.warning : ''}${warnText}</div>`
+    attNotice.value = buildAttendancePreviewNotice(r, {
+      mode: 'uploaded',
+      context: noticeContext(pendingFile.value),
+      isVirtual: isVirtual.value,
+      ym: ui.month,
+      forceStats: forceStats.value,
+    })
     pendingFile.value = null
     forceStats.value = false
     if (fileEl.value) fileEl.value.value = ''
@@ -245,7 +249,7 @@ async function attUploadConfirm() {
     await refreshWarnings()
     if (!isVirtual.value) attView()
   } catch (e) {
-    attMsg.value = `<div class="msg err">${e.message}</div>`
+    attNotice.value = buildAttendanceErrorNotice(e, { context: noticeContext(pendingFile.value), forceStats: forceStats.value })
     pendingFile.value = null
     forceStats.value = false
   }
@@ -343,7 +347,7 @@ function onDocClick(e) {
     if (pendingFile.value) attDryRun(pendingFile.value)
   }
   if (act.dataset.act === 'cancel-upload') {
-    attMsg.value = ''
+    attNotice.value = null
     pendingFile.value = null
     if (fileEl.value) fileEl.value.value = ''
   }
@@ -352,13 +356,14 @@ function onDocClick(e) {
 function onMonthChange() {
   viewLoaded.value = false
   attLocked.value = false
+  attNotice.value = null
   refreshStatus()
   refreshWarnings()
 }
 
 watch(() => ui.month, onMonthChange)
 // 切换项目/汇总选项时清空旧预览，避免把甲项目数据误当乙项目（按钮状态由 status+curProj 派生，无需额外刷新）
-watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attLocked.value = !!curStatus.value.locked; refreshWarnings() })
+watch(curProj, () => { viewLoaded.value = false; viewErr.value = ''; attNotice.value = null; attLocked.value = !!curStatus.value.locked; refreshWarnings() })
 watch(() => auth.projects, (v) => { if (!isProj.value && !attProj.value && v.length) attProj.value = v[0] })
 
 onMounted(() => {

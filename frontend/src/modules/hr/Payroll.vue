@@ -35,7 +35,7 @@
             </label>
           </div>
           <div v-if="calcMsg" v-html="calcMsg"></div>
-          <CalcNotice v-if="calcNotice" :notice="calcNotice" />
+          <ResultNotice v-if="calcNotice" :notice="calcNotice" />
         </template>
         <div v-else class="msg info">项目账号仅可查看/导出本项目已由总部核定完成的薪资数据，薪资核定与归档权限仅总部管理员拥有。</div>
       </div>
@@ -164,7 +164,7 @@
         </div>
         <div class="hint">{{ TP_META[tp].hint }}</div>
         <div v-if="typeErr[tp]" class="msg err">{{ typeErr[tp] }}</div>
-        <CalcNotice v-if="typeNotice[tp]" :notice="typeNotice[tp]" />
+        <ResultNotice v-if="typeNotice[tp]" :notice="typeNotice[tp]" />
         <div style="margin-top:10px">
           <template v-if="typeRows[tp].length">
             <div v-html="attStatusHtml"></div>
@@ -492,7 +492,7 @@ import { toast } from '@/utils/toast'
 import { initStickyCols } from '@/utils/dom'
 import { vDisableWheel } from '@/directives/disableWheel'
 import { ADJUST_GROUPS, FIELD_CN, computeAdjustChanges, payTotalRow, payDeptOptions, filterPayRows, isQuarterEndMonth, coefEntryLabel, isZeroPayRow, buildCalcNotice, archiveBlockerText, formatLogChanges, formatLogTime, adjustDisabledReason, lockedRecalcConfirmText } from './payrollLogic'
-import CalcNotice from './CalcNotice.vue'
+import ResultNotice from './ResultNotice.vue'
 import Icon from '@/components/Icon.vue'
 
 const auth = useAuthStore()

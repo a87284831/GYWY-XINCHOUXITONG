@@ -30,8 +30,10 @@
   --warning-bg: #FFF3E8;
   --danger: #F53F3F;
   --danger-bg: #FFECEC;
+  --danger-text: #C42020;
   --info: #165DFF;
   --info-bg: #E8F3FF;
+  --success-text: #0E8A22;
 
   /* 圆角：只保留 3 档 */
   --r-s: 6px;
@@ -85,7 +87,9 @@
   --success-bg: rgba(0, 180, 42, .14);
   --warning-bg: rgba(255, 125, 0, .14);
   --danger-bg: rgba(245, 63, 63, .14);
+  --danger-text: #FF9A9A;
   --info-bg: rgba(74, 139, 255, .16);
+  --success-text: #6BDD7F;
 
   --sh-1: none;
   --sh-2: none;
