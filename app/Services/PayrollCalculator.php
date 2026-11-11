@@ -186,6 +186,8 @@ class PayrollCalculator
         $catMap    = self::categoryMap($ym);
         $staff     = DB::table('payroll_staff')->where('deleted', false)->get()
             ->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $scope);
+        // 与核算同源：同名脏档案被剔除后，不再作为归档拦截项出现
+        [$staff] = $this->resolveDuplicateStaffNames($staff);
 
         $blockers = [];
 
@@ -255,6 +257,9 @@ class PayrollCalculator
         $catStaff = $staffQ->get()->filter(fn ($p) => ($catMap[$p->legacy_id] ?? 'staff') === $category);
         $placeholderCount = $catStaff->filter(fn ($p) => trim((string)$p->name) === '待同步')->count();
         $staff = $catStaff->reject(fn ($p) => trim((string)$p->name) === '待同步');
+        // 同名档案治理（2026-11-11）：仅按「项目+姓名」分组；脏档案（离职但无离职日期）自动剔除，
+        // 其余同名组合只出名单不自动处理。详见 resolveDuplicateStaffNames()。
+        [$staff, $dupWarnings] = $this->resolveDuplicateStaffNames($staff);
 
         // 预取累计预扣个税所需的历史核算结果（避免逐员工 N+1 查询）。
         // 下界随起算口径变化：prev_dec 需把「上年12月」纳入（次月发薪 → 该行属本纳税年度），
@@ -275,15 +280,15 @@ class PayrollCalculator
         if ($category === 'staff') {
             $anyAttendance = false;
             foreach ($projects as $p) { if (isset($attBlocks[$p])) { $anyAttendance = true; break; } }
-            if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
+            if (!$anyAttendance) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => $dupWarnings];
         } elseif ($isHq) {
             // 总部人员考勤统一取总部载体项目考勤块（总部考勤表单独上传）
-            if (!isset($attBlocks[self::HQ_PROJECT])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
+            if (!isset($attBlocks[self::HQ_PROJECT])) return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => $dupWarnings];
         } elseif ($attBlocks->isEmpty()) {
-            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => []];
+            return ['count' => 0, 'skipped' => ['no_attendance'], 'preserved_archived' => 0, 'missing' => [], 'warnings' => $dupWarnings];
         }
 
-        $rows = []; $missing = []; $warnings = [];
+        $rows = []; $missing = []; $warnings = $dupWarnings;
         foreach ($staff as $person) {
             $block   = $attBlocks[$isHq ? self::HQ_PROJECT : $person->project_name] ?? null;
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
@@ -444,6 +449,9 @@ class PayrollCalculator
     /**
      * 考勤行匹配：上传考勤时已按档案给每行打上 staff_id / dingtalk_userid 标记，
      * 核算时优先按 dingtalk_userid → staff_id 匹配（同名安全），最后回退姓名（兼容旧数据）。
+     *
+     * 姓名兜底约束（2026-11-11）：若行上的明确标记指向另一条「在岗」档案，则不允许当前档案
+     * 借用该行——否则同项目同名两条在岗档案会重复出行。无标记的旧考勤数据仍可按姓名兜底。
      */
     private function findAttRow(array $attRows, object $person): ?array
     {
@@ -456,7 +464,76 @@ class PayrollCalculator
         foreach ($attRows as $row) {
             if ((int)($row['staff_id'] ?? 0) === (int)$person->legacy_id) return $row;
         }
-        return $attRows[$person->name] ?? null;
+        $row = $attRows[$person->name] ?? null;
+        if ($row === null) return null;
+
+        $markerId = (int)($row['staff_id'] ?? 0);
+        $markerDuid = trim((string)($row['dingtalk_userid'] ?? ''));
+        $hasMarker = $markerId > 0 || $markerDuid !== '';
+        $pointsToSelf = ($markerId > 0 && $markerId === (int)$person->legacy_id)
+            || ($markerDuid !== '' && $markerDuid === $duid);
+        if ($hasMarker && !$pointsToSelf) {
+            $ownerActive = DB::table('payroll_staff')->where('deleted', false)
+                ->where('status', '<>', '离职')
+                ->where(function ($q) use ($markerId, $markerDuid) {
+                    if ($markerId > 0) $q->where('legacy_id', $markerId);
+                    if ($markerDuid !== '') {
+                        $markerId > 0 ? $q->orWhere('dingtalk_userid', $markerDuid) : $q->where('dingtalk_userid', $markerDuid);
+                    }
+                })->exists();
+            if ($ownerActive) return null;
+        }
+        return $row;
+    }
+
+    /**
+     * 同项目同名档案治理（2026-11-11，用户口径）：
+     *  - 只按「项目 + 姓名」分组，跨项目同名绝不合并（如孙涛 425 罗庄 / 511 日照 各算各的）；
+     *  - 组内恰有 1 条「status=离职 且 resign_date 为空」的脏档案，且存在在岗档案时：
+     *    本次核算剔除该脏档案并返回 info 提示；不阻断整月，也不影响正常离职人员；
+     *  - 其余同名组合（两个在岗 / 两个都有离职日期 / 多条脏档案）不自动处理，
+     *    返回 danger 名单供 HR 到人员档案合并，避免工资重复出行；
+     *  - 单档案人员（含当月离职、按日分段者）不会命中任何规则。
+     *
+     * @return array{0:\Illuminate\Support\Collection,1:array<int,array{name:string,project:string,reason:string,level:string}>}
+     */
+    private function resolveDuplicateStaffNames($staff): array
+    {
+        $warnings = [];
+        $drop = [];
+        foreach ($staff->groupBy(fn ($p) => (string)$p->project_name . "\x1F" . trim((string)$p->name)) as $group) {
+            if ($group->count() < 2) continue;
+            $name = trim((string)$group->first()->name);
+            if ($name === '' || $name === '待同步') continue;
+            $project = (string)($group->first()->project_name ?? '');
+            $dirty = $group->filter(fn ($p) => trim((string)$p->status) === '离职' && empty($p->resign_date));
+            $active = $group->filter(fn ($p) => trim((string)$p->status) !== '离职');
+
+            if ($dirty->count() === 1 && $active->count() >= 1) {
+                $bad = $dirty->first();
+                $drop[] = (int)$bad->legacy_id;
+                $warnings[] = [
+                    'name' => $name, 'project' => $project,
+                    'reason' => '同项目同名档案：已自动剔除「状态离职但未填离职日期」的档案（工号 ' . $bad->legacy_id
+                        . '），在岗档案照常核算；请到人员档案合并或补录离职日期',
+                    'level' => 'info',
+                ];
+                continue;
+            }
+
+            $ids = $group->map(fn ($p) => $p->legacy_id . '(' . ($p->status ?: '未知')
+                . (empty($p->resign_date) ? '' : ',' . substr((string)$p->resign_date, 0, 10)) . ')')->implode('、');
+            $warnings[] = [
+                'name' => $name, 'project' => $project,
+                'reason' => '同项目存在 ' . $group->count() . ' 条同名档案（' . $ids
+                    . '），本次未自动处理，请到人员档案核实并合并，避免工资重复出行',
+                'level' => 'danger',
+            ];
+        }
+        if ($drop) {
+            $staff = $staff->reject(fn ($p) => in_array((int)$p->legacy_id, $drop, true))->values();
+        }
+        return [$staff, $warnings];
     }
 
     /**
