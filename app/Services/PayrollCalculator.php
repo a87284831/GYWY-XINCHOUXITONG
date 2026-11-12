@@ -885,7 +885,8 @@ class PayrollCalculator
         $perfAttend = round($perfAttend, 2);
 
         // 季度绩效法（新口径）落库键：perf_req=剔除试用段后的应出勤，
-        // perf_base_month=当月满勤基数（max(0,fixed-base)，按薪资段加权、入/离职按在职日历天数折算）。
+        // perf_base_month=当月满勤基数（max(0,fixed-base)，按薪资段加权、入/离职按在职日历天数折算，
+        // 试用段同样剔除；整月试用则为 0）。
         // 仅季度型人员写入，月度/分期兑现人员 row_data 保持原样。
         $perfReq = null;
         $perfBaseMonth = null;
@@ -992,7 +993,7 @@ class PayrollCalculator
                     $quarterSum = $this->rules->flag('performance.quarter_sum', true);
                     if ($quarterSum) {
                         $perfReq = $this->monthlyPerfReq($att, $symbols, $segments, $h, $perfEnabled, $perfSkipProbation);
-                        $perfBaseMonth = $this->monthlyPerfBase($person, $segments, $ym);
+                        $perfBaseMonth = $this->monthlyPerfBase($person, $segments, $ym, $perfSkipProbation);
                     }
                     if ($this->isQuarterEnd($month)) {
                         [$qKey, $qYms] = $this->quarterPeriod($year, $month);
@@ -1769,8 +1770,9 @@ class PayrollCalculator
     /**
      * 新口径：累计一个季度内已落库的月度数据 → [季度满勤基数, Σ绩效出勤, Σ绩效应出勤, 逐月明细]。
      * 季内某月没有该员工的工资行（无考勤/无工资行）→ 直接跳过该月，既不进分子也不进分母；
-     * 不阻断、不报错、不按 0 处理。读取键优先用新落库的 perf_base_month / perf_req，
-     * 老月份缺这两个键时回退 fixed−base / req_att（历史数据近似）。
+     * 不阻断、不报错、不按 0 处理。读取键优先用新落库的 perf_base_month / perf_req；
+     * 老月份缺这两个键时按档案转正日重算非试用部分（legacyMonthPerfParts），不得直接沿用整月 req_att。
+     * 整月试用（perf_req=0）的月份整月跳过，不计入 Σ基数——试用期不产生任何绩效基数。
      */
     private function accumulateQuarterPerf(object $person, string $category, array $yms, $historyByStaff): array
     {
@@ -1788,16 +1790,25 @@ class PayrollCalculator
             }
             if (!$histRow) continue; // 缺月跳过
             $histData = $this->jsonValue($histRow->row_data) ?: [];
-            $monthBase = array_key_exists('perf_base_month', $histData) && is_numeric($histData['perf_base_month'])
+            $hasBase = array_key_exists('perf_base_month', $histData) && is_numeric($histData['perf_base_month']);
+            $hasReq = array_key_exists('perf_req', $histData) && is_numeric($histData['perf_req']);
+            $legacyBase = 0.0; $legacyReq = 0.0;
+            if (!$hasBase || !$hasReq) {
+                // 旧月份缺新键：按档案转正日重算非试用部分，避免把试用月整体计入基数
+                [$legacyBase, $legacyReq] = $this->legacyMonthPerfParts($person, $histData, $m);
+            }
+            $monthBase = $hasBase
                 ? (float)$histData['perf_base_month']
-                : max(0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
-            $monthAtt = (float)($histData['perf_att'] ?? $histData['act_att'] ?? 0);
-            $monthReq = array_key_exists('perf_req', $histData) && is_numeric($histData['perf_req'])
+                : $legacyBase;
+            $monthReq = $hasReq
                 ? (float)$histData['perf_req']
-                : (float)($histData['req_att'] ?? 0);
+                : $legacyReq;
+            $monthAtt = (float)($histData['perf_att'] ?? $histData['act_att'] ?? 0);
             $monthBase = round($monthBase, 2);
             $monthAtt = round($monthAtt, 2);
             $monthReq = round($monthReq, 2);
+            // 整月试用（或整月无应出勤）：该月不产生绩效基数，也不进出勤分子/分母
+            if ($monthReq <= 0) continue;
             $base += $monthBase; $att += $monthAtt; $req += $monthReq;
             // amount 存当月满勤基数：绩效专项表 Sheet2 用 Σ月基数 × 季度系数 × 季度出勤率 复核季度额
             $months[] = ['ym' => $m, 'base' => $monthBase, 'perf_att' => $monthAtt, 'perf_req' => $monthReq, 'amount' => $monthBase];
@@ -1831,17 +1842,58 @@ class PayrollCalculator
     /**
      * 当月满勤绩效基数 = Σ(段内 max(0,fixed−base) × 段天数 / 当月天数) × 在职日历天数占比。
      * 段加权覆盖季内调薪；在职占比覆盖入/离职当月（如 11/20 离职 → 20/30）。
+     * $skipProbation=true 时跳过试用段（与月度模式「试用段不计绩效」口径一致），
+     * 否则整月试用也会产生绩效基数。
      */
-    private function monthlyPerfBase(object $person, array $segments, string $ym): float
+    private function monthlyPerfBase(object $person, array $segments, string $ym, bool $skipProbation = true): float
     {
         $days = (int)date('t', strtotime($ym . '-01'));
         if ($days <= 0) return 0.0;
         $full = 0.0;
         foreach ($segments as $seg) {
+            if ($skipProbation && !empty($seg['probation'])) continue;
             $segDays = (float)($seg['to'] - $seg['from'] + 1);
             $full += max(0.0, (float)$seg['fixed'] - (float)$seg['base']) * $segDays / $days;
         }
         return round($full * $this->employmentRatio($person, $ym), 2);
+    }
+
+    /**
+     * 旧月份（row_data 缺 perf_req / perf_base_month）兜底：按档案转正日重算「非试用部分」的
+     * 月绩效基数与绩效应出勤，不得直接沿用整月 fixed−base / req_att。
+     * 只在当月在职天数内按试用天数占比折算，不改变旧行原有的在职口径（避免连带调整历史近似值）。
+     *
+     * @return array{0:float,1:float} [月绩效基数, 绩效应出勤]
+     */
+    private function legacyMonthPerfParts(object $person, array $histData, string $ym): array
+    {
+        $days = (int)date('t', strtotime($ym . '-01'));
+        if ($days <= 0) return [0.0, 0.0];
+        $mStart = $ym . '-01';
+        $mEnd = date('Y-m-t', strtotime($mStart));
+        $hire = substr((string)($person->hire_date ?? ''), 0, 10);
+        $resign = substr((string)($person->resign_date ?? ''), 0, 10);
+        $from = ($hire !== '' && $hire > $mStart) ? strtotime($hire) : strtotime($mStart);
+        $to = ($resign !== '' && $resign < $mEnd) ? strtotime($resign) : strtotime($mEnd);
+        if ($to < $from) return [0.0, 0.0];
+        $data = $this->jsonValue($person->data ?? null) ?: [];
+        $regular = $person->regular_date ?? null;
+        $planned = $data['planned_regular_date'] ?? null;
+        $status = (string)($person->status ?? '');
+        $employed = 0;
+        $probation = 0;
+        for ($t = $from; $t <= $to; $t += 86400) {
+            $employed++;
+            if (StaffStatus::isProbationOnDate($regular, $planned, $status, date('Y-m-d', $t))) $probation++;
+        }
+        $perfDays = $employed - $probation;
+        if ($perfDays <= 0) return [0.0, 0.0];
+        $fullBase = max(0.0, (float)($histData['fixed'] ?? 0) - (float)($histData['base'] ?? 0));
+        $reqAtt = (float)($histData['req_att'] ?? 0);
+        return [
+            round($fullBase * $perfDays / max(1, $employed), 2),
+            round($reqAtt * $perfDays / max(1, $employed), 2),
+        ];
     }
 
     /** 当月在职日历天数占比：入职/离职当月按实际在职天数折算，其余月份为 1.0。 */

@@ -215,11 +215,13 @@ class PayrollQuarterSumTest extends TestCase
         $this->assertQuarter($settle['乙入职'], 2000.0, 44, 44, 1.0);
         // ③ 10 月 1000 + 11 月 1000×20/30=666.67；12 月缺行跳过；1666.67 × 44/44 = 1666.67
         $this->assertQuarter($settle['丙离职'], 1666.67, 44, 44, 1.0);
-        // ④ 试用段只剔一次：10 月 perf_att/perf_req 同为 7（16–22 日），11/12 各 22；51/51 出勤率=1 → 3000
-        $this->assertQuarter($settle['丁转正'], 3000.0, 51, 51, 1.0);
+        // ④ 试用段只剔一次，且试用期不产生绩效基数：10 月基数 1000×16/31=516.13，
+        //    perf_att/perf_req 同为 7（16–22 日），11/12 各 22；Σ基数 2516.13 × 51/51 = 2516.13
+        $this->assertQuarter($settle['丁转正'], 2516.13, 51, 51, 1.0);
         $oct = $this->row('2026-10', '丁转正');
         $this->assertEquals(7.0, (float)$oct['perf_att']);
         $this->assertEquals(7.0, (float)$oct['perf_req']);
+        $this->assertEquals(516.13, (float)$oct['perf_base_month'], '试用段不得计入当月绩效基数');
         // ⑤ 10 月 1000 + 11 月 (1000×14/30 + 2000×16/30)=1533.33 + 12 月 2000 = 4533.33 → 4533.33
         $this->assertQuarter($settle['戊调薪'], 4533.33, 66, 66, 1.0);
         // ⑥ 12 月事假 3 天：re 22 att 19；Σ=63/66 → 3000×0.954545=2863.64
@@ -279,6 +281,107 @@ class PayrollQuarterSumTest extends TestCase
         $this->assertEquals(3490.91, (float)$row['perf_pay']);
         $this->assertEquals(64.0, (float)$row['perf_quarter']['att']);
         $this->assertEquals(3490.91, (float)$row['perf_quarter']['amount']);
+    }
+
+    /** 整季试用：季度绩效必须为 0，且每月都不产生绩效基数 */
+    public function test_all_probation_quarter_pays_zero(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(11, '试用整季', ['hire' => '2026-10-01', 'regular' => '2027-02-01']);
+        $monthsAtd = [];
+        foreach (['2026-10', '2026-11', '2026-12'] as $m) {
+            $monthsAtd[$m] = ['days' => $this->grid($m)];
+            $this->calc($m, ['试用整季' => $monthsAtd[$m]]);
+        }
+        $jan = ['试用整季' => ['days' => $this->grid('2027-01')]];
+        $this->calc('2027-01', $jan);
+        $this->seedCoef(11, '2026-Q4', 1.0, '2027-01');
+        $settle = $this->calc('2027-01', $jan, false);
+
+        $r = $settle['试用整季'];
+        $this->assertEquals(0.0, (float)$r['perf_pay']);
+        $this->assertEquals(0.0, (float)$r['perf_quarter']['base']);
+        $this->assertEquals(0.0, (float)$r['perf_quarter']['req']);
+        $this->assertSame([], $r['perf_quarter']['months'], '整季试用无有效月度基数');
+        foreach (['2026-10', '2026-11', '2026-12'] as $m) {
+            $row = $this->row($m, '试用整季');
+            $this->assertEquals(0.0, (float)$row['perf_base_month'], "{$m} 试用期不得产生绩效基数");
+            $this->assertEquals(0.0, (float)$row['perf_req'], "{$m} 试用期不应有绩效应出勤");
+        }
+    }
+
+    /** 1 个整月试用 + 2 个正式月：试用月整月跳过，不计入 Σ基数 */
+    public function test_full_probation_month_excluded_from_quarter_base(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(12, '试用一月', ['hire' => '2026-10-01', 'regular' => '2026-11-01']);
+        foreach (['2026-10', '2026-11', '2026-12'] as $m) {
+            $this->calc($m, ['试用一月' => ['days' => $this->grid($m)]]);
+        }
+        $jan = ['试用一月' => ['days' => $this->grid('2027-01')]];
+        $this->calc('2027-01', $jan);
+        $this->seedCoef(12, '2026-Q4', 1.0, '2027-01');
+        $settle = $this->calc('2027-01', $jan, false);
+
+        // 10 月 base/req 均为 0 → 整月跳过；11+12 月基数 2000 × 44/44 × 1.0 = 2000
+        $this->assertQuarter($settle['试用一月'], 2000.0, 44, 44, 1.0);
+        $this->assertEquals(0.0, (float)$this->row('2026-10', '试用一月')['perf_base_month']);
+        $this->assertCount(2, $settle['试用一月']['perf_quarter']['months']);
+    }
+
+    /** 旧月份缺 perf_req/perf_base_month：整月试用必须按转正日重算为 0，不能回退 req_att */
+    public function test_legacy_month_without_perf_keys_skips_full_probation(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(13, '旧行试用', ['hire' => '2026-10-01', 'regular' => '2026-11-01']);
+        foreach (['2026-10', '2026-11', '2026-12'] as $m) {
+            $this->calc($m, ['旧行试用' => ['days' => $this->grid($m)]]);
+        }
+        // 模拟升级前落库行：删掉两个新键
+        $this->stripPerfKeys(13, '2026-10');
+
+        $jan = ['旧行试用' => ['days' => $this->grid('2027-01')]];
+        $this->calc('2027-01', $jan);
+        $this->seedCoef(13, '2026-Q4', 1.0, '2027-01');
+        $settle = $this->calc('2027-01', $jan, false);
+
+        // 若仍用 req_att 回退，10 月会多算 1000 基数 / 22 应出勤 → 3000，本断言可拦住
+        $this->assertQuarter($settle['旧行试用'], 2000.0, 44, 44, 1.0);
+    }
+
+    /** 旧月份缺新键且月中转正：基数按非试用在职天数占整月天数折算 */
+    public function test_legacy_partial_probation_month_prorates_base(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(14, '旧行月中转正', ['hire' => '2026-10-01', 'regular' => '2026-10-16']);
+        foreach (['2026-10', '2026-11', '2026-12'] as $m) {
+            $this->calc($m, ['旧行月中转正' => ['days' => $this->grid($m)]]);
+        }
+        $this->stripPerfKeys(14, '2026-10');
+
+        $jan = ['旧行月中转正' => ['days' => $this->grid('2027-01')]];
+        $this->calc('2027-01', $jan);
+        $this->seedCoef(14, '2026-Q4', 1.0, '2027-01');
+        $settle = $this->calc('2027-01', $jan, false);
+
+        $r = $settle['旧行月中转正'];
+        // 10 月：base 1000×16/31=516.13；req 回退按 22×16/31=11.35（无考勤格子可用，按日历天折算）
+        $this->assertEquals(516.13, (float)$r['perf_quarter']['months'][0]['base']);
+        $this->assertEquals(11.35, (float)$r['perf_quarter']['months'][0]['perf_req']);
+        $this->assertEquals(2516.13, (float)$r['perf_quarter']['base']);
+        $this->assertEquals(2318.39, (float)$r['perf_pay']);
+    }
+
+    /** 删除某月工资行里的 perf_req/perf_base_month，模拟升级前落库的历史行 */
+    private function stripPerfKeys(int $staffId, string $ym): void
+    {
+        $row = DB::table('payroll_results')
+            ->where('year_month', $ym)->where('staff_legacy_id', $staffId)->where('is_manager_row', true)->first();
+        $this->assertNotNull($row, "缺少 {$ym} 的工资行");
+        $d = json_decode((string)$row->row_data, true) ?: [];
+        unset($d['perf_req'], $d['perf_base_month']);
+        DB::table('payroll_results')->where('id', $row->id)
+            ->update(['row_data' => json_encode($d, JSON_UNESCAPED_UNICODE)]);
     }
 
     private function assertQuarter(array $row, float $amount, float $att, float $req, float $coef): void
