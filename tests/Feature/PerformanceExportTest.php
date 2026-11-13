@@ -220,8 +220,9 @@ class PerformanceExportTest extends TestCase
         $grid = $this->grid($sheet);
         $head = $grid[1];
         $this->assertSame(['序号', '项目', '部门', '姓名', '岗位', '薪酬档位', '固定月薪',
-            '7月应发', '7月转正', '8月应发', '8月转正', '9月应发', '9月转正',
-            '季度合计应发', '季度合计转正', '出勤系数', '季度系数', '标准绩效工资', '应发绩效工资',
+            '7月应出勤天数', '7月转正出勤天数', '8月应出勤天数', '8月转正出勤天数',
+            '9月应出勤天数', '9月转正出勤天数',
+            '季度合计应出勤天数', '季度合计转正出勤天数', '出勤系数', '季度系数', '标准绩效工资', '应发绩效工资',
             '入职日期', '转正日期', '备注'], $head);
 
         $zhang = $this->findRow($grid, '张三');
@@ -320,12 +321,89 @@ class PerformanceExportTest extends TestCase
         $this->assertEquals(1.11, (float) $res->json('ratio_over_one.0.ratio'));
     }
 
-    public function test_unified_monthly_derives_quarter_rows_without_quarter_columns(): void
+    // 口径确认：统一季度视图直接剔除月度绩效法人员（不进表、不进汇总、不报异常）
+    public function test_unified_quarter_excludes_monthly_staff(): void
+    {
+        $this->seedStaff(1, '李四', '甲项目', '专员级');
+        $this->seedStaff(2, '张三', '甲项目', '经理级');
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 1, 'name' => '李四', 'coef' => 1, 'perf_pay' => 500]);
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 2, 'name' => '张三', 'department' => '管理部',
+            'perf_quarter' => $this->quarter()], ['manager' => true]);
+
+        $res = $this->getJson('/api/export/performance-detail/preview?ym=2026-10&cats=staff,manager&method=quarter',
+            ['X-Token' => $this->token]);
+        $res->assertOk();
+        $texts = implode('｜', array_column($res->json('warnings'), 'text'));
+        $this->assertStringContainsString('已按发放法剔除 1 人', $texts);
+        $this->assertStringNotContainsString('绩效数据异常', $texts);
+        // 只保留季度型人员：基层整类被剔除后不产出 Sheet
+        $this->assertCount(1, $res->json('sheets'));
+        $this->assertSame('管理人员', $res->json('sheets.0.title'));
+        $this->assertSame(1, $res->json('sheets.0.count'));
+        $this->assertSame('张三', $res->json('sheets.0.sample.0.3'));
+
+        $res2 = $this->getJson('/api/export/performance-detail/preview?ym=2026-10&cats=staff&method=quarter',
+            ['X-Token' => $this->token]);
+        $res2->assertOk();
+        $this->assertSame([], $res2->json('sheets'));
+    }
+
+    // 对称：统一月度视图剔除季度绩效法人员
+    public function test_unified_monthly_excludes_quarter_staff(): void
+    {
+        $this->seedStaff(2, '张三', '甲项目', '经理级');
+        $this->seedStaff(3, '王五', '甲项目', '主管级');
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 2, 'name' => '张三', 'department' => '管理部',
+            'perf_quarter' => $this->quarter()], ['manager' => true]);
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 3, 'name' => '王五', 'department' => '管理部',
+            'coef' => 1, 'perf_pay' => 1000], ['manager' => true]);
+
+        $res = $this->getJson('/api/export/performance-detail/preview?ym=2026-10&cats=manager&method=monthly',
+            ['X-Token' => $this->token]);
+        $res->assertOk();
+        $texts = implode('｜', array_column($res->json('warnings'), 'text'));
+        $this->assertStringContainsString('已按发放法剔除 1 人', $texts);
+        $this->assertStringContainsString('季度绩效法', $texts);
+        $this->assertSame(1, $res->json('sheets.0.count'));
+        $this->assertSame('王五', $res->json('sheets.0.sample.0.3'));
+    }
+
+    // 问题2：历史季度数据（perf_detail 无 perf_req）应回填逐月应出勤，且实发额取工资行 perf_pay
+    public function test_legacy_quarter_detail_backfills_attendance_days(): void
     {
         $this->seedStaff(1, '张三', '甲项目', '经理级');
-        $this->seedRow(['ym' => '2026-10', 'staff_id' => 1, 'name' => '张三', 'fixed' => 6000, 'base' => 5000,
-            'coef' => 0.7, 'perf_pay' => 2100, 'perf_att' => 20, 'perf_req' => 22, 'perf_base_month' => 3000,
-            'perf_quarter' => $this->quarter()], ['manager' => true]);
+        foreach ([['2026-07', 23], ['2026-08', 21], ['2026-09', 22]] as [$m, $req]) {
+            $this->seedRow(['ym' => $m, 'staff_id' => 1, 'name' => '张三', 'req_att' => $req,
+                'perf_att' => $req, 'perf_pay' => 0], ['manager' => true]);
+        }
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 1, 'name' => '张三', 'perf_pay' => 450,
+            'perf_detail' => [
+                'period' => '2026-Q3', 'type' => 'quarterly', 'pay_grade' => '经理级', 'coef' => 0.3,
+                'months' => [
+                    ['ym' => '2026-07', 'perf_att' => 23, 'base' => 500, 'amount' => 500],
+                    ['ym' => '2026-08', 'perf_att' => 21, 'base' => 500, 'amount' => 500],
+                    ['ym' => '2026-09', 'perf_att' => 22, 'base' => 500, 'amount' => 500],
+                ],
+            ]], ['manager' => true]);
+
+        $book = $this->getXlsx('ym=2026-10&cats=manager&method=quarter');
+        $grid = $this->grid($book->getSheet(0));
+        $zhang = $this->findRow($grid, '张三');
+        $this->assertNotNull($zhang);
+        $this->assertEquals(23, (float) $zhang[7]);    // 7月应出勤天数
+        $this->assertEquals(21, (float) $zhang[9]);    // 8月应出勤天数
+        $this->assertEquals(22, (float) $zhang[11]);   // 9月应出勤天数
+        $this->assertEquals(66, (float) $zhang[13]);   // 季度合计应出勤天数
+        $this->assertEquals(1, (float) $zhang[15]);    // 出勤系数
+        $this->assertEquals(450, (float) $zhang[18]);  // 应发绩效工资取工资行 perf_pay
+    }
+
+    public function test_unified_monthly_columns_and_amounts(): void
+    {
+        $this->seedStaff(3, '王五', '甲项目', '主管级');
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 3, 'name' => '王五', 'department' => '管理部',
+            'fixed' => 6000, 'base' => 5000, 'coef' => 0.7, 'perf_pay' => 2100,
+            'perf_att' => 20, 'perf_req' => 22, 'perf_base_month' => 3000], ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=monthly');
         $sheet = $book->getSheet(0);
@@ -333,11 +411,13 @@ class PerformanceExportTest extends TestCase
         $grid = $this->grid($sheet);
         $this->assertContains('出勤比例', $grid[1]);
         $this->assertNotContains('季度系数', $grid[1]);
+        $this->assertSame('应出勤天数', $grid[1][9]);
+        $this->assertSame('绩效出勤天数', $grid[1][10]);
 
-        $zhang = $this->findRow($grid, '张三');
-        $this->assertEquals(3000, (float) $zhang[12]);          // 标准（月）
-        $this->assertEquals(1909.09, (float) $zhang[13]);       // 3000×20/22×0.7
-        $this->assertStringContainsString('折算', (string) $zhang[16]);
+        $wang = $this->findRow($grid, '王五');
+        $this->assertEquals(3000, (float) $wang[12]);          // 标准（月）
+        $this->assertEquals(2100, (float) $wang[13]);          // 月度实发
+        $this->assertStringNotContainsString('折算', (string) $wang[16]);
     }
 
     public function test_unified_installment_columns_and_amounts(): void

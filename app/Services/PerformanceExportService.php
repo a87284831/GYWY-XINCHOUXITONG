@@ -150,9 +150,29 @@ class PerformanceExportService
             ? DB::table('payroll_staff')->whereIn('legacy_id', $staffIds)->get()->keyBy('legacy_id')
             : collect();
 
+        // 季内月份应出勤兜底：历史月份工资行可能缺 perf_req（旧季度数据只有 perf_att/base/amount），
+        // 逐月取该员工当月工资行的 perf_req，缺失时回退 req_att，供「X月应出勤天数」列与季度合计使用。
+        $histReq = [];
+        if ($quarterMonths && $staffIds) {
+            $histRows = DB::table('payroll_results')
+                ->whereIn('year_month', $quarterMonths)
+                ->whereIn('staff_legacy_id', $staffIds)
+                ->get(['staff_legacy_id', 'year_month', 'row_data']);
+            foreach ($histRows as $hr) {
+                $hd = $this->jsonValue($hr->row_data) ?: [];
+                $req = array_key_exists('perf_req', $hd) && is_numeric($hd['perf_req'])
+                    ? (float) $hd['perf_req']
+                    : (is_numeric($hd['req_att'] ?? null) ? (float) $hd['req_att'] : null);
+                if ($req !== null) {
+                    $histReq[(int) $hr->staff_legacy_id][(string) $hr->year_month] = round($req, 2);
+                }
+            }
+        }
+
         $catStat = [];
-        foreach ($cats as $cat) $catStat[$cat] = ['count' => 0, 'archived' => 0, 'methods' => []];
+        foreach ($cats as $cat) $catStat[$cat] = ['count' => 0, 'archived' => 0, 'included' => 0, 'methods' => []];
         $entries = [];
+        $excluded = [];
 
         foreach ($records as $rec) {
             $row = $this->jsonValue($rec->row_data) ?: [];
@@ -167,7 +187,15 @@ class PerformanceExportService
 
             $staffId = (int) ($rec->staff_legacy_id ?: ($row['staff_id'] ?? 0));
             $staff = $staffMap[$staffId] ?? null;
-            $entry = $this->buildEntry($row, $cat, $ym, $method, $quarterMonths, $staff);
+            $entry = $this->buildEntry($row, $cat, $ym, $method, $quarterMonths, $staff, $staffId, $histReq);
+            // 统一发放法视图只保留符合该发放法的人员：统一季度剔除月度绩效法人员，统一月度剔除季度绩效法人员
+            $exclude = ($method === 'quarter' && $entry['config_method'] === 'monthly')
+                || ($method === 'monthly' && $entry['config_method'] === 'quarter');
+            if ($exclude) {
+                $excluded[$cat][$entry['config_method']] = ($excluded[$cat][$entry['config_method']] ?? 0) + 1;
+                continue;
+            }
+            $catStat[$cat]['included']++;
             $catStat[$cat]['methods'][$entry['method']] = true;
             $entries[] = $entry;
         }
@@ -244,6 +272,9 @@ class PerformanceExportService
             } else {
                 $status = $stat['count'] . ' 条，已归档'; $level = 'ok';
             }
+            if ($stat['included'] < $stat['count']) {
+                $status .= '；按发放法剔除 ' . ($stat['count'] - $stat['included']) . ' 人，本表 ' . $stat['included'] . ' 条';
+            }
             $categories[] = [
                 'key' => $cat, 'label' => self::CATS[$cat], 'count' => $stat['count'],
                 'archived_count' => $stat['archived'], 'status' => $status, 'level' => $level,
@@ -251,7 +282,20 @@ class PerformanceExportService
             ];
         }
 
-        $warnings = $this->warnings($ym, $quarterKey, $quarterMonths, $categories, $anomalies, $ratioOverOne, $project, $method);
+        $excludedText = '';
+        if ($excluded) {
+            $parts = [];
+            $total = 0;
+            foreach ($excluded as $cat => $methods) {
+                foreach ($methods as $m => $n) {
+                    $total += $n;
+                    $parts[] = self::CATS[$cat] . ' ' . (self::METHOD_SHORT[$m] ?? $m) . ' ' . $n . ' 人';
+                }
+            }
+            $excludedText = '已按发放法剔除 ' . $total . ' 人（' . implode('、', $parts) . '），不计入本表与汇总人数/金额。';
+        }
+
+        $warnings = $this->warnings($ym, $quarterKey, $quarterMonths, $categories, $anomalies, $ratioOverOne, $project, $method, $excludedText);
 
         $methodPart = $method === 'follow' ? '跟随发放' : self::METHOD_LABELS[$method];
         $filename = '绩效导出_' . $ym . '_' . $methodPart . '.xlsx';
@@ -304,7 +348,7 @@ class PerformanceExportService
         };
     }
 
-    private function buildEntry(array $row, string $cat, string $ym, string $override, array $quarterMonths, ?object $staff): array
+    private function buildEntry(array $row, string $cat, string $ym, string $override, array $quarterMonths, ?object $staff, int $staffId = 0, array $histReq = []): array
     {
         $staffData = $staff ? ($this->jsonValue($staff->data ?? null) ?: []) : [];
         $fixed = round((float) ($row['fixed'] ?? 0), 2);
@@ -329,7 +373,7 @@ class PerformanceExportService
         $method = $this->resolveMethod($cat, $override, $grade);
         $originalMethod = $override === 'follow' ? $method : $this->resolveMethod($cat, 'follow', $grade);
 
-        $quarter = $this->quarterBlock($q, $d);
+        $quarter = $this->hydrateQuarterReq($this->quarterBlock($q, $d, (float) ($row['perf_pay'] ?? 0)), $staffId, $histReq);
         $installment = $this->installmentBlock($d);
 
         $notes = [];
@@ -348,8 +392,14 @@ class PerformanceExportService
                 $isAnomaly = true;
             }
             if ($quarter === null) {
-                if (!($qErr || $dErr)) $notes[] = '本期无季度兑现数据（可能未核算）';
-                $isAnomaly = true;
+                // 统一季度视图已按发放法剔除月度人员；此处只剩分期兑现等非季度人员，
+                // 只在备注说明口径不适用，不算数据异常（异常只留给季度型人员）。
+                if ($override !== 'follow' && $originalMethod !== 'quarter') {
+                    $notes[] = '该人员按' . (self::METHOD_SHORT[$originalMethod] ?? $originalMethod) . '发放，本表季度列不适用（显示 —）';
+                } else {
+                    if (!($qErr || $dErr)) $notes[] = '本期无季度兑现数据（可能未核算）';
+                    $isAnomaly = true;
+                }
             } else {
                 $standard = $quarter['standard'];
                 $qCoef = $quarter['coef'];
@@ -381,7 +431,7 @@ class PerformanceExportService
                 $isAnomaly = true;
             } elseif ($originalMethod !== 'monthly') {
                 $amount = $exactRatio !== null ? round($standard * $exactRatio * $coef, 2) : null;
-                $notes[] = '季度型人员按月度口径折算（口径视图）';
+                $notes[] = '该人员按' . (self::METHOD_SHORT[$originalMethod] ?? $originalMethod) . '配置，按月度口径折算（口径视图）';
             } else {
                 $amount = round((float) ($row['perf_pay'] ?? 0), 2);
                 if ($amount == 0.0) $notes[] = '本月绩效为 0';
@@ -421,6 +471,7 @@ class PerformanceExportService
             'cat' => $cat,
             'cat_label' => self::CATS[$cat],
             'method' => $method,
+            'config_method' => $originalMethod,
             'project' => (string) ($row['project'] ?? ''),
             'department' => (string) ($row['department'] ?? ''),
             'position' => (string) ($row['position'] ?? ''),
@@ -451,7 +502,7 @@ class PerformanceExportService
     }
 
     /** 新 perf_quarter 优先，旧 perf_detail 回退；返回统一季度块 */
-    private function quarterBlock(?array $q, ?array $d): ?array
+    private function quarterBlock(?array $q, ?array $d, float $rowPerfPay = 0.0): ?array
     {
         if ($q && empty($q['error'])) {
             $months = [];
@@ -503,7 +554,9 @@ class PerformanceExportService
             $ratioValue = $hasRatio ? (float) $d['ratio'] : 1.0;
             $amount = $hasRatio
                 ? ($coef === null ? null : round($sumProrated * $coef * $ratioValue, 2))
-                : round((float) ($d['perf_pay'] ?? 0), 2);
+                // 旧 quarter_grade 的 perf_detail 只有 coef/months，不含 perf_pay；
+                // 实发额以工资行顶层 perf_pay 为准，避免整列显示 0.00。
+                : round((float) ($d['perf_pay'] ?? $rowPerfPay), 2);
             return [
                 'period' => (string) ($d['period'] ?? ''),
                 'months' => $months,
@@ -517,6 +570,32 @@ class PerformanceExportService
             ];
         }
         return null;
+    }
+
+    /**
+     * 逐月应出勤兜底：旧季度数据（perf_detail）的 months 无 perf_req，
+     * 用该员工当月工资行的 perf_req / req_att 补齐；补齐后重算季度应出勤合计与出勤系数。
+     */
+    private function hydrateQuarterReq(?array $quarter, int $staffId, array $histReq): ?array
+    {
+        if ($quarter === null) return null;
+        $sum = 0.0;
+        $complete = true;
+        foreach ($quarter['months'] as $mYm => $m) {
+            if ($m['req'] === null) {
+                $fallback = $histReq[$staffId][$mYm] ?? null;
+                if ($fallback !== null) $quarter['months'][$mYm]['req'] = $fallback;
+            }
+            $req = $quarter['months'][$mYm]['req'];
+            if ($req === null) $complete = false; else $sum += (float) $req;
+        }
+        if ($quarter['req'] === null) {
+            $quarter['req'] = $complete ? round($sum, 2) : null;
+            if ($quarter['req'] !== null && $quarter['req'] > 0) {
+                $quarter['ratio'] = round((float) $quarter['att'] / (float) $quarter['req'], 4);
+            }
+        }
+        return $quarter;
     }
 
     /** 分期兑现块：仅 quarterly 法（perf_detail.ratio 存在）可算 */
@@ -612,11 +691,11 @@ class PerformanceExportService
         $periodCols = [['label' => '固定月薪', 'type' => 'money']];
         foreach ($months as $m) {
             $label = ((int) substr($m, 5, 2)) . '月';
-            $periodCols[] = ['label' => $label . '应发', 'type' => 'count'];
-            $periodCols[] = ['label' => $label . '转正', 'type' => 'count'];
+            $periodCols[] = ['label' => $label . '应出勤天数', 'type' => 'count'];
+            $periodCols[] = ['label' => $label . '转正出勤天数', 'type' => 'count'];
         }
-        $periodCols[] = ['label' => '季度合计应发', 'type' => 'count'];
-        $periodCols[] = ['label' => '季度合计转正', 'type' => 'count'];
+        $periodCols[] = ['label' => '季度合计应出勤天数', 'type' => 'count'];
+        $periodCols[] = ['label' => '季度合计转正出勤天数', 'type' => 'count'];
         $periodCols[] = ['label' => '出勤系数', 'type' => 'ratio'];
         $periodCols[] = ['label' => '季度系数', 'type' => 'ratio'];
 
@@ -725,7 +804,8 @@ class PerformanceExportService
         array $anomalies,
         array $ratioOverOne,
         string $project,
-        string $method
+        string $method,
+        string $excludedText = ''
     ): array {
         $warnings = [];
         if ($quarterKey) {
@@ -742,6 +822,9 @@ class PerformanceExportService
             'level' => 'info',
             'text' => '项目范围：' . ($project === '' ? '全部项目' : $project) . '；发放法：' . (self::METHOD_LABELS[$method] ?? $method) . '。',
         ];
+        if ($excludedText !== '') {
+            $warnings[] = ['level' => 'info', 'text' => $excludedText];
+        }
 
         foreach ($categories as $cat) {
             if ($cat['count'] === 0) {
