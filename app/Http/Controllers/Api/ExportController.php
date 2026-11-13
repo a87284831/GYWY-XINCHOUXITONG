@@ -955,6 +955,119 @@ class ExportController extends ApiController
         return $this->xlsx($book, '薪资驾驶舱_' . $ym . '.xlsx');
     }
 
+    /**
+     * 考勤导出（数据导出模块）：GET /api/export/attendance?ym=&project=&person_type=&mode=&dry_run=1
+     *
+     * - project=all（留空同义）= 全部项目；否则为单个项目
+     * - person_type=all|manager|case（管理人员/案场人员按月 categoryMap 分类，与工资核算同源）
+     * - mode=merged 全部项目合并一张表（含项目列）；mode=bundle 全量数据包（每项目一张 Sheet，
+     *   项目维度固定为全部项目，人员类型筛选同样生效）
+     * - 只导出已锁定月份；未锁定项目不静默跳过：dry_run=1 返回 skipped_unlocked 供前端提示，
+     *   正式导出时同样跳过这些项目
+     */
+    public function attendance(Request $request, \App\Services\AttendanceExportService $service)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份格式错误'], 400);
+        }
+        $mode = $request->string('mode')->toString() ?: 'merged';
+        if (!in_array($mode, ['merged', 'bundle'], true)) {
+            return response()->json(['ok' => false, 'error' => '打包方式参数错误'], 400);
+        }
+        $personType = $request->string('person_type')->toString() ?: 'all';
+        $typeMap = ['all' => '', 'manager' => 'manager', 'case' => 'case'];
+        if (!array_key_exists($personType, $typeMap)) {
+            return response()->json(['ok' => false, 'error' => '人员类型参数错误'], 400);
+        }
+        $category = $typeMap[$personType];
+        $typeLabel = ['all' => '全部人员', 'manager' => '管理人员', 'case' => '案场人员'][$personType];
+
+        // 项目范围：项目账号强制本项目；总部账号可选全部项目或单项目。
+        // 全量数据包固定为全部项目（项目账号仍限本项目）。
+        $enabled = DB::table('payroll_projects')->where('status', '启用')->orderBy('id')->pluck('name')->all();
+        if ($this->isProjectScope($account)) {
+            $projects = [(string) $account->project_name];
+            $projectLabel = $projects[0];
+        } elseif ($mode === 'bundle') {
+            $projects = $enabled;
+            $projectLabel = '全部项目';
+        } else {
+            $project = trim($request->string('project')->toString());
+            if ($project === '' || $project === 'all') {
+                $projects = $enabled;
+                $projectLabel = '全部项目';
+            } else {
+                if (!in_array($project, $enabled, true)) {
+                    return response()->json(['ok' => false, 'error' => '项目不存在或未启用'], 422);
+                }
+                $projects = [$project];
+                $projectLabel = $project;
+            }
+        }
+        if (!$projects) return response()->json(['ok' => false, 'error' => '暂无启用项目'], 404);
+
+        $prepared = $service->prepare($ym, $projects, $category, [
+            'use_month_category' => true, // 管理人员/案场人员按核算月生效分类，与工资核算同源
+            'skip_unlocked' => true,      // 未锁定项目不导出，由前端据 dry_run 结果提示
+        ]);
+
+        $peopleByProject = [];
+        $total = 0;
+        foreach ($projects as $p) {
+            $rows = $prepared['projects'][$p]['people'] ?? [];
+            if (!$rows) continue;
+            $peopleByProject[$p] = $rows;
+            $total += count($rows);
+        }
+
+        if ($request->boolean('dry_run')) {
+            return response()->json([
+                'ok' => true, 'ym' => $ym, 'mode' => $mode, 'person_type' => $personType,
+                'exported' => array_keys($peopleByProject),
+                'rows' => $total,
+                'skipped_unlocked' => $prepared['skipped_unlocked'],
+                'skipped_no_data' => $prepared['skipped_no_data'],
+                'skipped_no_type_rows' => $prepared['skipped_no_type_rows'],
+            ]);
+        }
+
+        if (!$total) {
+            return response()->json([
+                'ok' => false, 'error' => '没有符合条件的已锁定考勤数据',
+                'skipped_unlocked' => $prepared['skipped_unlocked'],
+            ], 404);
+        }
+
+        $book = new Spreadsheet();
+        if ($mode === 'bundle') {
+            $titles = [];
+            $first = true;
+            foreach ($peopleByProject as $p => $rows) {
+                $sheet = $first ? $book->getActiveSheet() : $book->createSheet();
+                $first = false;
+                $title = $service->sheetTitle($p, $titles);
+                $sheet->setTitle($title);
+                $titles[] = $title;
+                // 每项目一张表：单项目口径，不输出「项目」列
+                $service->writeSheet($sheet, $rows, $ym, $p, false, $typeLabel);
+            }
+            $book->setActiveSheetIndex(0);
+            $filename = "考勤全量数据包_{$projectLabel}_{$typeLabel}_{$ym}.xlsx";
+        } else {
+            $people = [];
+            foreach ($peopleByProject as $rows) {
+                foreach ($rows as $person) $people[] = $person;
+            }
+            $service->writeSheet($book->getActiveSheet(), $people, $ym, $projectLabel, $projectLabel === '全部项目', $typeLabel);
+            $filename = "考勤导出_{$projectLabel}_{$typeLabel}_{$ym}.xlsx";
+        }
+
+        return $this->xlsx($book, $filename);
+    }
+
     private function rows(string $ym, ?string $project = null)
     {
         $query = DB::table('payroll_results')->where('year_month', $ym)

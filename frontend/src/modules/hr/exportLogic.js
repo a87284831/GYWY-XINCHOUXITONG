@@ -28,3 +28,33 @@ export function projectExportTarget(type, ym, project, isAdmin = true) {
     filename: `${project}_${conf.filePart}_${ym}.xlsx`,
   }
 }
+
+// 数据导出 → 考勤导出：项目/人员类型作为筛选条件组合使用（不是独立导出项）
+export const ATTENDANCE_EXPORT_TYPES = [
+  { value: 'all', label: '全部人员' },
+  { value: 'manager', label: '管理人员' },
+  { value: 'case', label: '案场人员' },
+]
+
+// merged = 全部项目合并一张表；bundle = 全量数据包（每项目一张 Sheet，项目固定全部项目）
+export const ATTENDANCE_EXPORT_MODES = {
+  merged: { prefix: '考勤导出' },
+  bundle: { prefix: '考勤全量数据包' },
+}
+
+export function attendanceExportTarget({ ym, project = 'all', personType = 'all', mode = 'merged', isProjectScope = false }) {
+  const type = ATTENDANCE_EXPORT_TYPES.find((t) => t.value === personType)
+  if (!type) throw new Error('人员类型错误')
+  const conf = ATTENDANCE_EXPORT_MODES[mode]
+  if (!conf) throw new Error('打包方式错误')
+  // 全量数据包：总部固定全部项目；项目账号仍只能导本项目
+  const scope = mode === 'bundle' ? (isProjectScope ? project : 'all') : (project || 'all')
+  const params = new URLSearchParams({ ym, project: scope, person_type: personType, mode })
+  const scopePart = scope === 'all' ? '全部项目' : scope
+  return {
+    previewUrl: `/api/export/attendance?${params.toString()}&dry_run=1`,
+    url: `/api/export/attendance?${params.toString()}`,
+    filename: `${conf.prefix}_${scopePart}_${type.label}_${ym}.xlsx`,
+  }
+}
+

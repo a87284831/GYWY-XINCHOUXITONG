@@ -79,6 +79,7 @@ Route::get('/payroll/annual/export', [PayrollYearController::class, 'export']);
 Route::get('/export/projects_all', [ExportController::class, 'projectsAll']);
 Route::get('/export/performance', [ExportController::class, 'performance']);
 Route::get('/export/dashboard', [ExportController::class, 'dashboard']);
+Route::get('/export/attendance', [ExportController::class, 'attendance']);
 Route::get('/maintenance/contracts', [MaintenanceController::class, 'contracts']);
 Route::post('/maintenance/contracts', [MaintenanceController::class, 'saveContract']);
 Route::put('/maintenance/contracts/{id}', [MaintenanceController::class, 'saveContract']);
