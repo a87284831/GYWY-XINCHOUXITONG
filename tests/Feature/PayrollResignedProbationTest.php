@@ -86,7 +86,7 @@ class PayrollResignedProbationTest extends TestCase
             'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
             'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
             'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,
-            'welfare' => 0.0, 'coef' => null, 'remark' => '',
+            'welfare' => 0.0, 'coef' => 1, 'remark' => '',
         ]);
         DB::table('payroll_attendance')->insert([
             'record_key' => self::YM . '|测试项目', 'year_month' => self::YM, 'project_name' => '测试项目',

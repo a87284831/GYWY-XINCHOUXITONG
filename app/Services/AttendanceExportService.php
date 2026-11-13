@@ -201,7 +201,7 @@ class AttendanceExportService
             // 应出勤/实际出勤：与核算、页面共用 storedOrFallback——字段缺失才回退符号统计，填 0 就是 0
             $sheet->setCellValue("{$c(0)}{$row}", PayrollCalculator::storedOrFallback($att, 'req_attend', $stats['required']));
             $sheet->setCellValue("{$c(1)}{$row}", PayrollCalculator::storedOrFallback($att, 'act_attend', $stats['attend']));
-            $sheet->setCellValue("{$c(2)}{$row}", $att['coef'] ?? 1);
+            $sheet->setCellValue("{$c(2)}{$row}", $att['coef'] ?? 0);
             $sheet->setCellValue("{$c(3)}{$row}", $stats['personal']);
             $sheet->setCellValue("{$c(4)}{$row}", $stats['sick']);
             $sheet->setCellValue("{$c(5)}{$row}", $stats['maternity']);

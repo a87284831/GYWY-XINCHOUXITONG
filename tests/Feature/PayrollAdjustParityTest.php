@@ -75,7 +75,7 @@ class PayrollAdjustParityTest extends TestCase
         $att = ['days' => $days, 'req_attend' => null, 'act_attend' => null, 'reward' => 0, 'punish' => 0,
             'meal_sub' => 0, 'night_sub' => 0, 'title_sub' => 0, 'pen' => 0, 'med' => 0, 'une' => 0,
             'house' => 0, 'big' => 0, 'miss_deduct' => 0, 'late_deduct' => 0, 'other_deduct' => 0,
-            'uniform_deduct' => 0, 'welfare' => 0, 'coef' => null, 'remark' => ''];
+            'uniform_deduct' => 0, 'welfare' => 0, 'coef' => 1, 'remark' => ''];
         DB::table('payroll_attendance')->updateOrInsert(
             ['record_key' => self::YM . '|测试项目'],
             ['year_month' => self::YM, 'project_name' => '测试项目',
@@ -118,7 +118,7 @@ class PayrollAdjustParityTest extends TestCase
             $req = (float)($row['req_att'] ?? 0);
             $act = (float)($row['act_att'] ?? 0);
             $perf = (float)($row['perf_att'] ?? $act);
-            $coef = (float)($row['coef'] ?? 1);
+            $coef = (float)($row['coef'] ?? 0);
             if ($req > 0) {
                 $baseRef = (float)($row['base_pay_ref'] ?? ($row['base_pay'] ?? 0));
                 $perfRef = (float)($row['perf_pay_ref'] ?? ($row['perf_pay'] ?? 0));

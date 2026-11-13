@@ -81,17 +81,15 @@ class PerformanceExportController extends ApiController
         if ($ctx['mode'] === 'summary') {
             $this->fillSummarySheet($book->getActiveSheet(), $data);
         } else {
-            $first = true;
-            foreach ($data['sheets'] as $def) {
-                $sheet = $first ? $book->getActiveSheet() : $book->createSheet();
-                $first = false;
-                $this->fillDetailSheet($sheet, $def, $data['ym'], $data['quarter_months']);
-            }
-            if ($first) {
+            if (!$data['sheets']) {
                 $book->getActiveSheet()->setTitle('说明');
                 $book->getActiveSheet()->setCellValue('A1', $data['ym'] . ' 无匹配数据');
             } else {
-                $this->fillSummarySheet($book->createSheet(), $data);
+                // 整包顺序：汇总放第一个 Sheet，其后按类别明细，最后说明
+                $this->fillSummarySheet($book->getActiveSheet(), $data);
+                foreach ($data['sheets'] as $def) {
+                    $this->fillDetailSheet($book->createSheet(), $def, $data['ym'], $data['quarter_months']);
+                }
                 $this->fillNotesSheet($book->createSheet(), $data, $ctx);
                 $book->setActiveSheetIndex(0);
             }
@@ -253,7 +251,8 @@ class PerformanceExportController extends ApiController
                         $st->getNumberFormat()->setFormatCode('0.00');
                         $st->getAlignment()->setHorizontal('center');
                     } elseif ($type === 'count' && is_numeric($value)) {
-                        $st->getNumberFormat()->setFormatCode('0.##');
+                        // 常规格式：整数显示 23（不带尾点），半点显示 20.5；避免 '0.##' 在整数后渲染 "23."
+                        $st->getNumberFormat()->setFormatCode('General');
                         $st->getAlignment()->setHorizontal('center');
                     } elseif ($isRemark) {
                         $st->getAlignment()->setHorizontal('left')->setVertical('center')->setWrapText(true);
@@ -268,8 +267,6 @@ class PerformanceExportController extends ApiController
                 $sheet->getRowDimension($r)->setRowHeight(20);
                 $r++;
             }
-            $this->writeTotalRow($sheet, $r, '小计（' . $project . '） · ' . count($entries) . ' 人', $entries, $columns, self::BAND_ATT);
-            $r++;
         }
 
         $this->writeTotalRow($sheet, $r, '总计 · ' . count($def['entries']) . ' 人', $def['entries'], $columns, self::BAND_PAY);
@@ -496,7 +493,7 @@ class PerformanceExportController extends ApiController
                 . '；发放法 ' . $data['method_label'] . '；人员类别 '
                 . implode('、', array_map(fn ($c) => PerformanceExportService::CATS[$c], $ctx['cats'])) . '。'],
             ['周期归属', '季度按结算月归属：4 月→Q1、7 月→Q2、10 月→Q3、1 月→上年 Q4；季度数据取季度末月工资行。'],
-            ['月度系数', '取自考勤块 payroll_attendance.rows[].coef，缺省 1.0。'],
+            ['月度系数', '取核算结果 row_data.coef（月度法源自考勤上传的绩效系数）；未填写按 0 计，不设 1.0 兜底。'],
             ['季度系数', '取 payroll_period_coefs（period_type=quarterly）；录入时双写季度末月 row_data.coef，仅历史行缺表记录时才回退行内 coef。'],
             ['系数取值', '0 按 0 计、1.0 按 1.0 计，不再视为未录入；仅空值 / 缺档位 / 未配发放规则才标异常。'],
             ['出勤系数', 'Σ转正出勤天数 ÷ Σ应出勤天数，保留 2 位小数；不封顶，>1.00 在备注列与提示区列出。'],

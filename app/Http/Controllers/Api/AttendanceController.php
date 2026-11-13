@@ -653,7 +653,7 @@ class AttendanceController extends ApiController
                 if (!isset($columns[$key]) || $key === 'name') continue;
                 $value = $this->cellValue($sheet, $columns[$key], $row);
                 if ($key === 'coef' && ($value === null || trim((string) $value) === '')) {
-                    // 绩效系数留空 = 默认 1.0（全额绩效），避免被当作 0 导致绩效工资为 0
+                    // 绩效系数留空 = 0（不兜底 1.0）：口径为「不填即不发绩效」，填多少算多少
                     $record[$key] = null;
                     continue;
                 }
