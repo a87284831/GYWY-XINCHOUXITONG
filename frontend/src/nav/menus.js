@@ -29,7 +29,7 @@ export const PAGE_TITLES = {
   fireReport: '消防维保报表', elevReport: '电梯维保报表',
   summary: '薪资数据汇总展示', payroll: '薪资核算与人工微调', annualPayroll: '全年发放明细',
   taxMode: '个税扣除模式设置',
-  attendance: '考勤管理', export: '多模式数据导出', org: '组织架构',
+  attendance: '考勤管理', export: '多模式数据导出', performanceExport: '绩效导出', org: '组织架构',
   staff: '人员档案管理', adjust: '调薪记录与追溯', budget: '项目薪资预算管理',
   maintFire: '消防维保台账', maintElev: '电梯维保台账', maintPartners: '签约方维护', maintDevices: '设备台账',
   perfCreate: '发起绩效考核', perfApprove: '待我审批', perfReport: '待我填报',
@@ -77,6 +77,7 @@ export const ALL_MENUS = [
     { key: 'annualPayroll', label: '全年发放明细', icon: 'list', perm: 'payroll' },
     { key: 'taxMode', label: '个税扣除模式设置', icon: 'receipt', perm: 'payroll' },
     { key: 'export', label: '数据导出', icon: 'up', perm: 'export' },
+    { key: 'performanceExport', label: '绩效导出', icon: 'up', perm: 'perf_export' },
   ]},
   { section: '考勤模块', icon: 'calendar', app: 'hr', items: [
     { key: 'attendance', label: '考勤管理', icon: 'calendar', perm: 'attendance' },
@@ -121,7 +122,7 @@ const PURCHASE_PAGES = ['purchaseDashboard', 'purchaseFill', 'purchaseOverview',
 const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport']
 const REPORT_PAGES = ['reportHome', 'hrReport', 'salaryReport', 'attReport']
 const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners', 'maintDevices']
-const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export',
+const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export', 'performanceExport',
   'perfCreate', 'perfApprove', 'perfReport', 'perfMine', 'perfRecords']
 const SETTING_PAGES = ['settings', 'users', 'logs', 'backup', 'salarySettings', 'rules', 'symbols']
 
