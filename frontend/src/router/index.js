@@ -85,6 +85,12 @@ const routes = [
         meta: { perm: 'export' },
       },
       {
+        path: 'performanceExport',
+        name: 'performanceExport',
+        component: () => import('@/modules/hr/PerformanceExport.vue'),
+        meta: { perm: 'perf_export' },
+      },
+      {
         path: 'projects',
         name: 'projects',
         component: () => import('@/modules/hr/Projects.vue'),

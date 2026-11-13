@@ -20,6 +20,7 @@ class AppModules
                 ['budget', '预算管理'],
                 ['adjust', '调薪与记录'],
                 ['export', '数据导出'],
+                ['perf_export', '绩效导出'],
                 ['perf', '绩效考核（发起/审批/填报）'],
                 ['perf_admin', '考核记录管理'],
             ]],
