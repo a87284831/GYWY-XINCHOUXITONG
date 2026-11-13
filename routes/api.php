@@ -78,7 +78,6 @@ Route::get('/export/summary', [ExportController::class, 'summary']);
 Route::get('/payroll/annual', [PayrollYearController::class, 'data']);
 Route::get('/payroll/annual/export', [PayrollYearController::class, 'export']);
 Route::get('/export/projects_all', [ExportController::class, 'projectsAll']);
-Route::get('/export/performance', [ExportController::class, 'performance']);
 Route::get('/export/performance-detail/preview', [PerformanceExportController::class, 'preview']);
 Route::get('/export/performance-detail', [PerformanceExportController::class, 'export']);
 Route::get('/export/dashboard', [ExportController::class, 'dashboard']);
