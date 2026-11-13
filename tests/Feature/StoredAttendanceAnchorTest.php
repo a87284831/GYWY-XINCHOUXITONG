@@ -119,7 +119,7 @@ class StoredAttendanceAnchorTest extends TestCase
                 'days' => $r['days'],
                 'req_attend' => $r['req'] ?? null,
                 'act_attend' => $r['act'] ?? null,
-                'coef' => null, 'remark' => '',
+                'coef' => 1, 'remark' => '',
                 'reward' => 0, 'punish' => 0, 'meal_sub' => 0, 'night_sub' => 0, 'title_sub' => 0,
                 'pen' => 0, 'med' => 0, 'une' => 0, 'house' => 0, 'big' => 0,
                 'miss_deduct' => 0, 'late_deduct' => 0, 'other_deduct' => 0, 'uniform_deduct' => 0,

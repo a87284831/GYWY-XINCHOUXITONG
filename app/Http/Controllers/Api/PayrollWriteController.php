@@ -361,7 +361,7 @@ class PayrollWriteController extends ApiController
             $req  = (float)($row['req_att'] ?? 0);
             $act  = (float)($row['act_att'] ?? 0);
             $perf = (float)($row['perf_att'] ?? $act);
-            $coef = (float)($row['coef'] ?? 1);
+            $coef = (float)($row['coef'] ?? 0);
             if ($req > 0) {
                 $baseRef = (float)($row['base_pay_ref'] ?? ($row['base_pay'] ?? 0));
                 $row['base_pay'] = round($baseRef * $act / $req, 2);

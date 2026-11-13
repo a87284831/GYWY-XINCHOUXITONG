@@ -388,8 +388,14 @@ class PerformanceExportService
         if ($method === 'quarter') {
             if ($qErr || $dErr) {
                 $code = $qErr ?: $dErr;
-                $notes[] = '季度：' . (self::PERF_ERROR_LABELS[$code] ?? $code);
-                $isAnomaly = true;
+                if ($code === 'missing_coef') {
+                    // 未录入系数按 0 计（不兜底 1.0），属正常口径而非数据异常
+                    $notes[] = '季度系数未录入，按 0 计';
+                    $coef = 0.0;
+                } else {
+                    $notes[] = '季度：' . (self::PERF_ERROR_LABELS[$code] ?? $code);
+                    $isAnomaly = true;
+                }
             }
             if ($quarter === null) {
                 // 统一季度视图已按发放法剔除月度人员；此处只剩分期兑现等非季度人员，
@@ -407,8 +413,10 @@ class PerformanceExportService
                     ? round($quarter['att'] / $quarter['req'], 4)
                     : $quarter['ratio'];
                 if ($qCoef === null) {
-                    $notes[] = '季度系数缺失，未发放';
-                    $isAnomaly = true;
+                    $notes[] = '季度系数未录入，按 0 计';
+                    $qCoef = 0.0;
+                    $quarter['coef'] = 0.0;
+                    $amount = 0.0;
                 } else {
                     $amount = $quarter['amount'];
                     if ($amount === null) {
@@ -427,9 +435,11 @@ class PerformanceExportService
             $exactRatio = $perfReq > 0 ? $perfAtt / $perfReq : null;
             $ratio = $exactRatio !== null ? round($exactRatio, 4) : null;
             if ($coef === null) {
-                $notes[] = '绩效系数缺失';
-                $isAnomaly = true;
-            } elseif ($originalMethod !== 'monthly') {
+                // 未录入系数按 0 计（不兜底 1.0），不视为数据异常
+                $coef = 0.0;
+                $notes[] = '绩效系数未录入，按 0 计';
+            }
+            if ($originalMethod !== 'monthly') {
                 $amount = $exactRatio !== null ? round($standard * $exactRatio * $coef, 2) : null;
                 $notes[] = '该人员按' . (self::METHOD_SHORT[$originalMethod] ?? $originalMethod) . '配置，按月度口径折算（口径视图）';
             } else {
@@ -441,8 +451,12 @@ class PerformanceExportService
             if ($installment['quarter_amount'] === null) {
                 $notes[] = '该人员发放法非分期兑现，本期无分期应发数据';
                 if (!empty($installment['error'])) {
-                    $notes[] = '分期兑现：' . (self::PERF_ERROR_LABELS[$installment['error']] ?? $installment['error']);
-                    $isAnomaly = true;
+                    if ($installment['error'] === 'missing_coef') {
+                        $notes[] = '分期兑现系数未录入，按 0 计';
+                    } else {
+                        $notes[] = '分期兑现：' . (self::PERF_ERROR_LABELS[$installment['error']] ?? $installment['error']);
+                        $isAnomaly = true;
+                    }
                 }
             } else {
                 $standard = $installment['quarter_base'];

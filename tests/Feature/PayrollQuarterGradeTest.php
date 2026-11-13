@@ -136,7 +136,7 @@ class PayrollQuarterGradeTest extends TestCase
     }
 
     /** 跑管理人员核算；可注入多名人员考勤与当月 coef，返回按姓名索引的 row_data */
-    private function calcManagers(string $ym, array $names, ?float $coef = null): array
+    private function calcManagers(string $ym, array $names, ?float $coef = 1.0, array $coefs = []): array
     {
         $rows = [];
         foreach ($names as $name) {
@@ -145,7 +145,8 @@ class PayrollQuarterGradeTest extends TestCase
                 'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
                 'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
                 'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,
-                'welfare' => 0.0, 'coef' => $coef, 'remark' => '',
+                'welfare' => 0.0, 'coef' => array_key_exists($name, $coefs) ? $coefs[$name] : $coef,
+                'remark' => '',
             ];
         }
         DB::table('payroll_attendance')->insert([
@@ -327,5 +328,41 @@ class PayrollQuarterGradeTest extends TestCase
         $r = $this->calcManagers('2026-04', ['张三'])['张三'];
         $this->assertEquals('missing_coef', $r['perf_quarter']['error'] ?? null);
         $this->assertEquals(0.0, (float) $r['perf_pay']);
+    }
+
+    /** 新口径：月度法考勤 coef 留空=0、0.5=0.5、0.7=0.7，不做 1.0 兜底 */
+    public function test_monthly_coef_blank_zero_and_entered_values(): void
+    {
+        $this->seedRules();
+        foreach ([[1, '甲'], [2, '乙'], [3, '丙']] as [$id, $name]) $this->seedManager($id, $name, '主管级');
+
+        // 满勤：月度绩效基数 = 6000-5000 = 1000，出勤比例 1
+        $r = $this->calcManagers('2026-07', ['甲', '乙', '丙'], 1.0, ['甲' => null, '乙' => 0.5, '丙' => 0.7]);
+
+        $this->assertEquals(0.0, (float) $r['甲']['perf_pay'], '留空必须按 0，不得兜底 1.0');
+        $this->assertEquals(0.0, (float) $r['甲']['coef']);
+        $this->assertEquals(500.0, (float) $r['乙']['perf_pay'], '填 0.5 按 0.5 计');
+        $this->assertEquals(0.5, (float) $r['乙']['coef']);
+        $this->assertEquals(700.0, (float) $r['丙']['perf_pay'], '填 0.7 按 0.7 计');
+        $this->assertEquals(0.7, (float) $r['丙']['coef']);
+    }
+
+    /** 新口径：季度法系数据录入值计发，未录入=0（而非 1.0） */
+    public function test_quarter_coef_entered_values_and_blank_is_zero(): void
+    {
+        $this->seedRules();
+        foreach ([[1, '甲', 0.5], [2, '乙', 0.7], [3, '丙', null]] as [$id, $name, $coef]) {
+            $this->seedManager($id, $name, '经理级');
+            foreach (['2026-01', '2026-02', '2026-03'] as $m) $this->seedHistory($id, $m);
+            if ($coef !== null) $this->seedCoef($id, 'quarterly', '2026-Q1', $coef);
+        }
+
+        $r = $this->calcManagers('2026-04', ['甲', '乙', '丙']);
+
+        // 季度满勤基数 3×1000=3000，出勤率 1
+        $this->assertEquals(1500.0, (float) $r['甲']['perf_pay'], '填 0.5 按 0.5 计');
+        $this->assertEquals(2100.0, (float) $r['乙']['perf_pay'], '填 0.7 按 0.7 计');
+        $this->assertEquals(0.0, (float) $r['丙']['perf_pay'], '未录入必须按 0，不得兜底 1.0');
+        $this->assertEquals('missing_coef', $r['丙']['perf_quarter']['error'] ?? null);
     }
 }

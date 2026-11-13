@@ -60,12 +60,12 @@ class PayrollDataGapGuardTest extends TestCase
         return $out;
     }
 
-    private function seedStaff(int $id, string $name, float $fixed, float $base, string $status = '正式', $personType = 'staff', ?string $resignDate = null): void
+    private function seedStaff(int $id, string $name, float $fixed, float $base, string $status = '正式', $personType = 'staff', ?string $resignDate = null, ?string $hireDate = '2026-01-01'): void
     {
         DB::table('payroll_staff')->insert([
             'legacy_id' => $id, 'name' => $name, 'project_name' => '测试项目', 'position' => '测试岗',
             'status' => $status, 'fixed_monthly' => $fixed, 'base_salary' => $base,
-            'hire_date' => '2026-01-01', 'resign_date' => $resignDate,
+            'hire_date' => $hireDate, 'resign_date' => $resignDate,
             'deleted' => false, 'person_type' => $personType,
             'data' => json_encode([
                 'salary_history' => [['effective_date' => '2026-01-01', 'fixed_monthly' => $fixed, 'base_salary' => $base, 'type' => '初始', 'note' => '']],
@@ -83,7 +83,7 @@ class PayrollDataGapGuardTest extends TestCase
             'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
             'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
             'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,
-            'welfare' => 0.0, 'coef' => null, 'remark' => '',
+            'welfare' => 0.0, 'coef' => 1, 'remark' => '',
         ];
     }
 
@@ -421,7 +421,7 @@ class PayrollDataGapGuardTest extends TestCase
             'reward' => 0.0, 'punish' => 0.0, 'meal_sub' => 0.0, 'night_sub' => 0.0, 'title_sub' => 0.0,
             'pen' => 0.0, 'med' => 0.0, 'une' => 0.0, 'house' => 0.0, 'big' => 0.0,
             'miss_deduct' => 0.0, 'late_deduct' => 0.0, 'other_deduct' => 0.0, 'uniform_deduct' => 0.0,
-            'welfare' => 0.0, 'coef' => null, 'remark' => '',
+            'welfare' => 0.0, 'coef' => 1, 'remark' => '',
         ];
         DB::table('payroll_attendance')->insert([
             'record_key' => $ym . '|测试项目', 'year_month' => $ym, 'project_name' => '测试项目',
@@ -470,5 +470,49 @@ class PayrollDataGapGuardTest extends TestCase
         $this->assertSame([], $dangers, '正常绩效不应产生 danger warning');
         $infos = array_values(array_filter($result['warnings'], fn($w) => $w['level'] === 'info'));
         $this->assertSame([], $infos, '正常出勤 net>0 不应产生 info warning');
+    }
+
+    // 入职日拦截：入职晚于核算月月末 → 当月不出行，并在 missing 中列明原因；月内入职/月末入职照常出行
+    public function test_staff_hired_after_month_end_is_skipped_and_listed(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(1, '次月入职', 5000, 4000, '正式', 'staff', null, '2026-08-01');
+        $this->seedStaff(2, '月内入职', 5000, 4000, '正式', 'staff', null, '2026-07-15');
+        $this->seedStaff(3, '月末入职', 5000, 4000, '正式', 'staff', null, '2026-07-31');
+
+        $r = $this->calc([
+            '次月入职' => $this->makeAtt($this->workedDays()),
+            '月内入职' => $this->makeAtt($this->workedDays()),
+            '月末入职' => $this->makeAtt($this->workedDays()),
+        ]);
+
+        $this->assertArrayNotHasKey(1, $r['rows'], '入职日晚于 2026-07-31 不得生成 7 月工资行');
+        $this->assertArrayHasKey(2, $r['rows'], '月内入职应照常出行（不做按天折算）');
+        $this->assertArrayHasKey(3, $r['rows'], '月末当天入职应照常出行');
+        $this->assertSame(2, $r['result']['count']);
+
+        $skip = array_values(array_filter($r['result']['missing'],
+            fn($m) => $m['name'] === '次月入职' && str_contains($m['reason'], '入职日期')));
+        $this->assertCount(1, $skip);
+        $this->assertStringContainsString('2026-08-01', $skip[0]['reason']);
+        $this->assertStringContainsString('2026-07-31', $skip[0]['reason']);
+        $this->assertSame('info', $skip[0]['level']);
+    }
+
+    // 入职日为空：保持原行为照常出行，同时以 info 汇总提示补录，避免静默
+    public function test_staff_without_hire_date_still_calculated_and_reported(): void
+    {
+        $this->seedRules();
+        $this->seedStaff(1, '无入职日', 5000, 4000, '正式', 'staff', null, null);
+
+        $r = $this->calc(['无入职日' => $this->makeAtt($this->workedDays())]);
+
+        $this->assertArrayHasKey(1, $r['rows'], '入职日缺失不得拦截，保持原行为');
+        $agg = array_values(array_filter($r['result']['missing'],
+            fn($m) => $m['name'] === '入职日期缺失汇总'));
+        $this->assertCount(1, $agg);
+        $this->assertStringContainsString('无入职日', $agg[0]['reason']);
+        $this->assertStringContainsString('补录', $agg[0]['reason']);
+        $this->assertSame('info', $agg[0]['level']);
     }
 }

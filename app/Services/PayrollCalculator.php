@@ -193,6 +193,8 @@ class PayrollCalculator
 
         // 1) missing_base：薪资基数为 0 且当月有实际出勤的人员（核算时已被跳过，无 results 行）
         foreach ($staff as $p) {
+            // 与核算同源：入职日晚于本月月末的人本就不出工资行，不能算「基数缺失」拦截项
+            if (self::hiredAfterMonth($p->hire_date ?? null, $ym)) continue;
             $block = $attBlocks[$isHq ? self::HQ_PROJECT : $p->project_name] ?? null;
             if (!$block) continue; // 无考勤块无从判出勤，与核算 no_attendance 护栏一致
             $attRows = $this->jsonValue($block->rows) ?: [];
@@ -289,7 +291,22 @@ class PayrollCalculator
         }
 
         $rows = []; $missing = []; $warnings = $dupWarnings;
+        $monthEnd = date('Y-m-t', strtotime($ym . '-01'));
+        $preHireSkipped = []; $noHireDate = [];
         foreach ($staff as $person) {
+            // 入职日拦截（2026-11-13）：入职日晚于核算月月末 → 当月不生成工资行；
+            // 入职日恰在月内或月末仍照常出行（按天折算属另一决策，本次不做）。
+            // 入职日为空保持原行为（照常出行），但汇总进 info 提示以便业务补录。
+            $hire = trim((string) ($person->hire_date ?? ''));
+            if (self::hiredAfterMonth($hire, $ym)) {
+                $missing[] = [
+                    'name' => $person->name, 'project' => $person->project_name,
+                    'reason' => "入职日期 {$hire} 晚于本月月末 {$monthEnd}，未生成工资行（按入职日拦截，非考勤缺失）",
+                    'level' => 'info',
+                ];
+                $preHireSkipped[] = ['name' => $person->name, 'project' => $person->project_name, 'hire_date' => $hire];
+                continue;
+            }
             $block   = $attBlocks[$isHq ? self::HQ_PROJECT : $person->project_name] ?? null;
             $attRows = $block ? ($this->jsonValue($block->rows) ?: []) : [];
             $att = $this->findAttRow($attRows, $person);
@@ -367,6 +384,24 @@ class PayrollCalculator
                 ];
             }
             $rows[] = $row;
+            if ($hire === '') $noHireDate[] = $person->name;
+        }
+
+        // 入职日拦截清单：result.missing 已逐人透传；再落一条日志便于预检/审计（不写业务表）
+        if ($preHireSkipped) {
+            \Illuminate\Support\Facades\Log::info('payroll.skip_before_hire', [
+                'ym' => $ym, 'category' => $category, 'count' => count($preHireSkipped), 'people' => $preHireSkipped,
+            ]);
+        }
+        if ($noHireDate) {
+            $missing[] = [
+                'name' => '入职日期缺失汇总',
+                'project' => '',
+                'reason' => '花名册缺入职日期 ' . count($noHireDate) . ' 人（'
+                    . implode('、', array_slice($noHireDate, 0, 8)) . (count($noHireDate) > 8 ? ' 等' : '')
+                    . '），已按现有口径照常核算；请补录入职日期',
+                'level' => 'info',
+            ];
         }
 
         // 占位档案聚合提示（不静默，规则#8）：多为钉钉已注销/被删账号，建议清理
@@ -543,6 +578,17 @@ class PayrollCalculator
     public static function hasMissingBase(object $person): bool
     {
         return (float)$person->fixed_monthly == 0.0 && (float)$person->base_salary == 0.0;
+    }
+
+    /**
+     * 入职日是否晚于核算月月末（用于「未入职不出当月工资行」）。
+     * 入职日为空/缺失返回 false（保持原行为，不拦截）；当日入职或月末入职返回 false。
+     */
+    public static function hiredAfterMonth(?string $hireDate, string $ym): bool
+    {
+        $hire = trim((string)$hireDate);
+        if ($hire === '') return false;
+        return substr($hire, 0, 10) > date('Y-m-t', strtotime($ym . '-01'));
     }
 
     /**
@@ -793,9 +839,9 @@ class PayrollCalculator
         $h = (float)self::storedOrFallback($att, 'req_attend', $hFallback);
         $actual = (float)self::storedOrFallback($att, 'act_attend', $stats['attend']);
 
-        // coef 默认从考勤表读（月度法始终用考勤 coef）；季度法后面会查 existingRow 覆盖
+        // coef 默认从考勤表读（月度法始终用考勤 coef）；未填写（缺失/null/空串）一律按 0，不做 1.0 兜底
         $coef = array_key_exists('coef', $att) && $att['coef'] !== null && $att['coef'] !== ''
-            ? (float)$att['coef'] : 1.0;
+            ? (float)$att['coef'] : 0.0;
 
         // 分母：正常情况下等于应出勤存值；存值为 0（异常/手填 0）时只对"除法"兜底，
         // 展示与落库的 req_att 仍保留存值 0，避免除以 1 把金额放大到整月基数×出勤倍数。
@@ -971,7 +1017,7 @@ class PayrollCalculator
             } elseif (($payRule['cycle'] ?? '') === 'quarter_grade') {
                 // 季度绩效法：季度型（总部三档、管理人员经理级）按季度累计发放，其余档位月度发放
                 // 已存工资行里可能有弹窗录入的系数：所有档位都要读，不能只读经理级，
-                // 否则专员/主管级永远只能拿到考勤默认 1.0（2026-10-21 总部 4 月缺系数事故）
+                // 否则专员/主管级永远只能拿到考勤系数（2026-10-21 总部 4 月缺系数事故）
                 $existingRow = DB::table('payroll_results')->where('staff_legacy_id', (int)$person->legacy_id)->where('year_month', $ym)->where('archived', false)->first();
                 $rowCoef = null;
                 if ($existingRow && $existingRow->row_data) {
@@ -1274,7 +1320,7 @@ class PayrollCalculator
             'punish' => $m2($row['punish'] ?? 0),
             'late_d' => $m2($row['late_d'] ?? 0), 'miss_d' => $m2($row['miss_d'] ?? 0),
             'other_d' => $m2($row['other_d'] ?? 0), 'uniform_d' => $m2($row['uniform_d'] ?? 0),
-            'coef' => (float)($row['coef'] ?? 1),
+            'coef' => (float)($row['coef'] ?? 0),
             'req_att' => (float)($row['req_att'] ?? 0), 'act_att' => (float)($row['act_att'] ?? 0),
         ];
         $__cfR = $this->rules->raw('custom_fields', []);

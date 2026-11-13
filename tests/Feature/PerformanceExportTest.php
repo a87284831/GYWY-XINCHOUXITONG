@@ -195,7 +195,7 @@ class PerformanceExportTest extends TestCase
         $book = $this->getXlsx('ym=2026-10&cats=staff,manager,case,hq&method=follow');
 
         $this->assertSame(
-            ['基层员工', '管理人员-季度', '管理人员-月度', '案场人员', '总部人员', '汇总', '说明'],
+            ['汇总', '基层员工', '管理人员-季度', '管理人员-月度', '案场人员', '总部人员', '说明'],
             $book->getSheetNames()
         );
 
@@ -214,7 +214,8 @@ class PerformanceExportTest extends TestCase
     {
         $this->seedFollowSet();
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=follow');
-        $sheet = $book->getSheet(0);
+        $this->assertSame('汇总', $book->getSheet(0)->getTitle());
+        $sheet = $this->sheetByName($book, '管理人员-季度');
         $this->assertSame('管理人员-季度', $sheet->getTitle());
 
         $grid = $this->grid($sheet);
@@ -285,7 +286,7 @@ class PerformanceExportTest extends TestCase
             ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=follow');
-        $grid = $this->grid($book->getSheet(0));
+        $grid = $this->grid($this->sheetByName($book, '管理人员-季度'));
 
         $zero = $this->findRow($grid, '系数零');
         $this->assertEquals(0, (float) $zero[16]);
@@ -298,7 +299,9 @@ class PerformanceExportTest extends TestCase
         $this->assertEquals(3000, (float) $one[18]);
 
         $missing = $this->findRow($grid, '缺系数');
-        $this->assertStringContainsString('缺周期系数', (string) $missing[21]);
+        $this->assertEquals(0, (float) $missing[16], '未录入季度系数按 0 展示');
+        $this->assertEquals(0, (float) $missing[18], '未录入季度系数应发为 0');
+        $this->assertStringContainsString('未录入', (string) $missing[21]);
     }
 
     public function test_attendance_ratio_over_one_is_noted_and_previewed(): void
@@ -310,7 +313,7 @@ class PerformanceExportTest extends TestCase
             ])], ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=follow');
-        $grid = $this->grid($book->getSheet(0));
+        $grid = $this->grid($this->sheetByName($book, '管理人员-季度'));
         $liu = $this->findRow($grid, '刘伟');
         $this->assertStringContainsString('1.11 > 1.00', (string) $liu[21]);
 
@@ -387,7 +390,7 @@ class PerformanceExportTest extends TestCase
             ]], ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=quarter');
-        $grid = $this->grid($book->getSheet(0));
+        $grid = $this->grid($this->sheetByName($book, '管理人员'));
         $zhang = $this->findRow($grid, '张三');
         $this->assertNotNull($zhang);
         $this->assertEquals(23, (float) $zhang[7]);    // 7月应出勤天数
@@ -406,7 +409,7 @@ class PerformanceExportTest extends TestCase
             'perf_att' => 20, 'perf_req' => 22, 'perf_base_month' => 3000], ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=monthly');
-        $sheet = $book->getSheet(0);
+        $sheet = $this->sheetByName($book, '管理人员');
         $this->assertSame('管理人员', $sheet->getTitle());
         $grid = $this->grid($sheet);
         $this->assertContains('出勤比例', $grid[1]);
@@ -441,7 +444,7 @@ class PerformanceExportTest extends TestCase
             'perf_quarter' => $this->quarter()], ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=installment');
-        $sheet = $book->getSheet(0);
+        $sheet = $this->sheetByName($book, '管理人员');
         $this->assertSame('职级季度比例', $sheet->getCell('R2')->getValue());
         $this->assertSame('本期应发', $sheet->getCell('X2')->getValue());
 
@@ -555,9 +558,9 @@ class PerformanceExportTest extends TestCase
             ['X-Token' => $token]);
         $res->assertOk();
         $book = $this->loadBook($res->streamedContent());
-        $this->assertSame(['基层员工', '案场人员', '汇总', '说明'], $book->getSheetNames());
+        $this->assertSame(['汇总', '基层员工', '案场人员', '说明'], $book->getSheetNames());
 
-        $grid = $this->grid($book->getSheet(0));
+        $grid = $this->grid($this->sheetByName($book, '基层员工'));
         $this->assertNotNull($this->findRow($grid, '本项目员工'));
         $this->assertNull($this->findRow($grid, '外项目员工'));
         $this->assertNull($this->findRow($grid, '某经理'));
@@ -576,7 +579,7 @@ class PerformanceExportTest extends TestCase
         $res = $this->getJson('/api/export/performance-detail?ym=2026-09&cats=staff&method=follow',
             ['X-Token' => $this->token]);
         $res->assertOk();
-        $this->assertSame(['基层员工', '汇总', '说明'], $this->loadBook($res->streamedContent())->getSheetNames());
+        $this->assertSame(['汇总', '基层员工', '说明'], $this->loadBook($res->streamedContent())->getSheetNames());
     }
 
     public function test_no_data_and_invalid_month(): void
@@ -585,5 +588,70 @@ class PerformanceExportTest extends TestCase
             ['X-Token' => $this->token])->assertStatus(404);
         $this->getJson('/api/export/performance-detail?ym=2026-13&cats=staff',
             ['X-Token' => $this->token])->assertStatus(400);
+    }
+
+    // 出勤天数：整数不带尾点（23 而非 23.），半点仍显示 20.5
+    public function test_count_cells_display_integers_without_trailing_dot(): void
+    {
+        $this->seedStaff(1, '张三', '甲项目', '经理级');
+        $this->seedStaff(2, '王五', '甲项目', '经理级');
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 1, 'name' => '张三',
+            'perf_quarter' => $this->quarter()], ['manager' => true]);
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 2, 'name' => '王五', 'department' => '管理部',
+            'perf_quarter' => $this->quarter([
+                'months' => [
+                    ['ym' => '2026-07', 'base' => 1000, 'perf_att' => 20.5, 'perf_req' => 20.5, 'amount' => 500],
+                    ['ym' => '2026-08', 'base' => 1000, 'perf_att' => 20, 'perf_req' => 20, 'amount' => 500],
+                    ['ym' => '2026-09', 'base' => 1000, 'perf_att' => 21, 'perf_req' => 21, 'amount' => 500],
+                ],
+                'att' => 61.5, 'req' => 61.5,
+            ])], ['manager' => true]);
+
+        $sheet = $this->sheetByName($this->getXlsx('ym=2026-10&cats=manager&method=quarter'), '管理人员');
+        $grid = $this->grid($sheet);
+        $rowOf = function (string $name) use ($grid): int {
+            foreach ($grid as $i => $row) {
+                if (($row[3] ?? null) === $name) return $i + 1;
+            }
+            return 0;
+        };
+
+        $intCell = $sheet->getCell('H' . $rowOf('张三'));          // 7月应出勤天数
+        $this->assertSame('General', $intCell->getStyle()->getNumberFormat()->getFormatCode());
+        $this->assertSame('22', $intCell->getFormattedValue());
+        $this->assertSame('General', $sheet->getCell('N' . $rowOf('张三'))->getStyle()->getNumberFormat()->getFormatCode());
+
+        $halfCell = $sheet->getCell('H' . $rowOf('王五'));          // 7月应出勤天数（20.5）
+        $this->assertSame('General', $halfCell->getStyle()->getNumberFormat()->getFormatCode());
+        $this->assertSame('20.5', $halfCell->getFormattedValue());
+        $this->assertSame('20', $sheet->getCell('J' . $rowOf('王五'))->getFormattedValue()); // 8月应出勤 20
+    }
+
+    // 明细 Sheet 不再输出按项目「小计」行，仅保留末尾「总计」
+    public function test_detail_sheet_has_no_project_subtotal_rows(): void
+    {
+        $this->seedStaff(1, '张三', '甲项目', '经理级');
+        $this->seedStaff(2, '李四', '乙项目', '经理级');
+        foreach ([['甲项目', 1, '张三'], ['乙项目', 2, '李四']] as [$proj, $id, $name]) {
+            $this->seedRow(['ym' => '2026-10', 'staff_id' => $id, 'name' => $name, 'project' => $proj,
+                'perf_quarter' => $this->quarter()], ['manager' => true]);
+        }
+
+        $grid = $this->grid($this->sheetByName($this->getXlsx('ym=2026-10&cats=manager&method=quarter'), '管理人员'));
+        $colA = array_map(fn ($row) => (string) ($row[0] ?? ''), $grid);
+        $this->assertSame([], array_values(array_filter($colA, fn ($v) => str_contains($v, '小计'))));
+        $this->assertCount(1, array_filter($colA, fn ($v) => str_contains($v, '总计')));
+    }
+
+    // 整包导出：汇总必须是第一个 Sheet
+    public function test_summary_sheet_is_first_in_bundle(): void
+    {
+        $this->seedStaff(1, '张三', '甲项目', '经理级');
+        $this->seedRow(['ym' => '2026-10', 'staff_id' => 1, 'name' => '张三',
+            'perf_quarter' => $this->quarter()], ['manager' => true]);
+
+        $book = $this->getXlsx('ym=2026-10&cats=manager&method=quarter');
+        $this->assertSame(['汇总', '管理人员', '说明'], $book->getSheetNames());
+        $this->assertSame('汇总', $book->getSheet(0)->getTitle());
     }
 }
