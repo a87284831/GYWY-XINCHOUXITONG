@@ -13,19 +13,55 @@ export function visibleProjectExportTypes(isAdmin) {
   return PROJECT_EXPORT_TYPES.filter((t) => !t.adminOnly || !!isAdmin)
 }
 
-export function projectExportTarget(type, ym, project, isAdmin = true) {
+/**
+ * 导出项与数据范围的唯一收口：页面所有「哪一项可用 / 参数取哪个项目」都从这里取，
+ * 避免拆分卡片后各卡片各写一套判断（曾因只写在筛选区联动里而漏掉）。
+ *
+ * - scope=project 时：项目维度一律锁定为本项目，不出现全部项目选项；
+ *   全公司类导出项（管理人员/案场/总部）不可用，与后端 403 保持一致。
+ * - scope=all：项目可任选，全公司类导出项仅 admin 角色可用。
+ */
+export function exportCapabilities({
+  isAdmin = false,
+  isProjectScope = false,
+  userProject = '',
+  projects = [],
+  project = '',
+} = {}) {
+  const forced = isProjectScope ? String(userProject || '') : ''
+  const salaryProjects = isProjectScope ? (forced ? [forced] : []) : projects.filter((p) => p !== '物业总部')
+  const attendanceProjects = isProjectScope ? (forced ? [forced] : []) : projects.slice()
+  return {
+    isAdmin: !!isAdmin,
+    isProjectScope: !!isProjectScope,
+    forcedProject: forced,
+    scopeLabel: isProjectScope ? `仅本项目（${forced || '未绑定项目'}）` : '全部项目',
+    salaryProjects,
+    attendanceProjects,
+    // 选中的项目在项目账号下必须被本项目覆盖，页面与请求参数都以此为准
+    project: forced || project || salaryProjects[0] || '',
+    defaultAttendanceProject: forced || 'all',
+    projectTypes: visibleProjectExportTypes(isAdmin),
+    canExportCompanyWide: !!isAdmin && !isProjectScope,
+  }
+}
+
+export function projectExportTarget(type, ym, project, isAdmin = true, isProjectScope = false, userProject = '') {
   const conf = PROJECT_EXPORT_TYPES.find((t) => t.value === type)
   if (!conf) throw new Error('导出人员类型错误')
   if (conf.adminOnly && !isAdmin) throw new Error('管理人员工资仅总部可导出，无权限')
+  // 项目账号不能通过传参越权：以账号绑定项目覆盖页面选择
+  const resolved = isProjectScope ? String(userProject || '') : String(project || '')
+  if (!resolved) throw new Error('项目账号未绑定项目，无法导出')
   const endpoints = {
     staff: '/api/export/project',
     case: '/api/export/project-case',
     manager: '/api/export/project-managers',
   }
-  const p = encodeURIComponent(project || '')
+  const p = encodeURIComponent(resolved)
   return {
     url: `${endpoints[type]}?ym=${ym}&project=${p}`,
-    filename: `${project}_${conf.filePart}_${ym}.xlsx`,
+    filename: `${resolved}_${conf.filePart}_${ym}.xlsx`,
   }
 }
 
@@ -49,6 +85,7 @@ export function attendanceExportTarget({ ym, project = 'all', personType = 'all'
   if (!conf) throw new Error('打包方式错误')
   // 全量数据包：总部固定全部项目；项目账号仍只能导本项目
   const scope = mode === 'bundle' ? (isProjectScope ? project : 'all') : (project || 'all')
+  if (isProjectScope && !scope) throw new Error('项目账号未绑定项目，无法导出')
   const params = new URLSearchParams({ ym, project: scope, person_type: personType, mode })
   const scopePart = scope === 'all' ? '全部项目' : scope
   return {
