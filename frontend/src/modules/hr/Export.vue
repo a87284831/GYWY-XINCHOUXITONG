@@ -1,10 +1,10 @@
 <template>
   <div class="card">
-    <h3>导出条件</h3>
-    <div class="pe-grid">
-      <label class="pe-field"><span>核算月份</span><input type="month" v-model="ui.month" /></label>
+    <div class="card-head">
+      <h3>工资表导出 <span class="sub">每项参数只作用于本卡片</span></h3>
+      <label class="pe-field month-field"><span>核算月份</span><input type="month" v-model="ui.month" /></label>
     </div>
-    <div class="row" style="margin-top:10px;gap:8px">
+    <div class="row" style="gap:8px;margin-bottom:12px">
       <span class="tag blue">数据范围：{{ caps.scopeLabel }}</span>
       <span class="hint" style="margin:0">
         {{ isProjectScope
@@ -12,10 +12,6 @@
           : '总部账号可导出全部项目，或在下方「分项目工资表」中任选一个项目。' }}
       </span>
     </div>
-  </div>
-
-  <div class="card">
-    <h3>工资表导出 <span class="sub">每项参数只作用于本卡片</span></h3>
     <div class="exp-grid">
       <div class="exp-item">
         <div class="exp-item-top">
@@ -122,8 +118,8 @@
 
   <div class="card">
     <h3>考勤导出 <span class="sub">项目 × 人员类型 × 打包方式</span></h3>
+    <div class="hint" style="margin:0 0 8px">核算月份：<b>{{ ui.month }}</b>（与上方「工资表导出」共用同一个月份）。</div>
     <div class="pe-grid">
-      <label class="pe-field"><span>核算月份</span><input type="month" v-model="ui.month" @change="runPrecheck" /></label>
       <label class="pe-field"><span>项目</span>
         <select v-model="attProject" :disabled="isProjectScope" @change="runPrecheck">
           <option v-if="!isProjectScope" value="all">全部项目</option>
@@ -169,7 +165,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { download, api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
@@ -257,6 +253,9 @@ onMounted(() => {
   attProject.value = caps.value.defaultAttendanceProject
   runPrecheck()
 })
+
+// 全页只有工资表导出卡里的一个月份控件；改月份后考勤预检同步刷新
+watch(() => ui.month, () => { runPrecheck() })
 
 function go(mode) {
   const ym = ui.month
@@ -346,6 +345,9 @@ async function attExport() {
 
 <style scoped>
 .pe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.card-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.card-head h3 { margin: 0; }
+.month-field { flex: 0 0 auto; min-width: 150px; max-width: 190px; }
 .pe-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-2); }
 .pe-field select, .pe-field input { width: 100%; }
 .pe-alerts { display: flex; flex-direction: column; gap: 8px; }
