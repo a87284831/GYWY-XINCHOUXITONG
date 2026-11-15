@@ -154,12 +154,9 @@
   </div>
 
   <div class="card">
-    <h3>将生成的文件 <span class="sub">点卡片查看下方表样</span></h3>
+    <h3>将生成的文件 <span class="sub">按当前条件与权限列出</span></h3>
     <div class="pe-sheets">
-      <div
-        v-for="f in generatedFiles" :key="f.key" class="pe-sheet"
-        :class="{ active: previewKey === f.key }" @click="previewKey = f.key"
-      >
+      <div v-for="f in generatedFiles" :key="f.key" class="pe-sheet">
         <div class="pe-sheet-top">
           <b class="exp-file">{{ f.name }}</b>
           <span class="tag" :class="f.tagClass">{{ f.tag }}</span>
@@ -168,19 +165,6 @@
       </div>
     </div>
     <div class="hint">文件名为导出时的默认名称；Sheet 组成随当月数据与权限变化（无数据的类别不会生成 Sheet）。</div>
-  </div>
-
-  <div class="card">
-    <h3>表样预览</h3>
-    <div class="hint">列名与导出模板一致；工资类导出暂无实时预览接口，本卡只示意列结构，数据行以导出文件为准。</div>
-    <div class="table-wrap" style="max-height:260px;margin-top:8px">
-      <table class="tb">
-        <thead><tr><th v-for="c in SAMPLE_COLUMNS" :key="c">{{ c }}</th></tr></thead>
-        <tbody>
-          <tr><td :colspan="SAMPLE_COLUMNS.length" class="hint">示例列名，数据行需导出后查看</td></tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 </template>
 
@@ -214,9 +198,6 @@ const attPersonType = ref('all')
 const attMode = ref('merged')
 const attLoading = ref(false)
 const attState = ref({ level: 'info', message: '正在预检本月已锁定项目…' })
-const previewKey = ref('summary')
-
-const SAMPLE_COLUMNS = ['序号', '项目', '姓名', '岗位', '固定月薪', '基本工资', '实际出勤', '绩效工资', '应发合计', '实发合计']
 
 const zipFilename = computed(() => isProjectScope.value
   ? `${caps.value.project}_工资表_${ui.month}.zip`
@@ -240,7 +221,7 @@ const generatedFiles = computed(() => {
     },
     {
       key: 'zip', name: zipFilename.value, tag: 'ZIP', tagClass: 'gray',
-      sheets: isProjectScope.value ? ['本项目基层工资表'] : ['各项目基层工资表'],
+      sheets: [],
     },
     {
       key: 'typed', name: typedFilename.value, tag: '按项目', tagClass: 'gray',
@@ -249,7 +230,10 @@ const generatedFiles = computed(() => {
   ]
   if (caps.value.canExportCompanyWide) {
     files.push(
-      { key: 'mgr', name: `管理人员工资表及汇总_${ym}.xlsx`, tag: '2 个 Sheet', tagClass: 'blue', sheets: ['管理人员工资表', '管理人员汇总'] },
+      {
+        key: 'mgr', name: `管理人员工资表及汇总_${ym}.xlsx`, tag: '2 个 Sheet', tagClass: 'blue',
+        sheets: ['管理人员工资表', '管理人员汇总'],
+      },
       { key: 'case', name: `案场人员工资表_${ym}.xlsx`, tag: '全公司', tagClass: 'blue', sheets: ['案场人员工资表'] },
       { key: 'hq', name: `总部人员工资表_${ym}.xlsx`, tag: '仅总部', tagClass: 'purple', sheets: ['总部人员工资表'] },
     )
@@ -370,14 +354,12 @@ async function attExport() {
 .pe-alert.ok { background: var(--success-bg); border-color: #c4efcd; color: #0e8a22; }
 .pe-alert.warn { background: var(--warning-bg); border-color: #f6dfae; color: #8a5a00; }
 .pe-alert.danger { background: var(--danger-bg); border-color: #fbc9c9; color: #c42020; }
-.pe-sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.pe-sheet { border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer; background: var(--bg-card); transition: border-color .15s, box-shadow .15s; }
-.pe-sheet:hover { border-color: var(--brand-600); }
-.pe-sheet.active { border-color: var(--brand-600); box-shadow: 0 0 0 3px rgba(22, 93, 255, .08); }
+.pe-sheets { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.pe-sheet { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--bg-card); }
 .pe-sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pe-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .pe-chip { font-size: 11px; background: var(--bg-subtle); border: 1px solid var(--divider); border-radius: 5px; padding: 1px 6px; color: var(--text-2); }
-.exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.exp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 .exp-item { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--bg-card); }
 .exp-item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; font-size: 13.5px; }
 .exp-params { display: flex; gap: 8px; }

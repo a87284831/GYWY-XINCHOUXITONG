@@ -52,7 +52,7 @@
       <div class="row" style="margin-top:12px;gap:8px">
         <button class="btn primary" :disabled="!canExport" @click="doExport">导出 Excel</button>
         <button class="btn" :disabled="loading" @click="refreshPreview">刷新预览</button>
-        <span class="hint" style="margin:0">{{ loading ? '正在读取核算数据…' : '导出前请先核对下方提示与表样。' }}</span>
+        <span class="hint" style="margin:0">{{ loading ? '正在读取核算数据…' : '导出前请先核对下方数据提示与工作表清单。' }}</span>
       </div>
     </div>
 
@@ -69,13 +69,7 @@
       <h3>将生成的工作表</h3>
       <div v-if="!preview || !preview.sheets.length" class="hint">暂无工作表。</div>
       <div v-else class="pe-sheets">
-        <div
-          v-for="(s, i) in preview.sheets"
-          :key="s.title"
-          class="pe-sheet"
-          :class="{ active: i === activeSheet }"
-          @click="activeSheet = i"
-        >
+        <div v-for="s in preview.sheets" :key="s.title" class="pe-sheet">
           <div class="pe-sheet-top">
             <b>{{ s.title }}</b>
             <span class="tag blue">{{ s.count }} 行</span>
@@ -109,40 +103,6 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>表样预览</h3>
-      <div v-if="!active" class="hint">暂无表样。</div>
-      <template v-else>
-        <div class="row" style="gap:8px;margin-bottom:8px">
-          <label class="fld">工作表
-            <select v-model.number="activeSheet">
-              <option v-for="(s, i) in preview.sheets" :key="s.title" :value="i">{{ s.title }}</option>
-            </select>
-          </label>
-          <span class="hint" style="margin:0">示意前 {{ active.sample.length }} 行；导出文件包含全部数据与小计行。</span>
-        </div>
-        <div class="table-wrap" style="max-height:360px">
-          <table class="tb">
-            <thead>
-              <tr>
-                <th v-for="c in active.columns" :key="c.label">{{ c.label }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, ri) in active.sample" :key="ri">
-                <td v-for="(c, ci) in active.columns" :key="ci" :class="{ num: c.type === 'money' }">
-                  {{ fmtCell(row[ci], c) }}
-                </td>
-              </tr>
-              <tr v-if="!active.sample.length">
-                <td :colspan="active.columns.length" class="hint">该 Sheet 本期无数据。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
     </div>
 
     <div class="card">
@@ -184,15 +144,10 @@ const project = ref(isProjectScope.value ? (auth.user.project || auth.projects[0
 const preview = ref(null)
 const loading = ref(false)
 const errorMsg = ref('')
-const activeSheet = ref(0)
 let requestSeq = 0
 
 const quarterWarn = computed(() => needsQuarterEnd(method.value, cats.value) && !isQuarterEndMonth(ym.value))
 const canExport = computed(() => cats.value.length > 0 && !loading.value)
-const active = computed(() => {
-  const sheets = preview.value && preview.value.sheets
-  return sheets && sheets[activeSheet.value] ? sheets[activeSheet.value] : null
-})
 
 watch(isProjectScope, (val) => {
   if (val) project.value = auth.user.project || auth.projects[0] || ''
@@ -219,7 +174,6 @@ async function refreshPreview() {
     }))
     if (seq !== requestSeq) return
     preview.value = data
-    activeSheet.value = 0
   } catch (e) {
     if (seq !== requestSeq) return
     preview.value = null
@@ -239,16 +193,6 @@ function doExport() {
   })
   download(target.url, target.filename)
 }
-
-function fmtCell(value, col) {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value !== 'number') return String(value)
-  if (col.type === 'ratio') return value.toFixed(2)
-  if (col.type === 'money') {
-    return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  return String(value)
-}
 </script>
 
 <style scoped>
@@ -261,10 +205,8 @@ function fmtCell(value, col) {
 .pe-alert.ok { background: var(--success-bg); border-color: #c4efcd; color: #0e8a22; }
 .pe-alert.warn { background: var(--warning-bg); border-color: #f6dfae; color: #8a5a00; }
 .pe-alert.danger { background: var(--danger-bg); border-color: #fbc9c9; color: #c42020; }
-.pe-sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.pe-sheet { border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer; background: var(--bg-card); transition: border-color .15s, box-shadow .15s; }
-.pe-sheet:hover { border-color: var(--brand-600); }
-.pe-sheet.active { border-color: var(--brand-600); box-shadow: 0 0 0 3px rgba(22, 93, 255, .08); }
+.pe-sheets { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.pe-sheet { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--bg-card); }
 .pe-sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pe-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .pe-chip { font-size: 11px; background: var(--bg-subtle); border: 1px solid var(--divider); border-radius: 5px; padding: 1px 6px; color: var(--text-2); }
