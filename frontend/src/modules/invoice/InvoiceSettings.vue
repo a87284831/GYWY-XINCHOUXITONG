@@ -117,16 +117,24 @@
 
           <h4>项目绑定（一项目一账套）</h4>
           <table class="mini-table">
-            <thead><tr><th>项目</th><th>当前账套</th><th>业主入口</th><th>状态</th></tr></thead>
+            <thead><tr><th>项目</th><th>当前账套</th><th>业主入口</th><th>状态</th><th>二维码</th></tr></thead>
             <tbody>
-              <tr v-for="b in bindings" :key="b.project_id">
-                <td>{{ b.project_name }}</td>
-                <td>{{ b.account_set_name }}</td>
-                <td><a :href="b.entry_url" target="_blank" class="muted">{{ b.entry_url }}</a></td>
-                <td>{{ b.enabled ? '启用' : '停用' }}</td>
+              <tr v-for="row in bindingRows" :key="row.project.id">
+                <td>{{ row.project.name }}</td>
+                <td>{{ row.binding ? row.binding.account_set_name : '未配置账套' }}</td>
+                <td>
+                  <a v-if="row.binding" :href="row.binding.entry_url" target="_blank" class="entry-link">{{ row.binding.entry_url }}</a>
+                  <span v-else class="muted">绑定账套后生成业主入口</span>
+                </td>
+                <td>{{ row.binding ? (row.binding.enabled ? '启用' : '停用') : '—' }}</td>
+                <td>
+                  <button v-if="row.binding && row.binding.enabled" class="btn" @click="openQr(row)">生成二维码</button>
+                  <span v-else class="muted">{{ row.binding ? '入口停用' : '待配置' }}</span>
+                </td>
               </tr>
             </tbody>
           </table>
+          <p class="muted" style="margin-top:8px">每个项目一个固定入口；二维码含项目名称，可下载 PNG/SVG 打印张贴，也可复制链接自行生成。入口为 48 位随机串，无法通过其他项目标识读取本项目申请单。</p>
           <div class="inline-actions">
             <select v-model="bindProject" class="mini-select">
               <option value="">选择项目</option>
@@ -138,11 +146,33 @@
         </template>
       </div>
     </div>
+
+    <div v-if="qr" class="qr-mask" @click.self="qr = null">
+      <div class="qr-box">
+        <div class="qr-head">
+          <h3>{{ qr.projectName }} · 业主开票二维码</h3>
+          <span class="spacer"></span>
+          <button class="btn" @click="qr = null">关闭</button>
+        </div>
+        <img :src="qr.png" class="qr-img" :alt="qr.projectName + ' 业主开票二维码'">
+        <div class="qr-name">{{ qr.projectName }}</div>
+        <label class="qr-link">入口链接
+          <input id="qrLinkInput" :value="qr.url" readonly @focus="$event.target.select()">
+        </label>
+        <div class="qr-actions">
+          <button class="btn" @click="copyLink">复制链接</button>
+          <button class="btn primary" @click="downloadPng">下载 PNG</button>
+          <button class="btn" @click="downloadSvg">下载 SVG</button>
+        </div>
+        <p class="muted">未配置账套或入口停用的项目不生成二维码。若业主扫码提示未开通，请联系物业财务核对项目绑定。</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import QRCode from 'qrcode'
 import { api } from '@/api/client'
 
 const sets = ref([])
@@ -158,6 +188,12 @@ const testMsg = ref('')
 const reviewers = ref([])
 const newReviewer = ref('')
 const bindProject = ref('')
+const qr = ref(null)
+
+const bindingRows = computed(() => {
+  const byProject = new Map(bindings.value.map((b) => [Number(b.project_id), b]))
+  return projects.value.map((p) => ({ project: p, binding: byProject.get(Number(p.id)) || null }))
+})
 
 const emptyForm = () => ({
   id: null, code: '', name: '', seller_name: '', seller_tax_no: '', seller_address: '', seller_phone: '',
@@ -264,6 +300,87 @@ async function saveBinding() {
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 
+async function openQr(row) {
+  if (!row.binding || !row.binding.enabled || !row.binding.entry_url) return
+  busy.value = true
+  error.value = ''
+  try {
+    const url = row.binding.entry_url
+    const projectName = row.project.name || row.binding.project_name
+    const qrCanvas = document.createElement('canvas')
+    await QRCode.toCanvas(qrCanvas, url, { width: 640, margin: 2, errorCorrectionLevel: 'M' })
+    const pad = 48
+    const labelH = 84
+    const canvas = document.createElement('canvas')
+    canvas.width = qrCanvas.width + pad * 2
+    canvas.height = qrCanvas.height + pad * 2 + labelH
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(qrCanvas, pad, pad)
+    ctx.fillStyle = '#0f172a'
+    ctx.textAlign = 'center'
+    ctx.font = '600 30px "Microsoft YaHei", sans-serif'
+    ctx.fillText(projectName.slice(0, 24), canvas.width / 2, qrCanvas.height + pad + 44)
+    const svgRaw = await QRCode.toString(url, { type: 'svg', margin: 2, width: 640 })
+    qr.value = { projectName, url, png: canvas.toDataURL('image/png'), svg: withSvgLabel(svgRaw, projectName) }
+  } catch (e) {
+    error.value = '二维码生成失败：' + e.message
+  } finally {
+    busy.value = false
+  }
+}
+function withSvgLabel(svg, label) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1] || '0 0 41 41'
+  const inner = svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="680" height="752" viewBox="0 0 680 752">'
+    + '<rect width="680" height="752" fill="#ffffff"/>'
+    + '<svg x="20" y="20" width="640" height="640" viewBox="' + vb + '">' + inner + '</svg>'
+    + '<text x="340" y="706" text-anchor="middle" font-family="Microsoft YaHei, sans-serif" font-size="28" font-weight="600" fill="#0f172a">'
+    + esc(String(label).slice(0, 24)) + '</text></svg>'
+}
+function qrBaseName() {
+  return '业主开票二维码-' + String(qr.value.projectName).replace(/[\\/:*?"<>|]/g, '_')
+}
+function triggerDownload(href, name) {
+  const a = document.createElement('a')
+  a.href = href
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+function downloadPng() {
+  if (!qr.value) return
+  triggerDownload(qr.value.png, qrBaseName() + '.png')
+}
+function downloadSvg() {
+  if (!qr.value) return
+  const blob = new Blob([qr.value.svg], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  triggerDownload(url, qrBaseName() + '.svg')
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+async function copyLink() {
+  if (!qr.value) return
+  try {
+    await navigator.clipboard.writeText(qr.value.url)
+    flash('入口链接已复制')
+  } catch (e) {
+    const el = document.getElementById('qrLinkInput')
+    if (!el) return
+    el.focus()
+    el.select()
+    try {
+      document.execCommand('copy')
+      flash('入口链接已复制')
+    } catch (_) {
+      error.value = '复制失败，请手动选择链接复制'
+    }
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -308,5 +425,16 @@ onMounted(load)
 .mini-table th{text-align:left;color:#94a3b8;font-weight:500;padding:6px;border-bottom:1px solid #f1f4f8}
 .mini-table td{padding:7px 6px;border-bottom:1px solid #f5f7fa;word-break:break-all}
 .empty{padding:16px;text-align:center;color:#94a3b8;font-size:12px}
+.entry-link{color:#2563eb;text-decoration:none;display:inline-block;max-width:270px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.qr-mask{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px}
+.qr-box{background:#fff;border-radius:14px;padding:18px 20px 16px;width:420px;max-width:100%;box-shadow:0 20px 60px rgba(15,23,42,.25)}
+.qr-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.qr-head h3{margin:0;font-size:15px}
+.qr-img{display:block;width:320px;max-width:100%;margin:0 auto;border:1px solid #eef2f7;border-radius:10px}
+.qr-name{text-align:center;font-size:14px;font-weight:600;color:#0f172a;margin:8px 0 12px}
+.qr-link{display:flex;flex-direction:column;gap:5px;font-size:11px;color:#64748b}
+.qr-link input{height:34px;border:1px solid #dbe0e8;border-radius:8px;padding:0 9px;font-size:11px;background:#f8fafc;color:#334155}
+.qr-actions{display:flex;gap:8px;margin-top:12px}
+.qr-actions .btn{flex:1}
 @media(max-width:1000px){.layout{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
 </style>

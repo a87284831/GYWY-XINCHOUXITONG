@@ -283,6 +283,68 @@ class InvoiceMvpTest extends TestCase
         $this->assertContains('invoice_review', json_decode($finance->permissions, true));
     }
 
+    public function test_entry_tokens_are_distinct_random_and_tampering_is_rejected(): void
+    {
+        [$projectId, $adminId, , $setA, $setB] = $this->seedBase();
+        $token = $this->tokenFor($adminId);
+        $projectB = DB::table('payroll_projects')->insertGetId([
+            'name' => '菏泽牡丹项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('payroll_projects')->insertGetId([
+            'name' => '未绑定账套项目', 'status' => '启用', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $bound = $this->withHeader('X-Token', $token)->postJson('/api/invoice/admin/bindings', [
+            'project_id' => $projectB,
+            'account_set_id' => $setB,
+            'enabled' => true,
+        ]);
+        $bound->assertOk();
+        $tokenB = (string) $bound->json('entry_token');
+        $this->assertSame(48, strlen($tokenB));
+
+        $list = $this->withHeader('X-Token', $token)->getJson('/api/invoice/admin/account-sets')->assertOk();
+        $bindings = collect($list->json('bindings'))->keyBy('project_id');
+        $this->assertCount(2, $bindings);
+        $this->assertNotSame($bindings[$projectId]['entry_url'], $bindings[$projectB]['entry_url']);
+        $this->assertStringContainsString('?p=' . $tokenB, $bindings[$projectB]['entry_url']);
+
+        $this->getJson('/api/invoice/entry?p=' . $tokenB)
+            ->assertOk()
+            ->assertJsonPath('project.id', $projectB)
+            ->assertJsonPath('project.name', '菏泽牡丹项目');
+
+        $tampered = substr($tokenB, 0, -1) . (substr($tokenB, -1) === 'a' ? 'b' : 'a');
+        $this->getJson('/api/invoice/entry?p=' . $tampered)
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROJECT_DISABLED');
+        $this->getJson('/api/invoice/entry?p=' . str_repeat('x', 48))
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROJECT_DISABLED');
+
+        DB::table('invoice_account_sets')->where('id', $setB)->update(['status' => 'disabled']);
+        $this->getJson('/api/invoice/entry?p=' . $tokenB)
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'ACCOUNT_SET_DISABLED');
+
+        $apply = $this->post('/api/invoice/apply', [
+            'p' => 'entry-token-a',
+            'house_no' => '6-2-0909',
+            'payer_name' => '周宁',
+            'declared_amount' => 800,
+            'title_type' => 'personal',
+            'title' => '周宁',
+            'buyer_email' => 'zhou@example.com',
+            'attachments' => [UploadedFile::fake()->create('receipt.jpg', 120, 'image/jpeg')],
+        ])->assertOk();
+        $no = $apply->json('request_no');
+
+        // 另一个项目的入口标识 + 错误查询密钥，无法读取本项目申请单
+        $this->getJson('/api/invoice/status?no=' . urlencode($no) . '&k=wrong-key&p=' . $tokenB)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'QUERY_INVALID');
+    }
+
     public function test_amount_change_needs_reason_resend_and_ofd_download(): void
     {
         [, $adminId] = $this->seedBase();
