@@ -14,3 +14,6 @@ Schedule::command('dingtalk:sync')->dailyAt('02:00')->withoutOverlapping()->onOn
 
 // 维保预警扫描：每日 8:30（合同分级到期/无到期日、设备年检、签约方资质 → 站内消息，带防重）
 Schedule::command('maintenance:scan-alerts')->dailyAt('08:30')->withoutOverlapping()->onOneServer();
+
+// 开票邮件交付重试：每分钟扫描 next_delivery_at（1/5/15 分钟，最多 3 次）
+Schedule::command('invoice:retry-deliveries')->everyMinute()->withoutOverlapping()->onOneServer();

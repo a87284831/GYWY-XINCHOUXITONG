@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>开票申请</title>
+<style>
+  :root{--brand:#2563eb;--muted:#6b7280;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--line:#e5e7eb;--bg:#f4f7fb;--card:#fff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#0f172a}
+  .page{max-width:520px;margin:0 auto;min-height:100vh;background:#fff;display:flex;flex-direction:column}
+  .hero{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;padding:20px 18px 18px}
+  .hero h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
+  .hero p{margin:6px 0 0;font-size:12px;opacity:.86;line-height:1.6}
+  .steps{display:flex;gap:8px;margin-top:14px}
+  .steps span{flex:1;text-align:center;font-size:11px;padding:6px 0;border-radius:999px;background:rgba(255,255,255,.16)}
+  .steps span.on{background:#fff;color:#1d4ed8;font-weight:600}
+  .body{flex:1;padding:14px 14px 24px}
+  .card{background:var(--card);border:1px solid #edf0f5;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.04);margin-bottom:12px}
+  .card h2{margin:0 0 10px;font-size:14px;font-weight:650}
+  .row{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:6px 0;border-bottom:1px dashed #eef1f5}
+  .row:last-child{border-bottom:0}
+  .row .k{color:var(--muted);flex:0 0 auto}
+  .row .v{text-align:right;word-break:break-all}
+  .amount-box{background:#f0f6ff;border:1px solid #dbe8ff;border-radius:10px;padding:12px;margin-bottom:12px}
+  .amount-box .lbl{font-size:12px;color:#1e40af;margin-bottom:6px}
+  .amount-input{display:flex;align-items:baseline;gap:6px}
+  .amount-input .cur{font-size:20px;font-weight:700;color:#1e3a8a}
+  .amount-input input{flex:1;border:0;background:transparent;outline:0;font-size:30px;font-weight:700;color:#0f172a;min-width:0}
+  .hint{font-size:11px;color:var(--muted);line-height:1.7;margin-top:8px}
+  .field{margin-bottom:11px}
+  .field label{display:block;font-size:12px;color:#374151;margin-bottom:5px}
+  .field input,.field select,.field textarea{width:100%;border:1px solid #dbe0e8;border-radius:10px;padding:10px 12px;font-size:13px;outline:0;background:#fff;color:#111827}
+  .field input:focus,.field textarea:focus{border-color:#93b4f5;box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+  .field textarea{min-height:62px;resize:vertical}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn{display:flex;align-items:center;justify-content:center;height:44px;border-radius:11px;background:var(--brand);color:#fff;font-size:15px;font-weight:600;border:0;width:100%;margin-top:6px;cursor:pointer}
+  .btn:disabled{opacity:.55}
+  .btn.ghost{background:#fff;color:#374151;border:1px solid #dbe0e8;font-weight:500;height:38px;font-size:13px}
+  .btn.danger{background:#fff;color:var(--danger);border:1px solid #fecaca;height:38px;font-size:13px;font-weight:500}
+  .note{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;line-height:1.6}
+  .error{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.6}
+  .warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.6}
+  .ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;border-radius:10px;padding:12px;font-size:12px;margin-bottom:12px;line-height:1.7}
+  .upload{border:1.5px dashed #bfd3f6;background:#f8fbff;border-radius:12px;padding:20px 12px;text-align:center;color:#3b6fd4;font-size:13px;cursor:pointer}
+  .upload small{display:block;color:#9ca3af;font-size:11px;margin-top:5px}
+  .thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .thumb{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#f8fafc;aspect-ratio:1/1}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .thumb .pdf{display:flex;align-items:center;justify-content:center;height:100%;font-size:12px;color:#64748b}
+  .thumb .del{position:absolute;right:4px;top:4px;width:20px;height:20px;border-radius:50%;background:rgba(15,23,42,.65);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .timeline{position:relative;padding-left:20px}
+  .timeline:before{content:"";position:absolute;left:6px;top:5px;bottom:5px;width:2px;background:#e5edf9}
+  .tl{position:relative;font-size:12px;padding:0 0 14px}
+  .tl:last-child{padding-bottom:0}
+  .tl:before{content:"";position:absolute;left:-18px;top:4px;width:8px;height:8px;border-radius:50%;background:#cbd5e1}
+  .tl.done:before{background:var(--brand)}
+  .tl .t{font-weight:600;color:#111827}
+  .tl .d{color:var(--muted);margin-top:2px;font-size:11px}
+  .invoice-box{background:#f8fbff;border:1px solid #dbe8ff;border-radius:10px;padding:12px;margin-top:10px}
+  .invoice-box .no{font-size:17px;font-weight:700;letter-spacing:.4px;color:#1e3a8a;word-break:break-all}
+  .sim{display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:999px;font-size:10px;padding:2px 8px;margin-left:6px;vertical-align:2px}
+  .hidden{display:none!important}
+  .loading{text-align:center;padding:40px 0;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <h1 id="heroTitle">缴费开票</h1>
+    <p id="heroSub">上传缴费凭证，审核通过后开具数电票并发送到邮箱</p>
+    <div class="steps"><span id="s1" class="on">1 填写信息</span><span id="s2">2 上传凭证</span><span id="s3">3 查看进度</span></div>
+  </div>
+  <div class="body" id="app">
+    <div class="loading" id="loading">加载中…</div>
+    <div class="error hidden" id="globalError"></div>
+
+    <!-- 第一屏 -->
+    <section id="screen1" class="hidden">
+      <div class="card">
+        <h2>开票信息</h2>
+        <div class="row"><span class="k">项目</span><span class="v" id="vProject">—</span></div>
+        <div class="row"><span class="k">开票主体</span><span class="v" id="vSeller">—</span></div>
+      </div>
+
+      <div class="amount-box">
+        <div class="lbl">开票金额（价税合计）</div>
+        <div class="amount-input"><span class="cur">¥</span><input id="amount" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00"></div>
+        <div class="hint" id="amountHint">请按缴费凭证上的实际金额填写，审核时会人工核对。</div>
+      </div>
+
+      <div class="card">
+        <h2>房屋与缴费人</h2>
+        <div class="field"><label>房号 *</label><input id="houseNo" placeholder="如 3-2-1802"></div>
+        <div class="grid2">
+          <div class="field"><label>业主姓名 *</label><input id="payerName" placeholder="请输入姓名"></div>
+          <div class="field"><label>费项期间</label><input id="feePeriod" placeholder="如 2026-01~2026-12"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>发票抬头</h2>
+        <div class="field"><label>抬头类型 *</label>
+          <select id="titleType"><option value="personal">个人</option><option value="company">企业</option></select>
+        </div>
+        <div class="field"><label>抬头名称 *</label><input id="title" placeholder="个人姓名或企业全称"></div>
+        <div class="field" id="taxWrap" style="display:none"><label>统一社会信用代码 *</label><input id="buyerTaxNo" placeholder="18 位统一社会信用代码"></div>
+        <div class="field"><label>接收邮箱 *</label><input id="email" type="email" placeholder="用于接收电子发票"></div>
+        <div class="field"><label>备注</label><textarea id="remark" placeholder="选填"></textarea></div>
+      </div>
+
+      <button class="btn" id="toStep2">下一步：上传缴费凭证</button>
+      <div class="note">提交即表示你确认所填信息真实，虚假材料将移交处理。</div>
+    </section>
+
+    <!-- 第二屏 -->
+    <section id="screen2" class="hidden">
+      <div class="card">
+        <h2>上传缴费凭证</h2>
+        <div class="upload" id="drop">拍照或选择图片 / PDF<small>支持 jpg、png、pdf，1–3 张，单张不超过 5MB，合计不超过 12MB</small></div>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,application/pdf" multiple class="hidden">
+        <div class="thumbs" id="thumbs"></div>
+        <div class="hint">请确保凭证上的收款方、金额、日期、房号/业主姓名清晰可见；审核时会人工核对。</div>
+      </div>
+      <div id="submitWarn"></div>
+      <button class="btn" id="submitBtn">提交开票申请</button>
+      <button class="btn ghost" id="backStep1" style="margin-top:8px">返回修改</button>
+      <div class="note">提交后可在本页查看审核与开票进度。</div>
+    </section>
+
+    <!-- 第三屏 -->
+    <section id="screen3" class="hidden">
+      <div id="statusAlert"></div>
+      <div class="card">
+        <h2>申请进度 <span id="statusTag" style="font-size:11px;color:#6b7280;font-weight:400"></span></h2>
+        <div class="timeline" id="timeline"></div>
+        <div class="hint" id="rejectHint"></div>
+      </div>
+      <div class="card">
+        <h2>申请信息</h2>
+        <div class="row"><span class="k">申请单号</span><span class="v" id="vNo">—</span></div>
+        <div class="row"><span class="k">开票主体</span><span class="v" id="vSeller3">—</span></div>
+        <div class="row"><span class="k">房号</span><span class="v" id="vHouse">—</span></div>
+        <div class="row"><span class="k">申报金额</span><span class="v" id="vAmount">—</span></div>
+        <div class="row"><span class="k">核定金额</span><span class="v" id="vVerified">—</span></div>
+        <div class="row"><span class="k">抬头</span><span class="v" id="vTitle">—</span></div>
+        <div class="row"><span class="k">邮箱</span><span class="v" id="vEmail">—</span></div>
+      </div>
+      <div class="card" id="invoiceCard" style="display:none">
+        <h2>电子发票</h2>
+        <div class="invoice-box">
+          <div style="font-size:11px;color:#6b7280;margin-bottom:4px">数电票号码</div>
+          <div class="no" id="vInvoiceNo">—</div>
+          <div class="hint" id="vInvoiceDate"></div>
+        </div>
+        <button class="btn" id="downloadBtn" style="margin-top:10px">下载发票 PDF</button>
+        <button class="btn ghost" id="downloadOfdBtn" style="margin-top:8px;display:none">下载 OFD</button>
+      </div>
+      <button class="btn ghost" id="resubmitBtn" style="display:none">修改并重新提交</button>
+      <button class="btn danger" id="cancelBtn" style="display:none">撤回申请</button>
+      <button class="btn ghost" id="refreshBtn" style="margin-top:8px">刷新进度</button>
+      <div class="note" id="pollNote">页面每 10 秒自动刷新进度。</div>
+    </section>
+  </div>
+</div>
+<script>
+(function(){
+  const qs = new URLSearchParams(location.search);
+  const entryToken = qs.get('p') || '';
+  const state = { project:null, seller:null, rules:null, files:[], screen:1, resubmit:null, timer:null, request:null, clientNo:newClientNo() };
+  function newClientNo(){ return 'H5' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  const $ = id => document.getElementById(id);
+  const money = n => '¥' + Number(n || 0).toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const statusLabels = {draft:'草稿',submitted:'待审核',rejected:'已退回',approved:'审核通过',issuing:'开票中',issued:'已开票',delivering:'交付中',delivered:'已交付',delivered_failed:'交付失败',failed:'开票失败',red_flushing:'红冲中',red_flushed:'已红冲',red_flush_failed:'红冲失败',cancelled:'已撤回'};
+
+  function showScreen(n){
+    state.screen = n;
+    [1,2,3].forEach(i => { $('screen'+i).classList.toggle('hidden', i !== n); $('s'+i).classList.toggle('on', i === n); });
+    window.scrollTo(0,0);
+  }
+  function showError(msg){ const el=$('globalError'); el.textContent=msg; el.classList.remove('hidden'); }
+  function clearError(){ $('globalError').classList.add('hidden'); }
+  function toast(msg, type){
+    const box = type === 'warn' ? $('submitWarn') : $('statusAlert');
+    if (!box) return;
+    box.innerHTML = '<div class="'+(type==='warn'?'warn':'ok')+'">'+msg+'</div>';
+    setTimeout(()=>{ box.innerHTML=''; }, 6000);
+  }
+  function keyStore(){ return 'invoice_query_'+entryToken; }
+  function saveQuery(no, key){ try{ localStorage.setItem(keyStore(), JSON.stringify({no,key,at:Date.now()})); }catch(e){} }
+  function loadQuery(){ try{ return JSON.parse(localStorage.getItem(keyStore())||'null'); }catch(e){ return null; } }
+
+  async function api(url, opts){
+    const res = await fetch(url, opts);
+    let data = {};
+    try { data = await res.json(); } catch(e) {}
+    if (!res.ok || data.ok === false) {
+      const err = new Error(data.error || ('请求失败(' + res.status + ')'));
+      err.data = data; err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  async function init(){
+    if (!entryToken){ $('loading').textContent='缺少项目入口参数，请重新扫描项目二维码'; return; }
+    try{
+      const data = await api('/api/invoice/entry?p=' + encodeURIComponent(entryToken));
+      state.project = data.project; state.seller = data.seller; state.rules = data.rules;
+      $('loading').classList.add('hidden');
+      $('vProject').textContent = data.project.name;
+      $('vSeller').textContent = data.seller.name;
+      $('vSeller3').textContent = data.seller.name;
+      $('amountHint').textContent = '单笔上限 ' + money(data.rules.amount_limit) + '；请按缴费凭证上的实际金额填写，审核时人工核对。';
+      $('amount').max = data.rules.amount_limit;
+      $('heroTitle').textContent = data.project.name + ' · 开票申请';
+      const saved = loadQuery();
+      if (saved && saved.no && saved.key){ await loadStatus(saved.no, saved.key, false); showScreen(3); startPoll(); }
+      else showScreen(1);
+    }catch(e){
+      $('loading').textContent = e.message || '项目未开通开票';
+    }
+  }
+
+  function validateStep1(){
+    const amount = Number($('amount').value);
+    if (!amount || amount <= 0) return '请填写开票金额';
+    if (state.rules && amount > Number(state.rules.amount_limit)) return '金额超过单笔上限 ' + money(state.rules.amount_limit);
+    if (!$('houseNo').value.trim()) return '请填写房号';
+    if (!$('payerName').value.trim()) return '请填写业主姓名';
+    if (!$('title').value.trim()) return '请填写发票抬头';
+    const type = $('titleType').value;
+    if (type === 'company' && !/^[0-9A-HJ-NPQRTUWXY]{15,20}$/i.test($('buyerTaxNo').value.trim())) return '请填写有效的统一社会信用代码';
+    if (!$('email').value.trim() || !/^\S+@\S+\.\S+$/.test($('email').value.trim())) return '请填写有效邮箱';
+    return '';
+  }
+
+  function renderThumbs(){
+    const box = $('thumbs'); box.innerHTML='';
+    state.files.forEach((f, i) => {
+      const d = document.createElement('div'); d.className='thumb';
+      if (f.type === 'application/pdf') d.innerHTML = '<div class="pdf">PDF</div>';
+      else { const img=document.createElement('img'); img.src=URL.createObjectURL(f); d.appendChild(img); }
+      const del=document.createElement('div'); del.className='del'; del.textContent='×'; del.onclick=()=>{ state.files.splice(i,1); renderThumbs(); };
+      d.appendChild(del); box.appendChild(d);
+    });
+  }
+
+  function addFiles(list){
+    const max = state.rules ? state.rules.attachments_max : 3;
+    for (const f of list){
+      if (state.files.length >= max){ toast('最多上传 '+max+' 张凭证', 'warn'); break; }
+      if (!['image/jpeg','image/png','application/pdf'].includes(f.type)){ toast('仅支持 jpg/png/pdf', 'warn'); continue; }
+      if (f.size > (state.rules.attachment_max_kb || 5120) * 1024){ toast('单张凭证不得超过 5MB', 'warn'); continue; }
+      state.files.push(f);
+    }
+    renderThumbs();
+  }
+
+  async function submit(){
+    const err = validateStep1(); if (err){ showScreen(1); showError(err); return; }
+    if (!state.files.length){ toast('请至少上传 1 张缴费凭证', 'warn'); return; }
+    clearError();
+    const btn = $('submitBtn'); btn.disabled = true; btn.textContent = '提交中…';
+    const fd = new FormData();
+    fd.append('p', entryToken);
+    fd.append('house_no', $('houseNo').value.trim());
+    fd.append('payer_name', $('payerName').value.trim());
+    fd.append('declared_amount', String(Number($('amount').value)));
+    fd.append('title_type', $('titleType').value);
+    fd.append('title', $('title').value.trim());
+    if ($('titleType').value === 'company') fd.append('buyer_tax_no', $('buyerTaxNo').value.trim());
+    fd.append('buyer_email', $('email').value.trim());
+    fd.append('fee_period', $('feePeriod').value.trim());
+    fd.append('remark', $('remark').value.trim());
+    if (state.resubmit){ fd.append('resubmit_no', state.resubmit.no); fd.append('query_key', state.resubmit.key); }
+    else fd.append('client_request_no', state.clientNo);
+    state.files.forEach(f => fd.append('attachments[]', f));
+    try{
+      const data = await api('/api/invoice/apply', {method:'POST', body:fd});
+      if (data.reused){ showError('该申请单已提交过，请到进度页查看'); }
+      if (data.warnings && data.warnings.length) toast(data.warnings[0], 'warn');
+      if (data.query_key) saveQuery(data.request_no, data.query_key);
+      state.resubmit = null;
+      state.clientNo = newClientNo();
+      const savedNow = loadQuery();
+      const statusKey = data.query_key || (savedNow && savedNow.no === data.request_no ? savedNow.key : '');
+      if (!statusKey){
+        showError('该申请单已提交过，请回到本页刷新或用原查询密钥查看进度');
+        return;
+      }
+      await loadStatus(data.request_no, statusKey, true);
+      showScreen(3); startPoll(); toast('提交成功，等待审核。');
+    }catch(e){
+      showError(e.message || '提交失败，请稍后重试');
+    }finally{
+      btn.disabled = false; btn.textContent = '提交开票申请';
+    }
+  }
+
+  async function loadStatus(no, key, throwOnError){
+    try{
+      const data = await api('/api/invoice/status?no=' + encodeURIComponent(no) + '&k=' + encodeURIComponent(key));
+      state.request = data.request;
+      renderStatus(data);
+      return data;
+    }catch(e){
+      if (throwOnError) throw e;
+      const saved = loadQuery(); if (saved){ try{ localStorage.removeItem(keyStore()); }catch(err){} }
+    }
+  }
+
+  function renderStatus(data){
+    const r = data.request;
+    $('vNo').textContent = r.request_no;
+    $('vSeller3').textContent = r.seller_name;
+    $('vHouse').textContent = r.house_no;
+    $('vAmount').textContent = money(r.declared_amount);
+    $('vVerified').textContent = r.verified_amount == null ? '待核定' : money(r.verified_amount);
+    $('vTitle').textContent = r.title + (r.title_type === 'company' ? '（企业）' : '');
+    $('vEmail').textContent = r.buyer_email;
+    $('statusTag').textContent = statusLabels[r.status] || r.status;
+
+    const tl = $('timeline'); tl.innerHTML='';
+    const base = [
+      ['submitted','提交申请'],
+      ['approved','审核通过'],
+      ['issued','开票成功'],
+      ['delivered','已发送邮箱'],
+    ];
+    const order = {submitted:1,approved:2,issuing:2,failed:2,issued:3,delivering:3,delivered_failed:3,delivered:4,rejected:1,cancelled:0,red_flushing:4,red_flushed:4,red_flush_failed:4};
+    const current = order[r.status] || 0;
+    base.forEach(([st, label], idx) => {
+      const done = current > idx;
+      const div = document.createElement('div'); div.className = 'tl' + (done ? ' done' : '');
+      div.innerHTML = '<div class="t">'+label+'</div><div class="d">'+(done?'已完成':'等待中')+'</div>';
+      tl.appendChild(div);
+    });
+    if (r.status === 'rejected'){
+      divNote('退回原因：' + (r.reject_reason || '未填写') + '。请修改后重新提交。');
+      $('resubmitBtn').style.display='flex';
+    } else { divNote(''); $('resubmitBtn').style.display='none'; }
+    $('cancelBtn').style.display = r.can_cancel ? 'flex' : 'none';
+
+    const alert = $('statusAlert');
+    if (r.status === 'delivered'){
+      alert.innerHTML = '<div class="ok">发票已发送至 ' + r.buyer_email + '，可同时在本页下载。</div>';
+    } else if (r.status === 'delivered_failed'){
+      alert.innerHTML = '<div class="warn">发票已开具，但邮件发送失败。请稍后刷新，或联系物业财务重发；本页下载仍可用。</div>';
+    } else if (r.status === 'failed'){
+      alert.innerHTML = '<div class="warn">开票失败：' + (r.fail_msg || '请稍后重试') + '</div>';
+    } else if (r.status === 'rejected'){
+      alert.innerHTML = '<div class="warn">申请已退回，请按原因修改后重新提交。</div>';
+    } else {
+      alert.innerHTML = '';
+    }
+
+    if (r.can_download){
+      $('invoiceCard').style.display='block';
+      $('vInvoiceNo').textContent = r.digital_invoice_no || '—';
+      $('vInvoiceDate').textContent = (r.invoice_date ? '开票日期：' + r.invoice_date : '') + (r.simulated ? ' · 本地模拟开票，非真实发票' : '');
+      $('downloadBtn').onclick = () => {
+        const q = loadQuery();
+        if (!q) return;
+        window.location.href = '/api/invoice/download/' + encodeURIComponent(q.no) + '?k=' + encodeURIComponent(q.key);
+      };
+      $('downloadOfdBtn').style.display = r.can_download_ofd ? 'block' : 'none';
+      $('downloadOfdBtn').onclick = () => {
+        const q = loadQuery();
+        if (!q) return;
+        window.location.href = '/api/invoice/download/' + encodeURIComponent(q.no) + '?k=' + encodeURIComponent(q.key) + '&f=ofd';
+      };
+    } else {
+      $('invoiceCard').style.display='none';
+    }
+    if (r.simulated && r.can_download){
+      $('statusTag').innerHTML = (statusLabels[r.status] || r.status) + '<span class="sim">模拟</span>';
+    }
+    if (!r.can_resubmit && r.status !== 'rejected'){ state.resubmit = null; }
+    if (r.can_resubmit){ state.resubmit = loadQuery(); }
+  }
+  function divNote(text){ $('rejectHint').textContent = text; }
+
+  function startPoll(){
+    if (state.timer) clearInterval(state.timer);
+    state.timer = setInterval(async () => {
+      const q = loadQuery();
+      if (!q || $('screen3').classList.contains('hidden')) return;
+      if (['delivered','rejected','cancelled','red_flushed'].includes((state.request||{}).status)) return;
+      try{ await loadStatus(q.no, q.key, false); }catch(e){}
+    }, 10000);
+  }
+
+  $('titleType').onchange = () => { $('taxWrap').style.display = $('titleType').value === 'company' ? 'block' : 'none'; };
+  $('toStep2').onclick = () => { const err = validateStep1(); if (err) return showError(err); clearError(); showScreen(2); };
+  $('backStep1').onclick = () => showScreen(1);
+  $('drop').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = e => { addFiles(e.target.files); e.target.value=''; };
+  $('submitBtn').onclick = submit;
+  $('refreshBtn').onclick = async () => { const q = loadQuery(); if (q) { await loadStatus(q.no, q.key, true); toast('已刷新'); } };
+  $('cancelBtn').onclick = async () => {
+    const q = loadQuery(); if (!q || !confirm('确认撤回该申请？')) return;
+    try{ await api('/api/invoice/cancel?no=' + encodeURIComponent(q.no) + '&k=' + encodeURIComponent(q.key), {method:'POST'}); await loadStatus(q.no,q.key,true); toast('已撤回'); }
+    catch(e){ toast(e.message, 'warn'); }
+  };
+  $('resubmitBtn').onclick = () => {
+    const q = loadQuery(); if (!q) return;
+    state.resubmit = q;
+    const r = state.request;
+    if (r){ $('amount').value = r.declared_amount; $('houseNo').value = r.house_no; $('payerName').value = r.payer_name; $('title').value = r.title; $('email').value=''; }
+    state.files = []; renderThumbs(); showScreen(1); toast('请重新填写金额并上传凭证', 'warn');
+  };
+
+  init();
+})();
+</script>
+</body>
+</html>

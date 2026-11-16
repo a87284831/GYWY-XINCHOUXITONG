@@ -22,11 +22,47 @@ use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\OrgController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ChangelogController;
+use App\Http\Controllers\Api\InvoicePublicController;
+use App\Http\Controllers\Api\InvoiceAdminController;
 
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/payslip/query', [PayslipController::class, 'query']);
+
+// 业主扫码开票（公开，凭项目入口 token / 查询密钥访问）
+Route::get('/invoice/entry', [InvoicePublicController::class, 'entry']);
+Route::post('/invoice/apply', [InvoicePublicController::class, 'apply']);
+Route::get('/invoice/status', [InvoicePublicController::class, 'status']);
+Route::match(['get', 'post'], '/invoice/cancel', [InvoicePublicController::class, 'cancel']);
+Route::get('/invoice/download/{requestNo}', [InvoicePublicController::class, 'download']);
+Route::get('/invoice/attachment/{id}', [InvoicePublicController::class, 'attachment']);
+
+// 后台开票管理（X-Token + InvoiceGuard）
+Route::get('/invoice/admin/requests', [InvoiceAdminController::class, 'requests']);
+Route::get('/invoice/admin/requests/{id}', [InvoiceAdminController::class, 'show']);
+Route::post('/invoice/admin/requests/{id}/approve', [InvoiceAdminController::class, 'approve']);
+Route::post('/invoice/admin/requests/{id}/reject', [InvoiceAdminController::class, 'reject']);
+Route::post('/invoice/admin/requests/{id}/issue', [InvoiceAdminController::class, 'issue']);
+Route::post('/invoice/admin/requests/{id}/red-flush', [InvoiceAdminController::class, 'redFlush']);
+Route::post('/invoice/admin/requests/{id}/reissue', [InvoiceAdminController::class, 'reissue']);
+Route::post('/invoice/admin/requests/{id}/resend', [InvoiceAdminController::class, 'resend']);
+Route::get('/invoice/admin/requests/{id}/invoice', [InvoiceAdminController::class, 'invoiceFile']);
+Route::get('/invoice/admin/my-todos', [InvoiceAdminController::class, 'myTodos']);
+Route::get('/invoice/admin/account-options', [InvoiceAdminController::class, 'accountOptions']);
+Route::get('/invoice/admin/stats', [InvoiceAdminController::class, 'stats']);
+Route::get('/invoice/admin/export', [InvoiceAdminController::class, 'export']);
+Route::get('/invoice/admin/account-sets', [InvoiceAdminController::class, 'accountSets']);
+Route::post('/invoice/admin/account-sets', [InvoiceAdminController::class, 'saveAccountSet']);
+Route::put('/invoice/admin/account-sets/{id}', [InvoiceAdminController::class, 'saveAccountSet']);
+Route::put('/invoice/admin/account-sets/{id}/credentials', [InvoiceAdminController::class, 'saveCredentials']);
+Route::post('/invoice/admin/account-sets/{id}/credentials/rollback', [InvoiceAdminController::class, 'rollbackCredentials']);
+Route::post('/invoice/admin/account-sets/{id}/test', [InvoiceAdminController::class, 'testConnection']);
+Route::get('/invoice/admin/account-sets/{id}/reviewers', [InvoiceAdminController::class, 'reviewers']);
+Route::put('/invoice/admin/account-sets/{id}/reviewers', [InvoiceAdminController::class, 'reviewers']);
+Route::get('/invoice/admin/users', [InvoiceAdminController::class, 'users']);
+Route::post('/invoice/admin/bindings', [InvoiceAdminController::class, 'saveBinding']);
+
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::post('/change-password', [AuthController::class, 'changePassword']);
 Route::get('/init', [DirectoryController::class, 'init']);

@@ -58,6 +58,11 @@ class AppModules
             ['key' => 'finance', 'name' => '财务管理', 'icon' => '💰', 'color' => '#0d9488', 'perms' => [
                 ['finance_view', '财务数据查看'],
                 ['finance_admin', '财务数据管理'],
+                ['invoice_view', '开票申请查看'],
+                ['invoice_review', '开票审核'],
+                ['invoice_issue', '开票与红冲'],
+                ['invoice_stats', '开票统计'],
+                ['invoice_config', '账套与审核人配置'],
             ]],
             ['key' => 'report', 'name' => '报表中心', 'icon' => '📊', 'color' => '#0ea5e9', 'perms' => [
                 ['hr_report', '人力资源报表'],

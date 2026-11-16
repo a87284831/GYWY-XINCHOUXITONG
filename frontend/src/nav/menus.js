@@ -45,6 +45,7 @@ purchaseEntry: '月度采购系统',
   financeMaint: '维保管理',
   financePayments: '付款记录', financeSummary: '汇总分析',
   financeImport: '历史数据导入',
+  invoiceReview: '开票审核', invoiceStats: '发票查询统计', invoiceSettings: '账套配置',
   rules: '工资计算规则设置', symbols: '考勤符号库设置',
   users: '系统设置', logs: '系统设置', backup: '系统设置', settings: '系统设置',
 }
@@ -104,6 +105,9 @@ export const ALL_MENUS = [
     { key: 'financePayments', label: '付款记录', icon: 'wallet', perm: 'finance_view' },
     { key: 'financeSummary', label: '汇总分析', icon: 'trend', perm: 'finance_view' },
     { key: 'financeImport', label: '历史数据导入', icon: 'down', perm: 'finance_admin' },
+    { key: 'invoiceReview', label: '开票审核', icon: 'receipt', perm: 'invoice_review' },
+    { key: 'invoiceStats', label: '发票查询统计', icon: 'bar', perm: 'invoice_stats' },
+    { key: 'invoiceSettings', label: '账套配置', icon: 'gear', perm: 'invoice_config' },
   ]},
   { section: '工程维保模块', icon: 'wrench', app: 'maintain', items: [
     { key: 'fireReport', label: '消防维保报表', icon: 'flame', perm: 'maint_fire' },
@@ -119,7 +123,7 @@ export const ALL_MENUS = [
 const PURCHASE_PAGES = ['purchaseDashboard', 'purchaseFill', 'purchaseOverview', 'purchaseCustoms',
   'purchaseBudget', 'purchaseSummary', 'purchaseExportImport', 'purchaseProducts',
   'purchaseWindows', 'purchaseOplogs', 'purchaseMyItems']
-const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport']
+const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport', 'invoiceReview', 'invoiceStats', 'invoiceSettings']
 const REPORT_PAGES = ['reportHome', 'hrReport', 'salaryReport', 'attReport']
 const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners', 'maintDevices']
 const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export', 'performanceExport',
@@ -172,7 +176,7 @@ export function pageKeyOfPath(path) {
 export function appEnabled(a, auth) {
   if (auth.user && auth.user.role === 'admin') return true
   if (a.key === 'purchase') return auth.can('purchase_view')
-  if (a.key === 'finance') return auth.can('finance_view') || auth.can('finance_admin')
+  if (a.key === 'finance') return auth.can('finance_view') || auth.can('finance_admin') || auth.can('invoice_view') || auth.can('invoice_review') || auth.can('invoice_stats') || auth.can('invoice_config')
   if (a.key === 'report') return auth.can('hr_report') || auth.can('salary_report') || auth.can('attendance_report')
   const md = (auth.appModules || []).find((m) => m.key === a.key)
   return (md && md.perms || []).some((p) => auth.perms.includes(p[0]))

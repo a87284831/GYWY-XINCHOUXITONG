@@ -259,6 +259,24 @@ const routes = [
         meta: { perm: 'finance_admin' },
       },
       {
+        path: 'invoiceReview',
+        name: 'invoiceReview',
+        component: () => import('@/modules/invoice/InvoiceReview.vue'),
+        meta: { perm: 'invoice_review' },
+      },
+      {
+        path: 'invoiceStats',
+        name: 'invoiceStats',
+        component: () => import('@/modules/invoice/InvoiceStats.vue'),
+        meta: { perm: 'invoice_stats' },
+      },
+      {
+        path: 'invoiceSettings',
+        name: 'invoiceSettings',
+        component: () => import('@/modules/invoice/InvoiceSettings.vue'),
+        meta: { perm: 'invoice_config' },
+      },
+      {
         path: 'purchase/dashboard',
         name: 'purchaseDashboard',
         component: () => import('@/modules/purchase/Dashboard.vue'),
