@@ -1,16 +1,14 @@
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>工资表导出 <span class="sub">每项参数只作用于本卡片</span></h3>
       <label class="pe-field month-field"><span>核算月份</span><input type="month" v-model="ui.month" /></label>
-    </div>
-    <div class="row" style="gap:8px;margin-bottom:12px">
+      <h3>工资表导出 <span class="sub">每项参数只作用于本卡片</span></h3>
       <span class="tag blue">数据范围：{{ caps.scopeLabel }}</span>
-      <span class="hint" style="margin:0">
-        {{ isProjectScope
-          ? '项目已锁定为本项目，不提供跨项目入口；全公司类报表仅总部账号可导出。'
-          : '总部账号可导出全部项目，或在下方「分项目工资表」中任选一个项目。' }}
-      </span>
+    </div>
+    <div class="hint" style="margin:0 0 12px">
+      {{ isProjectScope
+        ? '项目已锁定为本项目，不提供跨项目入口；全公司类报表仅总部账号可导出。'
+        : '总部账号可导出全部项目，或在下方「分项目工资表」中任选一个项目。' }}
     </div>
     <div class="exp-grid">
       <div class="exp-item">
@@ -345,9 +343,10 @@ async function attExport() {
 
 <style scoped>
 .pe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.card-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-.card-head h3 { margin: 0; }
+.card-head { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; margin-bottom: 8px; }
+.card-head h3 { margin: 0; white-space: nowrap; }
 .month-field { flex: 0 0 auto; min-width: 150px; max-width: 190px; }
+@media (max-width: 768px) { .card-head { flex-wrap: wrap; } .card-head h3 { white-space: normal; } }
 .pe-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-2); }
 .pe-field select, .pe-field input { width: 100%; }
 .pe-alerts { display: flex; flex-direction: column; gap: 8px; }

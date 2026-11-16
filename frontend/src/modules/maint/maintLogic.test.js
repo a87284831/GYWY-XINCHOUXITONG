@@ -1,5 +1,5 @@
 // 维保纯逻辑测试 — 对照 app.js:2507-2527, 2886-2932, 2830-2834, 3025-3034
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   maintToday, maintAddDays, maintStatusOf, maintOverlapsYear, maintFmtMoney,
   filterLedger, priceAutoCalc, MAINT_STATUS_LABELS, MAINT_STATUS_TAG, MAINT_STATUS_OPTS,
@@ -81,8 +81,15 @@ describe('filterLedger（台账筛选+排序，含 focus 聚焦）', () => {
     expect(filterLedger(rows, { project: '绿地中心' }, 'elevator').map((r) => r.id)).toEqual([2])
   })
   it('状态快捷筛选：优先用行内 status，缺失时按到期日现算', () => {
-    expect(filterLedger(rows, { status: 'd30' }, 'elevator').map((r) => r.id)).toEqual([1])
-    expect(filterLedger(rows, { status: 'normal' }, 'elevator').map((r) => r.id)).toEqual([2])
+    // 该断言依赖"到期日距今天数"，固定当天日期，避免每月跨过 30 天边界时翻转
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-15T12:00:00'))
+    try {
+      expect(filterLedger(rows, { status: 'd30' }, 'elevator').map((r) => r.id)).toEqual([1])
+      expect(filterLedger(rows, { status: 'normal' }, 'elevator').map((r) => r.id)).toEqual([2])
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('到期日期区间 / 签约方 / 金额上下限 / 台数上下限', () => {
     expect(filterLedger(rows, { efrom: '2026-12-01' }, 'elevator').map((r) => r.id)).toEqual([2, 3])

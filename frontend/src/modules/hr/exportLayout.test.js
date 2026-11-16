@@ -11,7 +11,8 @@ const idx = (text) => {
   expect(i).toBeGreaterThan(-1)
   return i
 }
-const salarySeg = src.slice(idx('工资表导出'), idx('考勤导出'))
+// 工资表导出卡的卡头（月份控件 + 标题 + 数据范围）到考勤卡之前
+const salarySeg = src.slice(idx('<div class="card-head">'), idx('考勤导出'))
 const attendanceSeg = src.slice(idx('考勤导出'), idx('将生成的文件'))
 
 describe('Export.vue 月份控件唯一性与参数链路', () => {
@@ -22,6 +23,17 @@ describe('Export.vue 月份控件唯一性与参数链路', () => {
 
   it('唯一的月份控件在工资表导出卡内，并绑定 ui.month', () => {
     expect(salarySeg).toMatch(/type="month"\s+v-model="ui\.month"/)
+  })
+
+  it('月份控件位于卡片内容最左侧，在标题之前', () => {
+    expect(salarySeg.indexOf('type="month"')).toBeLessThan(salarySeg.indexOf('<h3>'))
+    expect(salarySeg.indexOf('class="pe-field month-field"')).toBeLessThan(salarySeg.indexOf('<h3>'))
+  })
+
+  it('卡头不与标题重复出现「核算月份」', () => {
+    // 控件标签只出现一次，标题里不再重复「核算月份」
+    expect((salarySeg.match(/<span>核算月份<\/span>/g) || []).length).toBe(1)
+    expect(salarySeg).not.toMatch(/<h3>[^<]*核算月份/)
   })
 
   it('考勤导出不再有独立月份控件，但明确复用同一月份', () => {
