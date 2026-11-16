@@ -35,6 +35,7 @@
           <div class="perm-scope"><span style="font-weight:600;color:#1f2937">数据范围</span>
             <label><input type="radio" value="all" v-model="draftScope" :disabled="isAdmin"> 全部项目（all）</label>
             <label><input type="radio" value="project" v-model="draftScope" :disabled="isAdmin"> 仅本项目（project）</label>
+            <label><input type="radio" value="account_set" v-model="draftScope" :disabled="isAdmin"> 仅本账套（account_set）</label>
           </div>
           <div class="rt-tree" style="max-height:400px">
             <div v-for="m in auth.appModules" :key="m.name" class="rt-mod" :class="{ on: modChecked(m).checked > 0, open: openMods.has(m.name) }">

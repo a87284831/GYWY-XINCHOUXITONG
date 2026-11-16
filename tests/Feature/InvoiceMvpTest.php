@@ -271,6 +271,18 @@ class InvoiceMvpTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_invoice_roles_seeded(): void
+    {
+        $reviewer = DB::table('payroll_roles')->where('role_key', 'invoice_reviewer')->first();
+        $finance = DB::table('payroll_roles')->where('role_key', 'project_finance')->first();
+        $this->assertNotNull($reviewer);
+        $this->assertSame('account_set', $reviewer->scope);
+        $this->assertContains('invoice_issue', json_decode($reviewer->permissions, true));
+        $this->assertNotNull($finance);
+        $this->assertSame('project', $finance->scope);
+        $this->assertContains('invoice_review', json_decode($finance->permissions, true));
+    }
+
     public function test_amount_change_needs_reason_resend_and_ofd_download(): void
     {
         [, $adminId] = $this->seedBase();
