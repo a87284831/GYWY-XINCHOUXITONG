@@ -36,7 +36,7 @@
         "text": "二维码入口链接统一为 /invoice.html?p={项目入口标识}，标识为 48 位随机串；未配置账套的项目不生成二维码并提示「待配置」"
       },
       {
-        "category": "测试",
+        "category": "优化",
         "text": "补充开票入口测试：不同项目生成不同链接、篡改或随机标识返回 PROJECT_DISABLED、账套停用返回 ACCOUNT_SET_DISABLED、跨项目查询申请单返回 QUERY_INVALID"
       }
     ]

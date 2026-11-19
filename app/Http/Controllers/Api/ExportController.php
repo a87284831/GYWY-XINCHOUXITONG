@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\CalcRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,8 @@ class ExportController extends ApiController
     /** 表头分区配色（列序号从 1 开始），与考勤模板风格一致 */
     private const COL_BASE = 'DDEBF7';   // 基本信息：浅蓝
     private const COL_ATT  = 'F2F2F2';   // 出勤统计：浅灰
-    private const COL_PAY  = 'E2EFDA';   // 应发项目：浅绿
+    private const COL_PAY  = 'E2EFDA';   // 奖励/补贴：浅绿
+    private const COL_DED  = 'F8D7DA';   // 扣罚/扣款：浅红
     private const COL_SOC  = 'FFF2CC';   // 五险一金：浅黄
     private const COL_NET  = 'FCE4D6';   // 个税/实发：浅橙
 
@@ -32,7 +34,9 @@ class ExportController extends ApiController
         return match (true) {
             $idx <= 9                       => self::COL_BASE,  // 序号..基本工资（含入职日期）
             $idx <= 12                      => self::COL_ATT,   // 应出勤..绩效系数
-            $idx <= 27                      => self::COL_PAY,   // 应发基本..应发合计（含补发工资列）
+            $idx <= 21                      => self::COL_PAY,   // 应发基本..已发福利（奖励/补贴）
+            $idx <= 26                      => self::COL_DED,   // 月度扣罚..工装扣款（扣罚/扣款）
+            $idx <= 27                      => self::COL_PAY,   // 应发工资合计
             $idx <= 33                      => self::COL_SOC,   // 五险..五险一金合计
             default                         => self::COL_NET,   // 专项/个税/实发/备注
         };
@@ -208,7 +212,7 @@ class ExportController extends ApiController
                 $annualBudget > 0 ? round($ytd / $annualBudget, 4) : null,
                 $prev > 0 ? $prev : null, $diff, $diffRate];
             foreach ($vals as $ci => $v) {
-                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $sumB['cnt'] += $b['cnt']; $sumB['gross'] += $b['gross'];
             $sumM['cnt'] += $m['cnt']; $sumM['gross'] += $m['gross'];
@@ -232,7 +236,7 @@ class ExportController extends ApiController
             $bPrev > 0 ? $bPrev : null, $bDiff,
             ($bPrev > 0 && $bDiff !== null) ? round($bDiff / $bPrev, 4) : null];
         foreach ($totalVals as $ci => $v) {
-            if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
         }
         $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
@@ -252,7 +256,7 @@ class ExportController extends ApiController
                 null, null, null, $mPrev > 0 ? $mPrev : null, $mDiff,
                 ($mPrev > 0 && $mDiff !== null) ? round($mDiff / $mPrev, 4) : null];
             foreach ($mgrVals as $ci => $v) {
-                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
@@ -270,7 +274,7 @@ class ExportController extends ApiController
                 null, null, null, $cPrev > 0 ? $cPrev : null, $cDiff,
                 ($cPrev > 0 && $cDiff !== null) ? round($cDiff / $cPrev, 4) : null];
             foreach ($caseVals as $ci => $v) {
-                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
@@ -296,7 +300,7 @@ class ExportController extends ApiController
                 $hPrev > 0 ? $hPrev : null, $hDiff,
                 ($hPrev > 0 && $hDiff !== null) ? round($hDiff / $hPrev, 4) : null];
             foreach ($hVals as $ci => $v) {
-                if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
@@ -321,7 +325,7 @@ class ExportController extends ApiController
             $gPrev > 0 ? $gPrev : null, $gDiff,
             ($gPrev > 0 && $gDiff !== null) ? round($gDiff / $gPrev, 4) : null];
         foreach ($gVals as $ci => $v) {
-            if ($v !== null) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
         }
         $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
@@ -393,14 +397,14 @@ class ExportController extends ApiController
                 $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
                 $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
                 foreach ($vals as $ci => $v) {
-                    $cs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $cr, $v);
+                    if ($v !== null && !$this->isZeroNumber($v)) $cs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $cr, $v);
                 }
                 $csGross += $gross; $csSoc += $soc; $csTax += $tax; $csBonus += $bonus; $csNet += $net; $csDiff += $diff; $csCnt += $cnt;
                 $cr++;
             }
             $cTotal = ['合计', $csCnt, round($csGross, 2), round($csSoc, 2), round($csTax, 2), round($csBonus, 2), round($csNet, 2), round($csDiff, 2)];
             foreach ($cTotal as $ci => $v) {
-                $cs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $cr, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $cs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $cr, $v);
             }
             $cs->getStyle("A{$cr}:H{$cr}")->getFont()->setBold(true);
             $cs->getStyle("A{$cr}:H{$cr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('EBF5E9');
@@ -454,14 +458,14 @@ class ExportController extends ApiController
                 $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
                 $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
                 foreach ($vals as $ci => $v) {
-                    $hs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $hr, $v);
+                    if ($v !== null && !$this->isZeroNumber($v)) $hs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $hr, $v);
                 }
                 $hGross2 += $gross; $hSoc += $soc; $hTax += $tax; $hBonus += $bonus; $hNet += $net; $hDiff += $diff; $hCnt2 += $cnt;
                 $hr++;
             }
             $hTotal = ['合计', $hCnt2, round($hGross2, 2), round($hSoc, 2), round($hTax, 2), round($hBonus, 2), round($hNet, 2), round($hDiff, 2)];
             foreach ($hTotal as $ci => $v) {
-                $hs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $hr, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $hs->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $hr, $v);
             }
             $hs->getStyle("A{$hr}:H{$hr}")->getFont()->setBold(true);
             $hs->getStyle("A{$hr}:H{$hr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF7E6');
@@ -494,7 +498,7 @@ class ExportController extends ApiController
             $count = $list->count();
             $grossSum = round($list->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
             if ($formula) {
-                $totalRow = $this->fillSheetFormula($detail, $list, $project . ' ' . $ym . '工资表');
+                $totalRow = $this->fillSheetFormula($detail, $list, $project . ' ' . $ym . '工资表', $ym);
             } else {
                 $this->fillSheet($detail, $list, $project . ' ' . $ym . '工资表');
                 $totalRow = $count + 3;
@@ -511,7 +515,7 @@ class ExportController extends ApiController
             $count = $ordered->count();
             $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
             if ($formula) {
-                $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表');
+                $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表', $ym);
             } else {
                 $this->fillSheet($mgrSheet, $ordered, $ym . '管理人员工资表');
                 $totalRow = $count + 3;
@@ -528,7 +532,7 @@ class ExportController extends ApiController
             $count = $ordered->count();
             $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
             if ($formula) {
-                $totalRow = $this->fillSheetFormula($caseSheet, $ordered, $ym . '案场人员工资表');
+                $totalRow = $this->fillSheetFormula($caseSheet, $ordered, $ym . '案场人员工资表', $ym);
             } else {
                 $this->fillSheet($caseSheet, $ordered, $ym . '案场人员工资表');
                 $totalRow = $count + 3;
@@ -545,7 +549,7 @@ class ExportController extends ApiController
             $count = $ordered->count();
             $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
             if ($formula) {
-                $totalRow = $this->fillSheetFormula($hqSheet, $ordered, $ym . '总部人员工资表');
+                $totalRow = $this->fillSheetFormula($hqSheet, $ordered, $ym . '总部人员工资表', $ym);
             } else {
                 $this->fillSheet($hqSheet, $ordered, $ym . '总部人员工资表');
                 $totalRow = $count + 3;
@@ -672,14 +676,14 @@ class ExportController extends ApiController
                 $it['month_rate'], $it['annual_budget'], $it['ytd_gross'], $it['annual_rate'],
                 $it['calculated'] ? '已核算' : '未核算'];
             foreach ($vals as $ci => $v) {
-                $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $r++;
         }
         $tVals = ['总计', $tHead['headcount'], $tHead['gross'], $tHead['net'], $tHead['month_budget'],
             $tHead['month_rate'], $tHead['annual_budget'], $tHead['ytd_gross'], $tHead['annual_rate'], ''];
         foreach ($tVals as $ci => $v) {
-            $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
         }
         $sheet->getStyle("A{$r}:J{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:J{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
@@ -722,7 +726,7 @@ class ExportController extends ApiController
         foreach ($groups as $project => $rows) {
             $book = new Spreadsheet();
             if ($formula) {
-                $this->fillSheetFormula($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
+                $this->fillSheetFormula($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表', $ym);
                 $bytes = $this->xlsxBinary($book, true);
             } else {
                 $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
@@ -989,7 +993,7 @@ class ExportController extends ApiController
         $count = $ordered->count();
         $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
         if ($formula) {
-            $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表');
+            $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表', $ym);
         } else {
             $this->fillSheet($mgrSheet, $ordered, $ym . '管理人员工资表');
             $totalRow = $count + 3;
@@ -1044,7 +1048,7 @@ class ExportController extends ApiController
             $diff = round($rows->sum(fn ($x) => (float) ($x['tax_diff'] ?? 0)), 2);
             $vals = [$project, $cnt, $gross, $soc, $tax, $bonus, $net, $diff];
             foreach ($vals as $ci => $v) {
-                $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+                if ($v !== null && !$this->isZeroNumber($v)) $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
             }
             $msGross += $gross; $msSoc += $soc; $msTax += $tax; $msBonus += $bonus; $msNet += $net; $msDiff += $diff; $msCnt += $cnt;
             $mr++;
@@ -1052,7 +1056,7 @@ class ExportController extends ApiController
         // 合计行
         $mTotal = ['合计', $msCnt, round($msGross, 2), round($msSoc, 2), round($msTax, 2), round($msBonus, 2), round($msNet, 2), round($msDiff, 2)];
         foreach ($mTotal as $ci => $v) {
-            $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
+            if ($v !== null && !$this->isZeroNumber($v)) $ms->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $mr, $v);
         }
         $ms->getStyle("A{$mr}:H{$mr}")->getFont()->setBold(true);
         $ms->getStyle("A{$mr}:H{$mr}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDF3E0');
@@ -1143,9 +1147,9 @@ class ExportController extends ApiController
                 $row['gross'] ?? 0, $row['pen'] ?? 0, $row['med'] ?? 0, $row['une'] ?? 0, $row['house'] ?? 0, $row['big'] ?? 0,
                 $row['soc_total'] ?? 0, $row['spec_total'] ?? 0, $row['actual_tax'] ?? 0, $row['tax_diff'] ?? 0, $row['net'] ?? 0, $row['remark'] ?? '',
                 $this->quarterPerfNote($row)];
-            $sheet->fromArray($values, null, 'A' . $rowNumber);
-            // 显式重写数值（fromArray 会跳过 float(0) 单元格，导致 0 值列留空）
+            // 0 值不写：所有数值 0 一律导出为空白单元格（文本列照常写）
             foreach ($values as $ci => $v) {
+                if ($this->isZeroNumber($v)) continue;
                 $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $rowNumber, $v);
             }
             for ($c = 1; $c <= $colCount; $c++) {
@@ -1154,7 +1158,7 @@ class ExportController extends ApiController
                 $cellStyle->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
                 $cellStyle->getFont()->setName('微软雅黑')->setSize(10);
                 if (in_array($c, $moneyCols, true)) {
-                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00');
+                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00;-#,##0.00;');
                     $cellStyle->getAlignment()->setHorizontal('right');
                 } elseif (in_array($c, [10, 11, 12], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
@@ -1179,8 +1183,14 @@ class ExportController extends ApiController
         $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal('right');
         foreach ($sumCols as $c) {
             $letter = Coordinate::stringFromColumnIndex($c);
+            $colSum = 0.0;
+            for ($rr = 3; $rr < $totalRow; $rr++) {
+                $cellVal = $sheet->getCell($letter . $rr)->getValue();
+                if (is_numeric($cellVal)) $colSum += (float) $cellVal;
+            }
+            if ($this->isZeroNumber(round($colSum, 2))) continue; // 合计为 0 留空
             $sheet->setCellValue($letter . $totalRow, '=SUM(' . $letter . '3:' . $letter . ($totalRow - 1) . ')');
-            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00;-#,##0.00;');
             $sheet->getStyle($letter . $totalRow)->getAlignment()->setHorizontal('right');
         }
         for ($c = 1; $c <= $colCount; $c++) {
@@ -1238,6 +1248,104 @@ class ExportController extends ApiController
         return [$headers, $map];
     }
 
+    /** 数值 0 判定：仅对 int/float 生效，文本 "0" 不在此列 */
+    private function isZeroNumber($v): bool
+    {
+        return (is_int($v) || is_float($v)) && abs((float) $v) < 0.0000001;
+    }
+
+    /** 公式里的数字字面量：去掉无意义的小数 0 */
+    private function excelNumber(float $v, int $precision = 6): string
+    {
+        $s = rtrim(rtrim(number_format($v, $precision, '.', ''), '0'), '.');
+        return ($s === '' || $s === '-') ? '0' : $s;
+    }
+
+    /** 出勤分母（与核算一致）：应出勤>0 用应出勤；否则实际出勤>0 用当月日历天数，否则 1 */
+    private function denomFormula(string $reqCell, float $req, float $act, string $ym): string
+    {
+        if ($req > 0) return $reqCell;
+        $days = $ym !== '' ? (int) date('t', strtotime($ym . '-01')) : 0;
+        $fallback = $act > 0 ? max(1, $days) : 1.0;
+        return "IF({$reqCell}>0,{$reqCell}," . $this->excelNumber($fallback) . ")";
+    }
+
+    /** 应发基本工资公式：基本工资 × 实际出勤 ÷ 应出勤；与系统值不一致（分段薪资等）时用核算结果常量 */
+    private function basePayFormula(array $col, int $r, array $row, float $denom, string $ym): string
+    {
+        $base = (float) ($row['base'] ?? 0);
+        $req = (float) ($row['req_att'] ?? 0);
+        $act = (float) ($row['act_att'] ?? 0);
+        $sys = round((float) ($row['base_pay'] ?? 0), 2);
+        $calc = round($base * $act / $denom, 2);
+        if (abs($calc - $sys) <= 0.004) {
+            $div = $this->denomFormula($col['应出勤'] . $r, $req, $act, $ym);
+            return "=ROUND({$col['基本工资']}{$r}*{$col['实际出勤']}{$r}/{$div},2)";
+        }
+        return '=ROUND(' . $this->excelNumber($sys) . ',2)';
+    }
+
+    /** 应发绩效工资公式：月度按 (固定月薪-基本工资)×系数×绩效出勤÷应出勤；季度按季度基数×出勤率×季度系数 */
+    private function perfPayFormula(array $col, int $r, array $row, float $denom, string $ym): string
+    {
+        $fixed = (float) ($row['fixed'] ?? 0);
+        $base = (float) ($row['base'] ?? 0);
+        $coef = (float) ($row['coef'] ?? 0);
+        $req = (float) ($row['req_att'] ?? 0);
+        $act = (float) ($row['act_att'] ?? 0);
+        $perfAtt = array_key_exists('perf_att', $row) ? (float) $row['perf_att'] : $act;
+        $sys = round((float) ($row['perf_pay'] ?? 0), 2);
+
+        $q = $row['perf_quarter'] ?? null;
+        if (is_array($q) && empty($q['error']) && isset($q['base'])) {
+            $qBase = (float) $q['base'];
+            $qAtt = (float) ($q['att'] ?? 0);
+            $qReq = (float) ($q['req'] ?? 0);
+            $qCoef = (float) ($q['coef'] ?? 0);
+            $calc = $qReq > 0
+                ? round($qBase * $qAtt / $qReq * $qCoef, 2)
+                : round($qBase * (float) ($q['ratio'] ?? 0) * $qCoef, 2);
+            if (abs($calc - $sys) <= 0.004) {
+                $attPart = $qReq > 0
+                    ? $this->excelNumber($qAtt) . '/' . $this->excelNumber($qReq)
+                    : $this->excelNumber((float) ($q['ratio'] ?? 0));
+                return '=ROUND(' . $this->excelNumber($qBase) . '*' . $attPart . '*' . $this->excelNumber($qCoef) . ',2)';
+            }
+            return '=ROUND(' . $this->excelNumber($sys) . ',2)';
+        }
+
+        $attExpr = abs($perfAtt - $act) <= 0.004 ? $col['实际出勤'] . $r : $this->excelNumber($perfAtt);
+        $calc = round(($fixed - $base) * $coef * $perfAtt / $denom, 2);
+        if (abs($calc - $sys) <= 0.004) {
+            $div = $this->denomFormula($col['应出勤'] . $r, $req, $act, $ym);
+            return "=ROUND(({$col['固定月薪']}{$r}-{$col['基本工资']}{$r})*{$col['绩效系数']}{$r}*{$attExpr}/{$div},2)";
+        }
+        return '=ROUND(' . $this->excelNumber($sys) . ',2)';
+    }
+
+    /** 病假工资公式：病假天数 × 病假基数 × 系数A × 系数B ÷ 应出勤（系数取系统设置） */
+    private function sickPayFormula(array $col, int $r, array $row, float $denom, string $ym, CalcRules $rules): string
+    {
+        $base = (float) ($row['base'] ?? 0);
+        $fixed = (float) ($row['fixed'] ?? 0);
+        $req = (float) ($row['req_att'] ?? 0);
+        $act = (float) ($row['act_att'] ?? 0);
+        $days = (float) ($row['sick_days'] ?? 0);
+        $sys = round((float) ($row['sick_pay'] ?? 0), 2);
+        $factorA = $rules->num('sick_pay.params.factor_a', 0.7);
+        $factorB = $rules->num('sick_pay.params.factor_b', 0.6);
+        $byFixed = $rules->str('sick_pay.params.sick_base', 'base') === 'fixed';
+        $baseVal = $byFixed ? $fixed : $base;
+        $calc = round($days * $baseVal * $factorA * $factorB / $denom, 2);
+        if ($days > 0 && abs($calc - $sys) <= 0.004) {
+            $div = $this->denomFormula($col['应出勤'] . $r, $req, $act, $ym);
+            $baseCell = ($byFixed ? $col['固定月薪'] : $col['基本工资']) . $r;
+            return '=ROUND(' . $this->excelNumber($days) . '*' . $baseCell . '*'
+                . $this->excelNumber($factorA) . '*' . $this->excelNumber($factorB) . '/' . $div . ',2)';
+        }
+        return '=ROUND(' . $this->excelNumber($sys) . ',2)';
+    }
+
     /** 写入公式并同时写入缓存值（writeCellFormula 会计算并输出 <v>） */
     private function putFormula($sheet, string $coord, string $formula, $cached = null): void
     {
@@ -1256,7 +1364,7 @@ class ExportController extends ApiController
      * 带公式版明细页：40 列；四条派生列写公式；合计行 ROUND(SUM)；底部校验区。
      * @return int 合计行行号
      */
-    private function fillSheetFormula($sheet, $rows, string $title): int
+    private function fillSheetFormula($sheet, $rows, string $title, string $ym = ''): int
     {
         [$headers, $col] = $this->formulaLayout();
         $colCount = count($headers);
@@ -1292,6 +1400,8 @@ class ExportController extends ApiController
         $sumHeaders = array_slice($moneyHeaders, 2);
         $textHeaders = ['项目', '部门', '岗位', '姓名', '人员状态', '入职日期', '备注', '季度绩效说明'];
         $sums = array_fill_keys($moneyHeaders, 0.0);
+        $rules = app(CalcRules::class);
+        $daysInMonth = $ym !== '' ? (int) date('t', strtotime($ym . '-01')) : 0;
 
         // ===== 数据行 =====
         $rowNumber = 3;
@@ -1338,27 +1448,44 @@ class ExportController extends ApiController
                 '季度绩效说明' => $this->quarterPerfNote($row),
             ];
 
+            $reqAtt = (float) ($row['req_att'] ?? 0);
+            $actAtt = (float) ($row['act_att'] ?? 0);
+            $denom = $reqAtt > 0 ? $reqAtt : ($actAtt > 0 ? max(1, $daysInMonth) : 1.0);
+
             foreach ($headers as $h) {
                 $coord = $col[$h] . $rowNumber;
-                if ($h === '应发工资合计') {
+                $v = $values[$h];
+                if (isset($sums[$h])) $sums[$h] += (float) $v;
+                $isText = in_array($h, $textHeaders, true);
+                // 0 值不写：所有数值 0 一律导出为空白单元格（含公式列结果为 0 的情况）
+                if (!$isText && $this->isZeroNumber($v)) continue;
+                if ($h === '应发基本工资') {
+                    $this->putFormula($sheet, $coord,
+                        $this->basePayFormula($col, $rowNumber, $row, $denom, $ym), $v);
+                } elseif ($h === '应发绩效工资') {
+                    $this->putFormula($sheet, $coord,
+                        $this->perfPayFormula($col, $rowNumber, $row, $denom, $ym), $v);
+                } elseif ($h === '病假工资') {
+                    $this->putFormula($sheet, $coord,
+                        $this->sickPayFormula($col, $rowNumber, $row, $denom, $ym, $rules), $v);
+                } elseif ($h === '应发工资合计') {
                     // 扣款合计列已删除：扣款项直接在公式里内联求和
                     $this->putFormula($sheet, $coord,
                         "=ROUND(SUM({$col['应发基本工资']}{$rowNumber}:{$col['已发福利']}{$rowNumber})"
-                        . "-SUM({$col['月度扣罚']}{$rowNumber}:{$col['工装扣款']}{$rowNumber}),2)", $values[$h]);
+                        . "-SUM({$col['月度扣罚']}{$rowNumber}:{$col['工装扣款']}{$rowNumber}),2)", $v);
                 } elseif ($h === '五险一金合计') {
                     $this->putFormula($sheet, $coord,
-                        "=ROUND(SUM({$col['养老保险']}{$rowNumber}:{$col['大病']}{$rowNumber}),2)", $values[$h]);
+                        "=ROUND(SUM({$col['养老保险']}{$rowNumber}:{$col['大病']}{$rowNumber}),2)", $v);
                 } elseif ($h === '实发工资') {
                     $this->putFormula($sheet, $coord,
                         "=ROUND({$col['应发工资合计']}{$rowNumber}-{$col['五险一金合计']}{$rowNumber}"
-                        . "-{$col['本月个税']}{$rowNumber}-{$col['已发福利']}{$rowNumber}+{$col['个税补差']}{$rowNumber},2)", $values[$h]);
-                } elseif (in_array($h, $textHeaders, true)) {
+                        . "-{$col['本月个税']}{$rowNumber}-{$col['已发福利']}{$rowNumber}+{$col['个税补差']}{$rowNumber},2)", $v);
+                } elseif ($isText) {
                     // 显式文本：避免 = + - @ 开头的内容被 Excel 当公式执行
-                    $sheet->setCellValueExplicit($coord, $values[$h], DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit($coord, $v, DataType::TYPE_STRING);
                 } else {
-                    $sheet->setCellValue($coord, $values[$h]);
+                    $sheet->setCellValue($coord, $v);
                 }
-                if (isset($sums[$h])) $sums[$h] += (float) $values[$h];
             }
 
             for ($c = 1; $c <= $colCount; $c++) {
@@ -1368,7 +1495,7 @@ class ExportController extends ApiController
                 $cellStyle->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
                 $cellStyle->getFont()->setName('微软雅黑')->setSize(10);
                 if (isset($moneySet[$h])) {
-                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00');
+                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00;-#,##0.00;');
                     $cellStyle->getAlignment()->setHorizontal('right');
                 } elseif (in_array($h, ['应出勤', '实际出勤', '绩效系数'], true)) {
                     $cellStyle->getAlignment()->setHorizontal('center');
@@ -1391,9 +1518,11 @@ class ExportController extends ApiController
         $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal('right');
         foreach ($sumHeaders as $h) {
             $letter = $col[$h];
+            $sum = round($sums[$h], 2);
+            if ($this->isZeroNumber($sum)) continue; // 合计为 0 同样留空
             $this->putFormula($sheet, $letter . $totalRow,
-                "=ROUND(SUM({$letter}3:{$letter}" . ($totalRow - 1) . "),2)", round($sums[$h], 2));
-            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
+                "=ROUND(SUM({$letter}3:{$letter}" . ($totalRow - 1) . "),2)", $sum);
+            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00;-#,##0.00;');
             $sheet->getStyle($letter . $totalRow)->getAlignment()->setHorizontal('right');
         }
         for ($c = 1; $c <= $colCount; $c++) {
@@ -1461,11 +1590,12 @@ class ExportController extends ApiController
 
         $r = $headRow + 1;
         $firstDiff = $r;
-        foreach (['应发工资合计', '五险一金合计', '实发工资'] as $name) {
-            $systemTotal = round((float) ($sums[$name] ?? 0), 2);
+        foreach (['应发工资合计', '五险一金合计', '实发工资', '应发基本工资合计', '应发绩效工资合计', '病假工资合计'] as $name) {
+            $sumKey = str_ends_with($name, '合计') && !isset($sums[$name]) ? mb_substr($name, 0, -2) : $name;
+            $systemTotal = round((float) ($sums[$sumKey] ?? 0), 2);
             $sheet->setCellValue("A{$r}", $name);
             $sheet->setCellValue("B{$r}", $systemTotal);
-            $this->putFormula($sheet, "C{$r}", "={$col[$name]}{$totalRow}", $systemTotal);
+            $this->putFormula($sheet, "C{$r}", "={$col[$sumKey]}{$totalRow}", $systemTotal);
             $this->putFormula($sheet, "D{$r}", "=ROUND(B{$r}-C{$r},2)", 0);
             $this->putFormula($sheet, "E{$r}", "=IF(D{$r}=0,\"一致\",\"不一致\")", '一致');
             $sheet->getStyle("B{$r}:D{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
@@ -1634,16 +1764,24 @@ class ExportController extends ApiController
             ['除本说明页外，带公式版与纯数值版的列结构完全一致（均为 39 列，列名、顺序、位置逐列相同）。', false],
             ['', false],
             ['一、公式列（修改明细后会自动重算）', true],
+            ['应发基本工资 = 基本工资 × 实际出勤 ÷ 应出勤（应出勤为 0 时按核算口径取当月日历天数或 1）。', false],
+            ['应发绩效工资 = (固定月薪 − 基本工资) × 绩效系数 × 绩效出勤 ÷ 应出勤；季度绩效人员按「季度基数 × 季度出勤率 × 季度系数」核算结果写入公式。', false],
+            ['病假工资 = 病假天数 × 病假基数 × 病假系数A × 病假系数B ÷ 应出勤；系数取系统设置（默认 0.7 / 0.6）。', false],
             ['应发工资合计 = 应发基本工资 + 应发绩效工资 + 病假工资 + 夜班/话费补贴 + 餐补 + 其他补贴 + 月度奖励 + 补发工资 + 已发福利 - (月度扣罚 + 迟到早退扣款 + 缺卡扣款 + 其他扣款 + 工装扣款)', false],
             ['五险一金合计 = 养老保险 + 医疗保险 + 失业保险 + 住房公积金 + 大病', false],
             ['实发工资 = 应发工资合计 - 五险一金合计 - 本月个税 - 已发福利 + 个税补差', false],
             ['明细页合计行 = ROUND(SUM(列首:列尾),2)；汇总页各项引用明细页合计行。', false],
+            ['个别存在月中薪资调整/分段核算、或采用季度累计口径的人员，其非本表列可推导的核算输入（分段基数、绩效出勤、季度累计等）以核算结果常量写入公式；校验收敛以「系统值 vs 公式值」差异为 0 为准。', false],
             ['', false],
             ['二、系统核算快照值（保留系统结果，不写公式）', true],
-            ['固定月薪、基本工资、应出勤、实际出勤、绩效系数、应发基本工资、应发绩效工资、病假工资、夜班/话费补贴、餐补、其他补贴、月度奖励、补发工资、已发福利、月度扣罚、迟到早退扣款、缺卡扣款、其他扣款、工装扣款、养老保险、医疗保险、失业保险、住房公积金、大病、专项附加扣除、本月个税、个税补差。', false],
-            ['其中：应发基本工资、应发绩效工资涉及缺勤、补差、绩效系数折算等复杂规则，直接采用系统核算结果；本月个税直接采用系统个税结果，不另设税率表。若系统配置了自定义应发/实发公式，以校验区差异为准，并以系统值为准。', false],
+            ['固定月薪、基本工资、应出勤、实际出勤、绩效系数、夜班/话费补贴、餐补、其他补贴、月度奖励、补发工资、已发福利、月度扣罚、迟到早退扣款、缺卡扣款、其他扣款、工装扣款、养老保险、医疗保险、失业保险、住房公积金、大病、专项附加扣除、本月个税、个税补差。', false],
+            ['其中：本月个税直接采用系统个税结果，不另设税率表。若系统配置了自定义应发/实发公式，以校验区差异为准，并以系统值为准。', false],
             ['', false],
-            ['三、校验区怎么用', true],
+            ['三、0 值显示与表头配色', true],
+            ['所有数值单元格（含绩效系数、应出勤等）核算结果为 0 时，一律导出为空白单元格，不写 0；合计、公式与校验区计算不受影响（空白按 0 参与求和）。', false],
+            ['第二行表头按分区着色：奖励/补贴类（应发基本工资至已发福利）为浅绿，扣罚/扣款类（月度扣罚至工装扣款）为浅红，便于区分；应发工资合计仍为浅绿。', false],
+            ['', false],
+            ['四、校验区怎么用', true],
             ['每张明细页合计行下方有「系统值 / 公式值 / 差异」校验区：系统值来自系统核算结果，公式值引用该页合计行；差异 = ROUND(系统值 - 公式值,2)。差异为 0 表示一致；不为 0 时差异单元格红底加粗，说明系统口径与公式口径存在差异，请以系统值为准并反馈。', false],
         ];
         $r = 3;
@@ -1745,7 +1883,7 @@ class ExportController extends ApiController
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
         if ($formula) {
-            $total = $this->fillSheetFormula($sheet, $rows, $title);
+            $total = $this->fillSheetFormula($sheet, $rows, $title, $ym);
             $this->fillNotesSheet($book, $ym, [['title' => $sheet->getTitle(), 'total' => $total, 'gross' => 0.0]], null, null);
         } else {
             $this->fillSheet($sheet, $rows, $title);

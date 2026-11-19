@@ -110,6 +110,14 @@ class PayrollExportFormulaTest extends TestCase
         $this->assertSame('合计（1人）', $sheet->getCell('A4')->getValue());
         $this->assertArrayHasKey('A4:K4', $sheet->getMergeCells());
         $this->assertSame('=SUM(AA3:AA3)', $sheet->getCell('AA4')->getValue());
+
+        // 0 值留空：夜班/话费补贴、餐补为 0 → 空白单元格
+        $this->assertNull($sheet->getCell('P3')->getValue(), '纯数值版 0 值应留空');
+        $this->assertNull($sheet->getCell('Q3')->getValue(), '纯数值版 0 值应留空');
+        // 第二行表头双色：奖励/补贴浅绿、扣罚/扣款浅红
+        $this->assertSame('E2EFDA', $sheet->getStyle('P2')->getFill()->getStartColor()->getRGB());
+        $this->assertSame('F8D7DA', $sheet->getStyle('V2')->getFill()->getStartColor()->getRGB());
+        $this->assertSame('E2EFDA', $sheet->getStyle('AA2')->getFill()->getStartColor()->getRGB());
     }
 
     /** 两版列结构必须完全一致：39 列、列名与顺序逐列相同 */
@@ -144,15 +152,28 @@ class PayrollExportFormulaTest extends TestCase
         $this->assertSame(2, $book->getSheetCount(), '公式版单项目导出应包含说明页');
         $this->assertSame('说明', $book->getSheet(1)->getTitle());
 
-        // 三条公式（扣款项已在应发公式中内联求和）
+        // 三条派生列公式
+        $this->assertSame('=ROUND(I3*K3/J3,2)', $sheet->getCell('M3')->getValue(), '应发基本工资应为公式');
+        $this->assertSame('=ROUND((H3-I3)*L3*K3/J3,2)', $sheet->getCell('N3')->getValue(), '应发绩效工资应为公式');
+        $this->assertNull($sheet->getCell('O3')->getValue(), '病假工资为 0 时应留空');
+
+        // 三条汇总公式（扣款项已在应发公式中内联求和）
         $this->assertSame('=ROUND(SUM(M3:U3)-SUM(V3:Z3),2)', $sheet->getCell('AA3')->getValue());
         $this->assertSame('=ROUND(SUM(AB3:AF3),2)', $sheet->getCell('AG3')->getValue());
         $this->assertSame('=ROUND(AA3-AG3-AI3-U3+AJ3,2)', $sheet->getCell('AK3')->getValue());
 
         // 缓存值 = 系统值
+        $this->assertEqualsWithDelta(4000.0, (float) $sheet->getCell('M3')->getOldCalculatedValue(), 0.001);
+        $this->assertEqualsWithDelta(1000.0, (float) $sheet->getCell('N3')->getOldCalculatedValue(), 0.001);
         $this->assertEqualsWithDelta(4985.0, (float) $sheet->getCell('AA3')->getOldCalculatedValue(), 0.001);
         $this->assertEqualsWithDelta(1250.0, (float) $sheet->getCell('AG3')->getOldCalculatedValue(), 0.001);
         $this->assertEqualsWithDelta(3705.0, (float) $sheet->getCell('AK3')->getOldCalculatedValue(), 0.001);
+
+        // 0 值留空与表头双色
+        $this->assertNull($sheet->getCell('P3')->getValue(), '公式版 0 值也应留空');
+        $this->assertSame('E2EFDA', $sheet->getStyle('P2')->getFill()->getStartColor()->getRGB());
+        $this->assertSame('F8D7DA', $sheet->getStyle('V2')->getFill()->getStartColor()->getRGB());
+        $this->assertSame('E2EFDA', $sheet->getStyle('AA2')->getFill()->getStartColor()->getRGB());
 
         // 合计行公式 + 缓存值
         $this->assertSame('=ROUND(SUM(AA3:AA3),2)', $sheet->getCell('AA4')->getValue());
@@ -171,6 +192,43 @@ class PayrollExportFormulaTest extends TestCase
         $this->assertEqualsWithDelta(0.0, (float) $sheet->getCell('D8')->getOldCalculatedValue(), 0.001);
         $this->assertSame('一致', $sheet->getCell('E8')->getOldCalculatedValue());
         $this->assertNotEmpty($sheet->getStyle('D8:D10')->getConditionalStyles(), '差异列应有非 0 红底加粗条件格式');
+    }
+
+    /** 三列派生公式（基本/绩效/病假）按核算规则生效，校验区差异为 0 */
+    public function test_formula_base_perf_sick_follow_calc_rules(): void
+    {
+        $this->seedRow([
+            'act_att' => 20, 'req_att' => 22, 'coef' => 0.8, 'perf_att' => 20,
+            'base_pay' => 3636.36, 'perf_pay' => 727.27, 'sick_days' => 2, 'sick_pay' => 152.73,
+            'gross' => 4516.36, 'soc_total' => 1250, 'actual_tax' => 0, 'net' => 3266.36,
+        ]);
+        [$book, $sheet] = $this->loadSheet($this->exportProject('&mode=formula'));
+
+        $this->assertSame('=ROUND(I3*K3/J3,2)', $sheet->getCell('M3')->getValue());
+        $this->assertSame('=ROUND((H3-I3)*L3*K3/J3,2)', $sheet->getCell('N3')->getValue());
+        $this->assertSame('=ROUND(2*I3*0.7*0.6/J3,2)', $sheet->getCell('O3')->getValue());
+        $this->assertEqualsWithDelta(3636.36, (float) $sheet->getCell('M3')->getOldCalculatedValue(), 0.001);
+        $this->assertEqualsWithDelta(727.27, (float) $sheet->getCell('N3')->getOldCalculatedValue(), 0.001);
+        $this->assertEqualsWithDelta(152.73, (float) $sheet->getCell('O3')->getOldCalculatedValue(), 0.001);
+
+        // 0 值空白（夜班/餐补/本月个税均为 0），非零数值仍为数值类型
+        $this->assertNull($sheet->getCell('P3')->getValue());
+        $this->assertNull($sheet->getCell('Q3')->getValue());
+        $this->assertNull($sheet->getCell('AI3')->getValue());
+        $this->assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('K3')->getDataType());
+
+        // 校验区新增三列合计项，差异均为 0
+        $this->assertSame('应发基本工资合计', $sheet->getCell('A11')->getValue());
+        $this->assertSame('应发绩效工资合计', $sheet->getCell('A12')->getValue());
+        $this->assertSame('病假工资合计', $sheet->getCell('A13')->getValue());
+        $this->assertSame('=M4', $sheet->getCell('C11')->getValue());
+        $this->assertSame('=N4', $sheet->getCell('C12')->getValue());
+        $this->assertSame('=O4', $sheet->getCell('C13')->getValue());
+        foreach ([11, 12, 13] as $rr) {
+            $this->assertEqualsWithDelta(0.0, (float) $sheet->getCell("D{$rr}")->getOldCalculatedValue(), 0.001);
+            $this->assertSame('一致', $sheet->getCell("E{$rr}")->getOldCalculatedValue());
+        }
+        $this->assertNotEmpty($sheet->getStyle('D8:D13')->getConditionalStyles());
     }
 
     /** 整包公式版：Sheet 顺序、汇总跨表引用、说明页全表校验、打开时重算 */

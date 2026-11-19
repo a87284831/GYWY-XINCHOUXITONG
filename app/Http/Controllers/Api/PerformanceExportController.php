@@ -239,7 +239,11 @@ class PerformanceExportController extends ApiController
                     $letter = Coordinate::stringFromColumnIndex($ci + 1);
                     $isRemark = $columns[$ci]['label'] === '备注';
                     $cell = $sheet->getCell($letter . $r);
-                    $cell->setValue(($value === null || $value === '') ? ($isRemark ? '' : '—') : $value);
+                    // 0 值留空：数值 0 不写；null/空串仍按原规则显示「—」（备注列留空）
+                    $isZero = is_numeric($value) && abs((float) $value) < 0.0000001;
+                    if (!$isZero) {
+                        $cell->setValue(($value === null || $value === '') ? ($isRemark ? '' : '—') : $value);
+                    }
                     $st = $sheet->getStyle($letter . $r);
                     $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)
                         ->setColor(new Color('D9D9D9'));
@@ -288,8 +292,11 @@ class PerformanceExportController extends ApiController
                 $v = $entry['values'][$ci] ?? null;
                 if (is_numeric($v)) $sum += (float) $v;
             }
+            $sum = round($sum, 2);
             $letter = Coordinate::stringFromColumnIndex($ci + 1);
-            $sheet->setCellValue($letter . $row, round($sum, 2));
+            if (abs($sum) >= 0.0000001) {
+                $sheet->setCellValue($letter . $row, $sum); // 合计为 0 留空
+            }
             $sheet->getStyle($letter . $row)->getNumberFormat()->setFormatCode('#,##0.00');
             $sheet->getStyle($letter . $row)->getAlignment()->setHorizontal('right');
         }
@@ -397,7 +404,10 @@ class PerformanceExportController extends ApiController
         ];
         foreach ($values as $ci => $value) {
             $letter = Coordinate::stringFromColumnIndex($ci + 1);
-            $sheet->setCellValue($letter . $row, $value);
+            // 0 值留空（人数、金额等数值 0 均不写）
+            if (!(is_numeric($value) && abs((float) $value) < 0.0000001)) {
+                $sheet->setCellValue($letter . $row, $value);
+            }
             $st = $sheet->getStyle($letter . $row);
             $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)
                 ->setColor(new Color('D9D9D9'));
@@ -494,6 +504,7 @@ class PerformanceExportController extends ApiController
                 . implode('、', array_map(fn ($c) => PerformanceExportService::CATS[$c], $ctx['cats'])) . '。'],
             ['周期归属', '季度按结算月归属：4 月→Q1、7 月→Q2、10 月→Q3、1 月→上年 Q4；季度数据取季度末月工资行。'],
             ['月度系数', '取核算结果 row_data.coef（月度法源自考勤上传的绩效系数）；未填写按 0 计，不设 1.0 兜底。'],
+            ['0 值显示', '所有数值单元格（含系数、天数、金额）为 0 时导出为空白，不写 0；空白按 0 参与合计与判断。'],
             ['季度系数', '取 payroll_period_coefs（period_type=quarterly）；录入时双写季度末月 row_data.coef，仅历史行缺表记录时才回退行内 coef。'],
             ['系数取值', '0 按 0 计、1.0 按 1.0 计，不再视为未录入；仅空值 / 缺档位 / 未配发放规则才标异常。'],
             ['出勤系数', 'Σ转正出勤天数 ÷ Σ应出勤天数，保留 2 位小数；不封顶，>1.00 在备注列与提示区列出。'],

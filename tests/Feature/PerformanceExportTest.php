@@ -286,13 +286,18 @@ class PerformanceExportTest extends TestCase
             ['manager' => true]);
 
         $book = $this->getXlsx('ym=2026-10&cats=manager&method=follow');
-        $grid = $this->grid($this->sheetByName($book, '管理人员-季度'));
+        $sheet = $this->sheetByName($book, '管理人员-季度');
+        $grid = $this->grid($sheet);
 
         $zero = $this->findRow($grid, '系数零');
         $this->assertEquals(0, (float) $zero[16]);
         $this->assertEquals(3000, (float) $zero[17]);
         $this->assertEquals(0, (float) $zero[18]);
         $this->assertSame('', (string) $zero[21], '系数 0 是合法值，不得标异常');
+        $this->assertNull($zero[16], '系数 0 应导出为空白单元格');
+        $this->assertNull($zero[18], '金额 0 应导出为空白单元格');
+        $this->assertSame('E2EFDA', $sheet->getStyle('G2')->getFill()->getStartColor()->getRGB(),
+            '绩效金额表头保持浅绿分区色');
 
         $one = $this->findRow($grid, '系数一');
         $this->assertEquals(1, (float) $one[16]);
