@@ -7,8 +7,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Color, Alignment, Border, Fill, Font};
+use PhpOffice\PhpSpreadsheet\Style\{Color, Alignment, Border, Fill, Font, Style, Conditional};
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use ZipArchive;
 
 class ExportController extends ApiController
@@ -48,6 +49,31 @@ class ExportController extends ApiController
         return null;
     }
 
+    /** 导出模式：显式参数优先，缺省/非法值回退 config('payroll.export_mode')。 */
+    private function resolveExportMode(Request $request): string
+    {
+        $mode = strtolower(trim($request->string('mode')->toString()));
+        if (in_array($mode, ['plain', 'formula'], true)) return $mode;
+        $configured = (string) config('payroll.export_mode', 'formula');
+        return in_array($configured, ['plain', 'formula'], true) ? $configured : 'formula';
+    }
+
+    /** 导出模式选项（前端读取默认值用，避免前后端各写一份默认配置）。 */
+    public function exportMode(Request $request)
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $default = $this->resolveExportMode($request);
+        return response()->json([
+            'ok' => true,
+            'default' => $default,
+            'options' => [
+                ['value' => 'formula', 'label' => '带公式（合计自动重算，可核对）'],
+                ['value' => 'plain', 'label' => '纯数值（固定数值，兼容旧版）'],
+            ],
+        ]);
+    }
+
     public function project(Request $request)
     {
         $account = $this->requireAccount($request);
@@ -60,9 +86,7 @@ class ExportController extends ApiController
         $rows = $this->rows($ym, $project === '' ? null : $project);
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
         $label = $project !== '' ? $project : '全部项目';
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $label . ' ' . $ym . '工资表');
-        return $this->xlsx($book, $label . '_' . $ym . '工资表.xlsx');
+        return $this->singleSheetResponse($request, $rows, $label . ' ' . $ym . '工资表', $ym, $label . '_' . $ym . '工资表.xlsx');
     }
 
     public function summary(Request $request)
@@ -72,6 +96,7 @@ class ExportController extends ApiController
         $ym = $request->string('ym')->toString();
         $deny = $this->denyProjectNotArchived($account, $ym);
         if ($deny) return $deny;
+        $formula = $this->resolveExportMode($request) === 'formula';
         $query = DB::table('payroll_results')->where('year_month', $ym);
         if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
         // 汇总表主体 = 项目员工（不含管理人员与案场人员）；管理人员/案场人员单独成行/单独 Sheet
@@ -162,6 +187,7 @@ class ExportController extends ApiController
         $projs = collect(array_unique(array_merge(array_keys($curBase), array_keys($curMgr))))
             ->filter(fn ($p) => $p !== \App\Services\PayrollCalculator::HQ_PROJECT)->values()->all();
         $r = 3;
+        $projRowIndex = [];
         $sumB = ['cnt' => 0, 'gross' => 0.0]; $sumM = ['cnt' => 0, 'gross' => 0.0]; $sumCase = ['cnt' => 0, 'gross' => 0.0];
         $sumBudget = 0.0; $sumAnnual = 0.0; $sumPrev = 0.0; $sumYtd = 0.0;
         $cCnt = 0; $cGross = 0.0; $hCnt = 0; $hGross = 0.0;
@@ -187,9 +213,11 @@ class ExportController extends ApiController
             $sumB['cnt'] += $b['cnt']; $sumB['gross'] += $b['gross'];
             $sumM['cnt'] += $m['cnt']; $sumM['gross'] += $m['gross'];
             $sumBudget += $budget; $sumAnnual += $annualBudget; $sumPrev += $prev; $sumYtd += ($ytdBase[$p]['gross'] ?? 0);
+            $projRowIndex[$p] = $r;
             $r++;
         }
         $last = $r - 1;
+        $lastProjRow = $r - 1;
 
         // 合计行（基层员工合计，不含物业总部）
         $bGross = round($sumB['gross'], 2);
@@ -208,6 +236,7 @@ class ExportController extends ApiController
         }
         $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+        $baseTotalRow = $r;
         $r++;
 
         $mYtd = round(array_sum(array_column(array_diff_key($ytdMgr, [\App\Services\PayrollCalculator::HQ_PROJECT => true]), 'gross')), 2);
@@ -227,6 +256,7 @@ class ExportController extends ApiController
             }
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
+            $mgrTotalRow = $r;
             $r++;
         }
 
@@ -244,6 +274,7 @@ class ExportController extends ApiController
             }
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+            $caseTotalRow = $r;
             $r++;
         }
 
@@ -270,6 +301,7 @@ class ExportController extends ApiController
             $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
             $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
             $sumBudget += $hBudget; $sumAnnual += $hAnnual; $sumPrev += $hPrev; $sumYtd += $hYtd;
+            $hqTotalRow = $r;
             $r++;
         }
 
@@ -294,6 +326,7 @@ class ExportController extends ApiController
         $sheet->getStyle("A{$r}:M{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:M{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
         $last = $r;
+        $grandTotalRow = $r;
 
         // 样式：列宽/边框/金额与百分比格式
         $sheet->getColumnDimension('A')->setWidth(22);   // 项目
@@ -325,7 +358,8 @@ class ExportController extends ApiController
         if ($allMgrs->isNotEmpty()) {
             $ms = $book->createSheet();
             $ms->setTitle('管理人员汇总');
-            $this->fillMgrSummarySheet($ms, $allMgrs, $ym);
+            $mgrSummarySheet = $ms;
+            $mgrSummaryInfo = $this->fillMgrSummarySheet($ms, $allMgrs, $ym);
         }
 
         // ===== 案场人员汇总 Sheet（管理人员汇总后，按项目汇总案场人员工资） =====
@@ -385,6 +419,8 @@ class ExportController extends ApiController
                 $cs->getRowDimension($rr)->setRowHeight(20);
             }
             $cs->freezePane('A3');
+            $caseSummarySheet = $cs;
+            $caseSummaryInfo = ['first' => 3, 'last' => $cLast - 1, 'total' => $cLast];
         }
 
         // ===== 总部人员汇总 Sheet（管理人员/案场人员汇总后，按项目汇总总部人员工资） =====
@@ -444,34 +480,109 @@ class ExportController extends ApiController
                 $hs->getRowDimension($rr)->setRowHeight(20);
             }
             $hs->freezePane('A3');
+            $hqSummarySheet = $hs;
+            $hqSummaryInfo = ['first' => 3, 'last' => $hLast - 1, 'total' => $hLast];
         }
 
         // ===== 各项目明细 Sheet（不含管理人员） =====
+        $projectDetails = [];
+        $detailSheetsForCheck = [];
         foreach ($all->groupBy(fn ($x) => $x['project'] ?? '') as $project => $rows) {
             $detail = $book->createSheet();
             $detail->setTitle(mb_substr((string) $project, 0, 28));
-            $this->fillSheet($detail, $rows->values(), $project . ' ' . $ym . '工资表');
+            $list = $rows->values();
+            $count = $list->count();
+            $grossSum = round($list->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            if ($formula) {
+                $totalRow = $this->fillSheetFormula($detail, $list, $project . ' ' . $ym . '工资表');
+            } else {
+                $this->fillSheet($detail, $list, $project . ' ' . $ym . '工资表');
+                $totalRow = $count + 3;
+            }
+            $projectDetails[$project] = ['title' => $detail->getTitle(), 'first' => 3, 'last' => $count + 2,
+                'total' => $totalRow, 'count' => $count, 'gross' => $grossSum];
+            $detailSheetsForCheck[] = ['title' => $detail->getTitle(), 'total' => $totalRow, 'gross' => $grossSum];
         }
         // ===== 管理人员 Sheet（所有项目管理人员明细） =====
         if ($allMgrs->isNotEmpty()) {
             $mgrSheet = $book->createSheet();
             $mgrSheet->setTitle('管理人员');
-            $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($allMgrs->values()->all()))->values(), $ym . '管理人员工资表');
+            $ordered = collect(\App\Services\PayrollCalculator::orderRows($allMgrs->values()->all()))->values();
+            $count = $ordered->count();
+            $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            if ($formula) {
+                $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表');
+            } else {
+                $this->fillSheet($mgrSheet, $ordered, $ym . '管理人员工资表');
+                $totalRow = $count + 3;
+            }
+            $mgrDetailInfo = ['title' => $mgrSheet->getTitle(), 'first' => 3, 'last' => $count + 2,
+                'total' => $totalRow, 'count' => $count, 'gross' => $grossSum];
+            $detailSheetsForCheck[] = ['title' => $mgrSheet->getTitle(), 'total' => $totalRow, 'gross' => $grossSum];
         }
         // ===== 案场人员 Sheet（所有项目案场人员明细） =====
         if ($allCases->isNotEmpty()) {
             $caseSheet = $book->createSheet();
             $caseSheet->setTitle('案场人员');
-            $this->fillSheet($caseSheet, collect(\App\Services\PayrollCalculator::orderRows($allCases->values()->all()))->values(), $ym . '案场人员工资表');
+            $ordered = collect(\App\Services\PayrollCalculator::orderRows($allCases->values()->all()))->values();
+            $count = $ordered->count();
+            $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            if ($formula) {
+                $totalRow = $this->fillSheetFormula($caseSheet, $ordered, $ym . '案场人员工资表');
+            } else {
+                $this->fillSheet($caseSheet, $ordered, $ym . '案场人员工资表');
+                $totalRow = $count + 3;
+            }
+            $caseDetailInfo = ['title' => $caseSheet->getTitle(), 'first' => 3, 'last' => $count + 2,
+                'total' => $totalRow, 'count' => $count, 'gross' => $grossSum];
+            $detailSheetsForCheck[] = ['title' => $caseSheet->getTitle(), 'total' => $totalRow, 'gross' => $grossSum];
         }
         // ===== 总部人员 Sheet（物业总部所有人员明细，仅总部导出时生成） =====
         if ($allHq->isNotEmpty()) {
             $hqSheet = $book->createSheet();
             $hqSheet->setTitle('总部人员');
-            $this->fillSheet($hqSheet, collect(\App\Services\PayrollCalculator::orderRows($allHq->values()->all()))->values(), $ym . '总部人员工资表');
+            $ordered = collect(\App\Services\PayrollCalculator::orderRows($allHq->values()->all()))->values();
+            $count = $ordered->count();
+            $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+            if ($formula) {
+                $totalRow = $this->fillSheetFormula($hqSheet, $ordered, $ym . '总部人员工资表');
+            } else {
+                $this->fillSheet($hqSheet, $ordered, $ym . '总部人员工资表');
+                $totalRow = $count + 3;
+            }
+            $hqDetailInfo = ['title' => $hqSheet->getTitle(), 'first' => 3, 'last' => $count + 2,
+                'total' => $totalRow, 'count' => $count, 'gross' => $grossSum];
+            $detailSheetsForCheck[] = ['title' => $hqSheet->getTitle(), 'total' => $totalRow, 'gross' => $grossSum];
+        }
+
+        if ($formula) {
+            $this->applyMainSummaryFormulas($sheet, [
+                'projRows' => $projRowIndex,
+                'firstProj' => 3,
+                'lastProj' => $lastProjRow,
+                'baseTotal' => $baseTotalRow,
+                'mgrTotal' => $mgrTotalRow ?? null,
+                'caseTotal' => $caseTotalRow,
+                'hqTotal' => $hqTotalRow ?? null,
+                'grand' => $grandTotalRow,
+                'projectDetails' => $projectDetails,
+                'mgrDetail' => $mgrDetailInfo ?? null,
+                'caseDetail' => $caseDetailInfo ?? null,
+                'hqDetail' => $hqDetailInfo ?? null,
+            ]);
+            if (isset($mgrSummarySheet, $mgrSummaryInfo, $mgrDetailInfo)) {
+                $this->applyRollupFormulas($mgrSummarySheet, $mgrSummaryInfo, $mgrDetailInfo);
+            }
+            if (isset($caseSummarySheet, $caseSummaryInfo, $caseDetailInfo)) {
+                $this->applyRollupFormulas($caseSummarySheet, $caseSummaryInfo, $caseDetailInfo);
+            }
+            if (isset($hqSummarySheet, $hqSummaryInfo, $hqDetailInfo)) {
+                $this->applyRollupFormulas($hqSummarySheet, $hqSummaryInfo, $hqDetailInfo);
+            }
+            $this->fillNotesSheet($book, $ym, $detailSheetsForCheck, $grandTotalRow, $gGross);
         }
         $book->setActiveSheetIndex(0);
-        return $this->xlsx($book, '工资全量数据包_' . $ym . '.xlsx');
+        return $this->xlsx($book, '工资全量数据包_' . $ym . '.xlsx', $formula);
     }
 
     /**
@@ -607,10 +718,18 @@ class ExportController extends ApiController
         $groups = $query->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->groupBy(fn ($r) => $r['project'] ?? '');
         if ($groups->isEmpty()) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
         $zipPath = tempnam(sys_get_temp_dir(), 'payroll_export_') . '.zip'; $zip = new ZipArchive(); $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $formula = $this->resolveExportMode($request) === 'formula';
         foreach ($groups as $project => $rows) {
-            $book = new Spreadsheet(); $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
-            $tmp = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($tmp); rewind($tmp);
-            $zip->addFromString($project . '_' . $ym . '工资表.xlsx', stream_get_contents($tmp)); fclose($tmp);
+            $book = new Spreadsheet();
+            if ($formula) {
+                $this->fillSheetFormula($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
+                $bytes = $this->xlsxBinary($book, true);
+            } else {
+                $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '工资表');
+                $tmp = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($tmp); rewind($tmp);
+                $bytes = stream_get_contents($tmp); fclose($tmp);
+            }
+            $zip->addFromString($project . '_' . $ym . '工资表.xlsx', $bytes);
         }
         $zip->close();
         return response()->download($zipPath, '全部项目工资表_' . $ym . '.zip', ['Content-Type' => 'application/zip'])->deleteFileAfterSend(true);
@@ -773,9 +892,7 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无案场人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '案场人员工资表');
-        return $this->xlsx($book, '案场人员工资表_' . $ym . '.xlsx');
+        return $this->singleSheetResponse($request, $rows, $ym . '案场人员工资表', $ym, '案场人员工资表_' . $ym . '.xlsx');
     }
 
     /** 分项目案场人员工资表导出：选项目 → 该项目案场人员单独一张 Excel（总部可任选；项目账号限本项目） */
@@ -792,9 +909,7 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '该项目无案场人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '案场人员工资表');
-        return $this->xlsx($book, $project . '_案场人员工资表_' . $ym . '.xlsx');
+        return $this->singleSheetResponse($request, $rows, $project . ' ' . $ym . '案场人员工资表', $ym, $project . '_案场人员工资表_' . $ym . '.xlsx');
     }
 
     /** 管理人员工资表导出（仅总部）：选月份 → 所有项目管理人员一张 Excel，含项目列 */
@@ -811,9 +926,7 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无管理人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '管理人员工资表');
-        return $this->xlsx($book, '管理人员工资表_' . $ym . '.xlsx');
+        return $this->singleSheetResponse($request, $rows, $ym . '管理人员工资表', $ym, '管理人员工资表_' . $ym . '.xlsx');
     }
 
     /** 总部人员工资表导出（仅总部）：选月份 → 物业总部所有人员一张 Excel，含项目列 */
@@ -830,9 +943,7 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无总部人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $ym . '总部人员工资表');
-        return $this->xlsx($book, '总部人员工资表_' . $ym . '.xlsx');
+        return $this->singleSheetResponse($request, $rows, $ym . '总部人员工资表', $ym, '总部人员工资表_' . $ym . '.xlsx');
     }
     /** 分项目管理人员工资表导出（仅总部）：选项目 → 该项目管理人员单独一张 Excel */
     public function projectManagers(Request $request)
@@ -851,9 +962,7 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '该项目无管理人员核算数据'], 404);
         $rows = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
-        $book = new Spreadsheet();
-        $this->fillSheet($book->getActiveSheet(), $rows, $project . ' ' . $ym . '管理人员工资表');
-        return $this->xlsx($book, $project . '_管理人员工资表_' . $ym . '.xlsx');
+        return $this->singleSheetResponse($request, $rows, $project . ' ' . $ym . '管理人员工资表', $ym, $project . '_管理人员工资表_' . $ym . '.xlsx');
     }
 
     /**
@@ -873,21 +982,37 @@ class ExportController extends ApiController
             ->get()->map(fn ($r) => $this->jsonValue($r->row_data) ?: [])->filter();
         if ($rows->isEmpty()) return response()->json(['ok' => false, 'error' => '无管理人员核算数据'], 404);
 
+        $formula = $this->resolveExportMode($request) === 'formula';
         $book = new Spreadsheet();
         $mgrSheet = $book->getActiveSheet();
-        $this->fillSheet($mgrSheet, collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values(), $ym . '管理人员工资表');
+        $ordered = collect(\App\Services\PayrollCalculator::orderRows($rows->values()->all()))->values();
+        $count = $ordered->count();
+        $grossSum = round($ordered->sum(fn ($x) => (float) ($x['gross'] ?? 0)), 2);
+        if ($formula) {
+            $totalRow = $this->fillSheetFormula($mgrSheet, $ordered, $ym . '管理人员工资表');
+        } else {
+            $this->fillSheet($mgrSheet, $ordered, $ym . '管理人员工资表');
+            $totalRow = $count + 3;
+        }
         $mgrSheet->setTitle('管理人员工资表');
 
         $sumSheet = $book->createSheet();
         $sumSheet->setTitle('管理人员汇总');
-        $this->fillMgrSummarySheet($sumSheet, $rows, $ym);
+        $summaryRange = $this->fillMgrSummarySheet($sumSheet, $rows, $ym);
+
+        if ($formula) {
+            $detail = ['title' => $mgrSheet->getTitle(), 'first' => 3, 'last' => $count + 2,
+                'total' => $totalRow, 'count' => $count, 'gross' => $grossSum];
+            $this->applyRollupFormulas($sumSheet, $summaryRange, $detail);
+            $this->fillNotesSheet($book, $ym, [['title' => $detail['title'], 'total' => $totalRow, 'gross' => $grossSum]], null, null);
+        }
 
         $book->setActiveSheetIndex(0);
-        return $this->xlsx($book, '管理人员工资表及汇总_' . $ym . '.xlsx');
+        return $this->xlsx($book, '管理人员工资表及汇总_' . $ym . '.xlsx', $formula);
     }
 
     /** 管理人员汇总 Sheet 内容（全量数据包与管理人数据包共用）：按项目汇总人数/应发/五险一金/个税/实发 */
-    private function fillMgrSummarySheet($ms, $mgrSummaryRows, string $ym): void
+    private function fillMgrSummarySheet($ms, $mgrSummaryRows, string $ym): array
     {
         // 第1行 大标题
         $ms->setCellValue('A1', $ym . ' 管理人员工资汇总');
@@ -947,6 +1072,7 @@ class ExportController extends ApiController
             $ms->getRowDimension($rr)->setRowHeight(20);
         }
         $ms->freezePane('A3');
+        return ['first' => 3, 'last' => $mLast - 1, 'total' => $mLast];
     }
 
     /**
@@ -1097,10 +1223,578 @@ class ExportController extends ApiController
         }
     }
 
-    private function xlsx(Spreadsheet $book, string $filename)
+    /** 带公式版明细页列头（与纯数值版完全一致，共 39 列，不新增扣款合计列） */
+    private function formulaLayout(): array
     {
-        $stream = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($stream); rewind($stream);
-        return response()->streamDownload(fn () => fpassthru($stream), $filename,
-            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        $headers = ['序号', '项目', '部门', '岗位', '姓名', '人员状态', '入职日期', '固定月薪', '基本工资', '应出勤', '实际出勤',
+            '绩效系数', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴', '月度奖励',
+            '补发工资', '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款', '应发工资合计',
+            '养老保险', '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计', '专项附加扣除', '本月个税',
+            '个税补差', '实发工资', '备注', '季度绩效说明'];
+        $map = [];
+        foreach ($headers as $i => $h) {
+            $map[$h] = Coordinate::stringFromColumnIndex($i + 1);
+        }
+        return [$headers, $map];
+    }
+
+    /** 写入公式并同时写入缓存值（writeCellFormula 会计算并输出 <v>） */
+    private function putFormula($sheet, string $coord, string $formula, $cached = null): void
+    {
+        $cell = $sheet->getCell($coord);
+        $cell->setValue($formula);
+        if ($cached !== null) $cell->setCalculatedValue($cached);
+    }
+
+    /** 跨表引用页签：统一加单引号并转义内部单引号 */
+    private function sheetRef(string $title): string
+    {
+        return "'" . str_replace("'", "''", $title) . "'";
+    }
+
+    /**
+     * 带公式版明细页：40 列；四条派生列写公式；合计行 ROUND(SUM)；底部校验区。
+     * @return int 合计行行号
+     */
+    private function fillSheetFormula($sheet, $rows, string $title): int
+    {
+        [$headers, $col] = $this->formulaLayout();
+        $colCount = count($headers);
+        $lastLetter = Coordinate::stringFromColumnIndex($colCount);
+        $sheet->setTitle(preg_replace('#[\[\]:*?/\\\\]#u', '_', mb_substr($title, 0, 31)));
+
+        // ===== 第1行：大标题 =====
+        $sheet->mergeCells("A1:{$lastLetter}1");
+        $sheet->setCellValue('A1', $title);
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getRowDimension(1)->setRowHeight(28);
+
+        // ===== 第2行：表头（分区配色）=====
+        foreach ($headers as $ci => $h) {
+            $letter = Coordinate::stringFromColumnIndex($ci + 1);
+            $sheet->setCellValue("{$letter}2", $h);
+            $style = $sheet->getStyle("{$letter}2");
+            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB($this->columnBand($ci + 1));
+            $style->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
+            $style->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+            $style->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension(2)->setRowHeight(34);
+        $sheet->freezePane('F3');
+
+        $moneyHeaders = ['固定月薪', '基本工资', '应发基本工资', '应发绩效工资', '病假工资', '夜班/话费补贴', '餐补', '其他补贴',
+            '月度奖励', '补发工资', '已发福利', '月度扣罚', '迟到早退扣款', '缺卡扣款', '其他扣款', '工装扣款',
+            '应发工资合计', '养老保险', '医疗保险', '失业保险', '住房公积金', '大病', '五险一金合计',
+            '专项附加扣除', '本月个税', '个税补差', '实发工资'];
+        $moneySet = array_flip($moneyHeaders);
+        // 合计行只汇总「应发基本工资」及其后的金额列，与纯数值版一致
+        $sumHeaders = array_slice($moneyHeaders, 2);
+        $textHeaders = ['项目', '部门', '岗位', '姓名', '人员状态', '入职日期', '备注', '季度绩效说明'];
+        $sums = array_fill_keys($moneyHeaders, 0.0);
+
+        // ===== 数据行 =====
+        $rowNumber = 3;
+        foreach ($rows->values() as $index => $row) {
+            $values = [
+                '序号' => $index + 1,
+                '项目' => (string) ($row['project'] ?? ''),
+                '部门' => (string) ($row['department'] ?? ''),
+                '岗位' => (string) ($row['position'] ?? ''),
+                '姓名' => (string) ($row['name'] ?? ''),
+                '人员状态' => (string) ($row['status'] ?? ''),
+                '入职日期' => (string) ($row['hire_date'] ?? ''),
+                '固定月薪' => (float) ($row['fixed'] ?? 0),
+                '基本工资' => (float) ($row['base'] ?? 0),
+                '应出勤' => (float) ($row['req_att'] ?? 0),
+                '实际出勤' => (float) ($row['act_att'] ?? 0),
+                '绩效系数' => (float) ($row['coef'] ?? 0),
+                '应发基本工资' => (float) ($row['base_pay'] ?? 0),
+                '应发绩效工资' => (float) ($row['perf_pay'] ?? 0),
+                '病假工资' => (float) ($row['sick_pay'] ?? 0),
+                '夜班/话费补贴' => (float) ($row['night'] ?? 0),
+                '餐补' => (float) ($row['meal'] ?? 0),
+                '其他补贴' => (float) ($row['title_sub'] ?? 0),
+                '月度奖励' => (float) ($row['reward'] ?? 0),
+                '补发工资' => (float) ($row['backpay'] ?? 0),
+                '已发福利' => (float) ($row['welfare'] ?? 0),
+                '月度扣罚' => (float) ($row['punish'] ?? 0),
+                '迟到早退扣款' => (float) ($row['late_d'] ?? 0),
+                '缺卡扣款' => (float) ($row['miss_d'] ?? 0),
+                '其他扣款' => (float) ($row['other_d'] ?? 0),
+                '工装扣款' => (float) ($row['uniform_d'] ?? 0),
+                '应发工资合计' => round((float) ($row['gross'] ?? 0), 2),
+                '养老保险' => (float) ($row['pen'] ?? 0),
+                '医疗保险' => (float) ($row['med'] ?? 0),
+                '失业保险' => (float) ($row['une'] ?? 0),
+                '住房公积金' => (float) ($row['house'] ?? 0),
+                '大病' => (float) ($row['big'] ?? 0),
+                '五险一金合计' => round((float) ($row['soc_total'] ?? 0), 2),
+                '专项附加扣除' => (float) ($row['spec_total'] ?? 0),
+                '本月个税' => (float) ($row['actual_tax'] ?? 0),
+                '个税补差' => (float) ($row['tax_diff'] ?? 0),
+                '实发工资' => round((float) ($row['net'] ?? 0), 2),
+                '备注' => (string) ($row['remark'] ?? ''),
+                '季度绩效说明' => $this->quarterPerfNote($row),
+            ];
+
+            foreach ($headers as $h) {
+                $coord = $col[$h] . $rowNumber;
+                if ($h === '应发工资合计') {
+                    // 扣款合计列已删除：扣款项直接在公式里内联求和
+                    $this->putFormula($sheet, $coord,
+                        "=ROUND(SUM({$col['应发基本工资']}{$rowNumber}:{$col['已发福利']}{$rowNumber})"
+                        . "-SUM({$col['月度扣罚']}{$rowNumber}:{$col['工装扣款']}{$rowNumber}),2)", $values[$h]);
+                } elseif ($h === '五险一金合计') {
+                    $this->putFormula($sheet, $coord,
+                        "=ROUND(SUM({$col['养老保险']}{$rowNumber}:{$col['大病']}{$rowNumber}),2)", $values[$h]);
+                } elseif ($h === '实发工资') {
+                    $this->putFormula($sheet, $coord,
+                        "=ROUND({$col['应发工资合计']}{$rowNumber}-{$col['五险一金合计']}{$rowNumber}"
+                        . "-{$col['本月个税']}{$rowNumber}-{$col['已发福利']}{$rowNumber}+{$col['个税补差']}{$rowNumber},2)", $values[$h]);
+                } elseif (in_array($h, $textHeaders, true)) {
+                    // 显式文本：避免 = + - @ 开头的内容被 Excel 当公式执行
+                    $sheet->setCellValueExplicit($coord, $values[$h], DataType::TYPE_STRING);
+                } else {
+                    $sheet->setCellValue($coord, $values[$h]);
+                }
+                if (isset($sums[$h])) $sums[$h] += (float) $values[$h];
+            }
+
+            for ($c = 1; $c <= $colCount; $c++) {
+                $letter = Coordinate::stringFromColumnIndex($c);
+                $h = $headers[$c - 1];
+                $cellStyle = $sheet->getStyle("{$letter}{$rowNumber}");
+                $cellStyle->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('D9D9D9'));
+                $cellStyle->getFont()->setName('微软雅黑')->setSize(10);
+                if (isset($moneySet[$h])) {
+                    $cellStyle->getNumberFormat()->setFormatCode('#,##0.00');
+                    $cellStyle->getAlignment()->setHorizontal('right');
+                } elseif (in_array($h, ['应出勤', '实际出勤', '绩效系数'], true)) {
+                    $cellStyle->getAlignment()->setHorizontal('center');
+                } elseif (in_array($h, ['备注', '季度绩效说明'], true)) {
+                    $cellStyle->getAlignment()->setHorizontal('left')->setVertical('center');
+                } else {
+                    $cellStyle->getAlignment()->setHorizontal('center')->setVertical('center');
+                }
+            }
+            $sheet->getStyle($col['应发工资合计'] . $rowNumber)->getFont()->setBold(true);
+            $sheet->getStyle($col['实发工资'] . $rowNumber)->getFont()->setBold(true);
+            $sheet->getRowDimension($rowNumber)->setRowHeight(20);
+            $rowNumber++;
+        }
+
+        // ===== 合计行：全部金额列 ROUND(SUM(...),2) + 缓存值 =====
+        $totalRow = $rowNumber;
+        $sheet->setCellValue('A' . $totalRow, '合计（' . $rows->count() . '人）');
+        $sheet->mergeCells('A' . $totalRow . ':K' . $totalRow);
+        $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal('right');
+        foreach ($sumHeaders as $h) {
+            $letter = $col[$h];
+            $this->putFormula($sheet, $letter . $totalRow,
+                "=ROUND(SUM({$letter}3:{$letter}" . ($totalRow - 1) . "),2)", round($sums[$h], 2));
+            $sheet->getStyle($letter . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle($letter . $totalRow)->getAlignment()->setHorizontal('right');
+        }
+        for ($c = 1; $c <= $colCount; $c++) {
+            $letter = Coordinate::stringFromColumnIndex($c);
+            $st = $sheet->getStyle($letter . $totalRow);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+            $st->getFont()->setName('微软雅黑')->setBold(true)->setSize(10);
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+        $sheet->getRowDimension($totalRow)->setRowHeight(22);
+
+        // ===== 部门合并（C 列）=====
+        $dataStart = 3;
+        $dataEnd = $totalRow - 1;
+        if ($dataEnd >= $dataStart) {
+            $mergeStart = $dataStart;
+            $prevDept = $sheet->getCell('C' . $dataStart)->getValue();
+            for ($r = $dataStart + 1; $r <= $dataEnd + 1; $r++) {
+                $curDept = $r <= $dataEnd ? $sheet->getCell('C' . $r)->getValue() : null;
+                if ($curDept !== $prevDept) {
+                    if ($r - 1 > $mergeStart) {
+                        $sheet->mergeCells('C' . $mergeStart . ':C' . ($r - 1));
+                    }
+                    $sheet->getStyle('C' . $mergeStart . ':C' . ($r - 1))
+                        ->getAlignment()->setHorizontal('center')->setVertical('center');
+                    $mergeStart = $r;
+                    $prevDept = $curDept;
+                }
+            }
+        }
+
+        // ===== 列宽（与纯数值版 39 列一致）=====
+        $widths = [6, 14, 12, 14, 10, 8, 12, 10, 10, 8, 8, 8, 11, 11, 10, 12, 9, 10, 10, 10, 10, 11, 10, 10, 10, 12,
+            10, 10, 10, 10, 11, 8, 12, 12, 10, 12, 16, 16, 34];
+        for ($c = 1; $c <= $colCount; $c++) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($c))->setWidth($widths[$c - 1] ?? 11);
+        }
+
+        // ===== 校验区 =====
+        $this->fillCheckArea($sheet, $col, $totalRow, $sums);
+
+        return $totalRow;
+    }
+
+    /** 明细页底部校验区：系统值 / 公式值 / 差异；差异非 0 红底加粗 */
+    private function fillCheckArea($sheet, array $col, int $totalRow, array $sums): void
+    {
+        $start = $totalRow + 2;
+        $sheet->setCellValue("A{$start}", '校验区（系统值 vs 公式值）');
+        $sheet->mergeCells("A{$start}:E{$start}");
+        $sheet->getStyle("A{$start}")->getFont()->setBold(true)->setSize(11);
+        $sheet->getStyle("A{$start}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
+        $sheet->getStyle("A{$start}")->getAlignment()->setHorizontal('left')->setVertical('center');
+
+        $headRow = $start + 1;
+        foreach (['校验项', '系统值', '公式值', '差异', '结论'] as $i => $v) {
+            $coord = Coordinate::stringFromColumnIndex($i + 1) . $headRow;
+            $sheet->setCellValue($coord, $v);
+            $st = $sheet->getStyle($coord);
+            $st->getFont()->setBold(true)->setSize(10);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+            $st->getAlignment()->setHorizontal('center')->setVertical('center');
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+
+        $r = $headRow + 1;
+        $firstDiff = $r;
+        foreach (['应发工资合计', '五险一金合计', '实发工资'] as $name) {
+            $systemTotal = round((float) ($sums[$name] ?? 0), 2);
+            $sheet->setCellValue("A{$r}", $name);
+            $sheet->setCellValue("B{$r}", $systemTotal);
+            $this->putFormula($sheet, "C{$r}", "={$col[$name]}{$totalRow}", $systemTotal);
+            $this->putFormula($sheet, "D{$r}", "=ROUND(B{$r}-C{$r},2)", 0);
+            $this->putFormula($sheet, "E{$r}", "=IF(D{$r}=0,\"一致\",\"不一致\")", '一致');
+            $sheet->getStyle("B{$r}:D{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle("E{$r}")->getAlignment()->setHorizontal('center');
+            foreach (['A', 'B', 'C', 'D', 'E'] as $cc) {
+                $st = $sheet->getStyle("{$cc}{$r}");
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                $st->getFont()->setName('微软雅黑')->setSize(10);
+            }
+            $r++;
+        }
+        $lastDiff = $r - 1;
+
+        // 差异不为 0：红底 + 红字加粗
+        $conditional = new Conditional();
+        $conditional->setConditionType(Conditional::CONDITION_CELLIS)
+            ->setOperatorType(Conditional::OPERATOR_NOTEQUAL)
+            ->addCondition('0');
+        $style = new Style();
+        $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFC7CE');
+        $style->getFont()->setBold(true)->getColor()->setRGB('9C0006');
+        $conditional->setStyle($style);
+        $sheet->getStyle("D{$firstDiff}:D{$lastDiff}")->setConditionalStyles([$conditional]);
+    }
+
+    /** 用公式替换已写入的系统值，并把原值作为缓存值保留 */
+    private function putFormulaFromCell($sheet, string $coord, string $formula): void
+    {
+        $cell = $sheet->getCell($coord);
+        $cached = $cell->getValue();
+        $cell->setValue($formula);
+        if ($cached !== null && $cached !== '') $cell->setCalculatedValue($cached);
+    }
+
+    /** 主「汇总」页：把金额/人数改为跨表引用明细页合计行 */
+    private function applyMainSummaryFormulas($sheet, array $ctx): void
+    {
+        [, $col] = $this->formulaLayout();
+        $nameCol = $col['姓名'];
+        $grossCol = $col['应发工资合计'];
+        $mgr = $ctx['mgrDetail'];
+        $mgrRef = $mgr ? $this->sheetRef($mgr['title']) : null;
+        $mgrRange = $mgr ? "B3:B{$mgr['last']}" : null;
+        $mgrGrossRange = $mgr ? "{$grossCol}3:{$grossCol}{$mgr['last']}" : null;
+
+        foreach ($ctx['projRows'] as $p => $r) {
+            $d = $ctx['projectDetails'][$p] ?? null;
+            if ($d) {
+                $ref = $this->sheetRef($d['title']);
+                $this->putFormulaFromCell($sheet, "B{$r}", "=COUNTA({$ref}!{$nameCol}{$d['first']}:{$nameCol}{$d['last']})");
+                $this->putFormulaFromCell($sheet, "C{$r}", "={$ref}!{$grossCol}{$d['total']}");
+            } else {
+                $this->putFormulaFromCell($sheet, "B{$r}", '=0');
+                $this->putFormulaFromCell($sheet, "C{$r}", '=0');
+            }
+            if ($mgr) {
+                $this->putFormulaFromCell($sheet, "D{$r}", "=COUNTIF({$mgrRef}!{$mgrRange},A{$r})");
+                $this->putFormulaFromCell($sheet, "E{$r}", "=ROUND(SUMIF({$mgrRef}!{$mgrRange},A{$r},{$mgrRef}!{$mgrGrossRange}),2)");
+            } else {
+                $this->putFormulaFromCell($sheet, "D{$r}", '=0');
+                $this->putFormulaFromCell($sheet, "E{$r}", '=0');
+            }
+            $this->putFormulaFromCell($sheet, "F{$r}", "=B{$r}+D{$r}");
+            $this->putFormulaFromCell($sheet, "G{$r}", "=ROUND(C{$r}+E{$r},2)");
+            $this->putFormulaFromCell($sheet, "I{$r}", "=IF(H{$r}>0,G{$r}/H{$r},\"\")");
+            $this->putFormulaFromCell($sheet, "L{$r}", "=IF(K{$r}>0,G{$r}-K{$r},\"\")");
+            $this->putFormulaFromCell($sheet, "M{$r}", "=IF(K{$r}>0,L{$r}/K{$r},\"\")");
+        }
+
+        // 基层合计行
+        $br = $ctx['baseTotal'];
+        $this->putFormulaFromCell($sheet, "F{$br}", "=SUM(B{$ctx['firstProj']}:B{$ctx['lastProj']})");
+        $this->putFormulaFromCell($sheet, "G{$br}", "=ROUND(SUM(C{$ctx['firstProj']}:C{$ctx['lastProj']}),2)");
+        $this->putFormulaFromCell($sheet, "I{$br}", "=IF(H{$br}>0,G{$br}/H{$br},\"\")");
+        $this->putFormulaFromCell($sheet, "L{$br}", "=IF(K{$br}>0,G{$br}-K{$br},\"\")");
+        $this->putFormulaFromCell($sheet, "M{$br}", "=IF(K{$br}>0,L{$br}/K{$br},\"\")");
+
+        // 管理人员合计行
+        if ($ctx['mgrTotal']) {
+            $mr = $ctx['mgrTotal'];
+            if ($mgr) {
+                $this->putFormulaFromCell($sheet, "F{$mr}", "=COUNTA({$mgrRef}!{$nameCol}3:{$nameCol}{$mgr['last']})");
+                $this->putFormulaFromCell($sheet, "G{$mr}", "={$mgrRef}!{$grossCol}{$mgr['total']}");
+            }
+            $this->putFormulaFromCell($sheet, "I{$mr}", "=IF(H{$mr}>0,G{$mr}/H{$mr},\"\")");
+            $this->putFormulaFromCell($sheet, "L{$mr}", "=IF(K{$mr}>0,G{$mr}-K{$mr},\"\")");
+            $this->putFormulaFromCell($sheet, "M{$mr}", "=IF(K{$mr}>0,L{$mr}/K{$mr},\"\")");
+        }
+
+        // 案场人员 / 物业总部合计行
+        foreach ([['row' => $ctx['caseTotal'], 'detail' => $ctx['caseDetail'] ?? null],
+                  ['row' => $ctx['hqTotal'], 'detail' => $ctx['hqDetail'] ?? null]] as $item) {
+            if (!$item['row'] || !$item['detail']) continue;
+            $rr = $item['row'];
+            $ref = $this->sheetRef($item['detail']['title']);
+            $this->putFormulaFromCell($sheet, "F{$rr}", "=COUNTA({$ref}!{$nameCol}3:{$nameCol}{$item['detail']['last']})");
+            $this->putFormulaFromCell($sheet, "G{$rr}", "={$ref}!{$grossCol}{$item['detail']['total']}");
+            $this->putFormulaFromCell($sheet, "I{$rr}", "=IF(H{$rr}>0,G{$rr}/H{$rr},\"\")");
+            $this->putFormulaFromCell($sheet, "L{$rr}", "=IF(K{$rr}>0,G{$rr}-K{$rr},\"\")");
+            $this->putFormulaFromCell($sheet, "M{$rr}", "=IF(K{$rr}>0,L{$rr}/K{$rr},\"\")");
+        }
+
+        // 总计行
+        $gr = $ctx['grand'];
+        $this->putFormulaFromCell($sheet, "B{$gr}", "=F{$br}");
+        $this->putFormulaFromCell($sheet, "C{$gr}", "=G{$br}");
+        $this->putFormulaFromCell($sheet, "D{$gr}", $ctx['mgrTotal'] ? "=F{$ctx['mgrTotal']}" : '=0');
+        $this->putFormulaFromCell($sheet, "E{$gr}", $ctx['mgrTotal'] ? "=G{$ctx['mgrTotal']}" : '=0');
+        $partsF = ["F{$br}"]; $partsG = ["G{$br}"];
+        if ($ctx['mgrTotal']) { $partsF[] = "F{$ctx['mgrTotal']}"; $partsG[] = "G{$ctx['mgrTotal']}"; }
+        $partsF[] = "F{$ctx['caseTotal']}"; $partsG[] = "G{$ctx['caseTotal']}";
+        if ($ctx['hqTotal']) { $partsF[] = "F{$ctx['hqTotal']}"; $partsG[] = "G{$ctx['hqTotal']}"; }
+        $this->putFormulaFromCell($sheet, "F{$gr}", '=' . implode('+', $partsF));
+        $this->putFormulaFromCell($sheet, "G{$gr}", '=ROUND(' . implode('+', $partsG) . ',2)');
+        $this->putFormulaFromCell($sheet, "I{$gr}", "=IF(H{$gr}>0,G{$gr}/H{$gr},\"\")");
+        $this->putFormulaFromCell($sheet, "L{$gr}", "=IF(K{$gr}>0,G{$gr}-K{$gr},\"\")");
+        $this->putFormulaFromCell($sheet, "M{$gr}", "=IF(K{$gr}>0,L{$gr}/K{$gr},\"\")");
+    }
+
+    /** 辅助汇总页（管理人员汇总/案场人员汇总/总部人员汇总）：逐项目 SUMIF + 合计行引用明细合计行 */
+    private function applyRollupFormulas($sheet, array $range, array $detail): void
+    {
+        [, $col] = $this->formulaLayout();
+        $ref = $this->sheetRef($detail['title']);
+        $nameCol = $col['姓名'];
+        $rngB = "B3:B{$detail['last']}";
+        $sumIf = fn (string $letter, string $crit) =>
+            "SUMIF({$ref}!{$rngB},{$crit},{$ref}!{$letter}3:{$letter}{$detail['last']})";
+
+        for ($r = $range['first']; $r <= $range['last']; $r++) {
+            $crit = "A{$r}";
+            $this->putFormulaFromCell($sheet, "B{$r}", "=COUNTIF({$ref}!{$rngB},{$crit})");
+            foreach (['C' => $col['应发工资合计'], 'D' => $col['五险一金合计'], 'E' => $col['本月个税'],
+                       'G' => $col['实发工资'], 'H' => $col['个税补差']] as $target => $letter) {
+                $this->putFormulaFromCell($sheet, "{$target}{$r}", '=ROUND(' . $sumIf($letter, $crit) . ',2)');
+            }
+            $this->putFormulaFromCell($sheet, "F{$r}",
+                '=ROUND(' . $sumIf($col['月度奖励'], $crit) . '+' . $sumIf($col['已发福利'], $crit) . ',2)');
+        }
+
+        $t = $range['total'];
+        $this->putFormulaFromCell($sheet, "B{$t}", "=COUNTA({$ref}!{$nameCol}3:{$nameCol}{$detail['last']})");
+        $this->putFormulaFromCell($sheet, "C{$t}", "={$ref}!{$col['应发工资合计']}{$detail['total']}");
+        $this->putFormulaFromCell($sheet, "D{$t}", "={$ref}!{$col['五险一金合计']}{$detail['total']}");
+        $this->putFormulaFromCell($sheet, "E{$t}", "={$ref}!{$col['本月个税']}{$detail['total']}");
+        $this->putFormulaFromCell($sheet, "F{$t}",
+            "=ROUND({$ref}!{$col['月度奖励']}{$detail['total']}+{$ref}!{$col['已发福利']}{$detail['total']},2)");
+        $this->putFormulaFromCell($sheet, "G{$t}", "={$ref}!{$col['实发工资']}{$detail['total']}");
+        $this->putFormulaFromCell($sheet, "H{$t}", "={$ref}!{$col['个税补差']}{$detail['total']}");
+    }
+
+    /** 说明页（仅公式版，最后一张）：公式列/快照列/校验区用法 + 全表校验 */
+    private function fillNotesSheet(Spreadsheet $book, string $ym, array $details, ?int $summaryGrandRow, ?float $summaryGross): void
+    {
+        [, $col] = $this->formulaLayout();
+        $sheet = $book->createSheet();
+        $sheet->setTitle('说明');
+        $sheet->mergeCells('A1:F1');
+        $sheet->setCellValue('A1', $ym . ' 工资表导出说明（带公式版）');
+        $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
+        $sheet->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+        $sheet->getRowDimension(1)->setRowHeight(30);
+
+        $lines = [
+            ['除本说明页外，带公式版与纯数值版的列结构完全一致（均为 39 列，列名、顺序、位置逐列相同）。', false],
+            ['', false],
+            ['一、公式列（修改明细后会自动重算）', true],
+            ['应发工资合计 = 应发基本工资 + 应发绩效工资 + 病假工资 + 夜班/话费补贴 + 餐补 + 其他补贴 + 月度奖励 + 补发工资 + 已发福利 - (月度扣罚 + 迟到早退扣款 + 缺卡扣款 + 其他扣款 + 工装扣款)', false],
+            ['五险一金合计 = 养老保险 + 医疗保险 + 失业保险 + 住房公积金 + 大病', false],
+            ['实发工资 = 应发工资合计 - 五险一金合计 - 本月个税 - 已发福利 + 个税补差', false],
+            ['明细页合计行 = ROUND(SUM(列首:列尾),2)；汇总页各项引用明细页合计行。', false],
+            ['', false],
+            ['二、系统核算快照值（保留系统结果，不写公式）', true],
+            ['固定月薪、基本工资、应出勤、实际出勤、绩效系数、应发基本工资、应发绩效工资、病假工资、夜班/话费补贴、餐补、其他补贴、月度奖励、补发工资、已发福利、月度扣罚、迟到早退扣款、缺卡扣款、其他扣款、工装扣款、养老保险、医疗保险、失业保险、住房公积金、大病、专项附加扣除、本月个税、个税补差。', false],
+            ['其中：应发基本工资、应发绩效工资涉及缺勤、补差、绩效系数折算等复杂规则，直接采用系统核算结果；本月个税直接采用系统个税结果，不另设税率表。若系统配置了自定义应发/实发公式，以校验区差异为准，并以系统值为准。', false],
+            ['', false],
+            ['三、校验区怎么用', true],
+            ['每张明细页合计行下方有「系统值 / 公式值 / 差异」校验区：系统值来自系统核算结果，公式值引用该页合计行；差异 = ROUND(系统值 - 公式值,2)。差异为 0 表示一致；不为 0 时差异单元格红底加粗，说明系统口径与公式口径存在差异，请以系统值为准并反馈。', false],
+        ];
+        $r = 3;
+        foreach ($lines as [$text, $bold]) {
+            $sheet->setCellValue("A{$r}", $text);
+            $sheet->mergeCells("A{$r}:F{$r}");
+            $st = $sheet->getStyle("A{$r}");
+            $st->getAlignment()->setWrapText(true)->setVertical('center')->setHorizontal('left');
+            if ($bold) $st->getFont()->setBold(true)->setSize(11);
+            else $st->getFont()->setSize(10);
+            $sheet->getRowDimension($r)->setRowHeight($bold ? 22 : 34);
+            $r++;
+        }
+
+        if ($summaryGrandRow !== null && $details) {
+            $refs = [];
+            foreach ($details as $d) {
+                $refs[] = $this->sheetRef($d['title']) . '!' . $col['应发工资合计'] . $d['total'];
+            }
+            $r++;
+            $sheet->setCellValue("A{$r}", '四、全表校验（明细页合计之和 vs 汇总页总计）');
+            $sheet->mergeCells("A{$r}:F{$r}");
+            $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(11);
+            $sheet->getRowDimension($r)->setRowHeight(22);
+            $r++;
+            foreach (['校验项', '金额', '说明'] as $i => $h) {
+                $coord = Coordinate::stringFromColumnIndex($i + 1) . $r;
+                $sheet->setCellValue($coord, $h);
+                $st = $sheet->getStyle($coord);
+                $st->getFont()->setBold(true)->setSize(10);
+                $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+                $st->getAlignment()->setHorizontal('center');
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+            }
+            $r++;
+
+            $sumRow = $r;
+            $sheet->setCellValue("A{$sumRow}", '明细页应发合计之和');
+            $this->putFormula($sheet, "B{$sumRow}", '=ROUND(SUM(' . implode(',', $refs) . '),2)',
+                round(array_sum(array_column($details, 'gross')), 2));
+            $sheet->setCellValue("C{$sumRow}", '各明细页「应发工资合计」列合计行之和');
+            $r++;
+
+            $grandRow = $r;
+            $sheet->setCellValue("A{$grandRow}", '汇总页总计应发');
+            $this->putFormula($sheet, "B{$grandRow}", "='汇总'!G{$summaryGrandRow}", $summaryGross);
+            $sheet->setCellValue("C{$grandRow}", '汇总页总计行「应发合计」');
+            $r++;
+
+            $diffRow = $r;
+            $sheet->setCellValue("A{$diffRow}", '差异');
+            $this->putFormula($sheet, "B{$diffRow}", "=ROUND(B{$sumRow}-B{$grandRow},2)", 0);
+            $sheet->setCellValue("C{$diffRow}", '应为 0');
+            $r++;
+
+            $conclRow = $r;
+            $sheet->setCellValue("A{$conclRow}", '结论');
+            $this->putFormula($sheet, "B{$conclRow}", "=IF(B{$diffRow}=0,\"一致\",\"不一致\")", '一致');
+            $sheet->setCellValue("C{$conclRow}", '差异为 0 表示明细与汇总一致');
+            $r++;
+
+            foreach ([$sumRow, $grandRow, $diffRow] as $rr) {
+                $sheet->getStyle("B{$rr}")->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+            foreach (range($sumRow, $conclRow) as $rr) {
+                foreach (['A', 'B', 'C'] as $cc) {
+                    $st = $sheet->getStyle("{$cc}{$rr}");
+                    $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                    $st->getFont()->setName('微软雅黑')->setSize(10);
+                }
+                $sheet->getRowDimension($rr)->setRowHeight(20);
+            }
+
+            $conditional = new Conditional();
+            $conditional->setConditionType(Conditional::CONDITION_CELLIS)
+                ->setOperatorType(Conditional::OPERATOR_NOTEQUAL)
+                ->addCondition('0');
+            $style = new Style();
+            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFC7CE');
+            $style->getFont()->setBold(true)->getColor()->setRGB('9C0006');
+            $conditional->setStyle($style);
+            $sheet->getStyle("B{$diffRow}")->setConditionalStyles([$conditional]);
+        } else {
+            $sheet->setCellValue("A{$r}", '本文件为单项目导出，不含汇总页；全表校验见各明细页底部校验区。');
+            $sheet->mergeCells("A{$r}:F{$r}");
+            $sheet->getStyle("A{$r}")->getFont()->setSize(10);
+        }
+
+        $sheet->getColumnDimension('A')->setWidth(38);
+        $sheet->getColumnDimension('B')->setWidth(18);
+        $sheet->getColumnDimension('C')->setWidth(56);
+        foreach (['D', 'E', 'F'] as $c) $sheet->getColumnDimension($c)->setWidth(10);
+    }
+
+    /** 单张明细表导出：按模式选择纯数值/带公式，并在公式版追加说明页 */
+    private function singleSheetResponse(Request $request, $rows, string $title, string $ym, string $filename)
+    {
+        $formula = $this->resolveExportMode($request) === 'formula';
+        $book = new Spreadsheet();
+        $sheet = $book->getActiveSheet();
+        if ($formula) {
+            $total = $this->fillSheetFormula($sheet, $rows, $title);
+            $this->fillNotesSheet($book, $ym, [['title' => $sheet->getTitle(), 'total' => $total, 'gross' => 0.0]], null, null);
+        } else {
+            $this->fillSheet($sheet, $rows, $title);
+        }
+        $book->setActiveSheetIndex(0);
+        return $this->xlsx($book, $filename, $formula);
+    }
+
+    private function xlsx(Spreadsheet $book, string $filename, bool $forceRecalc = false)
+    {
+        // 纯数值版保持原内存输出路径，不做任何后处理（逐字节保持）
+        if (!$forceRecalc) {
+            $stream = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($stream); rewind($stream);
+            return response()->streamDownload(fn () => fpassthru($stream), $filename,
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        }
+        $bytes = $this->xlsxBinary($book, true);
+        return response()->streamDownload(function () use ($bytes) {
+            echo $bytes;
+        }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    /** 生成 xlsx 二进制；公式版追加 fullCalcOnLoad 标记（打开时重算） */
+    private function xlsxBinary(Spreadsheet $book, bool $forceRecalc): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_xlsx_');
+        (new Xlsx($book))->save($tmp);
+        if ($forceRecalc) $this->enableFullCalcOnLoad($tmp);
+        $bytes = (string) file_get_contents($tmp);
+        @unlink($tmp);
+        return $bytes;
+    }
+
+    /** 改写 xl/workbook.xml 的 calcPr，让 Excel 打开时强制重算 */
+    private function enableFullCalcOnLoad(string $path): void
+    {
+        $zip = new ZipArchive();
+        if ($zip->open($path) !== true) return;
+        $xml = $zip->getFromName('xl/workbook.xml');
+        if ($xml !== false) {
+            $xml = preg_replace_callback('/<calcPr\b[^>]*\/>/', function ($m) {
+                $tag = $m[0];
+                $tag = preg_replace('/\bfullCalcOnLoad="[^"]*"/', 'fullCalcOnLoad="1"', $tag);
+                $tag = preg_replace('/\bforceFullCalc="[^"]*"/', 'forceFullCalc="1"', $tag);
+                $tag = preg_replace('/\bcalcCompleted="[^"]*"/', 'calcCompleted="0"', $tag);
+                return $tag;
+            }, $xml, 1);
+            $zip->addFromString('xl/workbook.xml', $xml);
+        }
+        $zip->close();
     }
 }

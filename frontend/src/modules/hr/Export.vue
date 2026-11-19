@@ -10,6 +10,14 @@
         ? '项目已锁定为本项目，不提供跨项目入口；全公司类报表仅总部账号可导出。'
         : '总部账号可导出全部项目，或在下方「分项目工资表」中任选一个项目。' }}
     </div>
+    <div class="exp-mode">
+      <span class="exp-mode-label">导出模式</span>
+      <label v-for="m in exportModeOptions" :key="m.value" class="exp-mode-opt">
+        <input type="radio" :value="m.value" v-model="expMode" />
+        <span>{{ m.label }}</span>
+      </label>
+      <span class="hint" style="margin:0">默认值由配置 payroll.export_mode 决定。</span>
+    </div>
     <div class="exp-grid">
       <div class="exp-item">
         <div class="exp-item-top">
@@ -109,7 +117,8 @@
       管理人员、全公司案场人员、总部人员工资表仅总部账号可导出；本项目人员请用上方「分项目工资表」。
     </div>
     <div class="hint">
-      工资表类导出均为 Excel，文件名自动携带核算月份与项目；表结构与核算结果明细一致（39 列，末列季度绩效说明）。
+      工资表类导出均为 Excel，文件名自动携带核算月份与项目；表结构与核算结果明细一致。
+      带公式版新增「扣款合计」列、明细页校验区与说明页，合计与汇总可自动重算；纯数值版保持原 39 列与版式。
       绩效工资专项表已迁移至「薪资模块 → 绩效导出」。
     </div>
   </div>
@@ -187,6 +196,11 @@ const caps = computed(() => exportCapabilities({
 
 const expProj = ref('')
 const expType = ref('staff')
+const expMode = ref('formula')
+const exportModeOptions = ref([
+  { value: 'formula', label: '带公式（合计自动重算，可核对）' },
+  { value: 'plain', label: '纯数值（固定数值，兼容旧版）' },
+])
 const attProject = ref('all')
 const attPersonType = ref('all')
 const attMode = ref('merged')
@@ -250,6 +264,11 @@ onMounted(() => {
   expProj.value = caps.value.project
   attProject.value = caps.value.defaultAttendanceProject
   runPrecheck()
+  // 导出模式默认值以后端配置为准（config/payroll.php 一行可改）
+  api('/api/export/mode').then((r) => {
+    if (r && r.default) expMode.value = r.default
+    if (r && Array.isArray(r.options) && r.options.length) exportModeOptions.value = r.options
+  }).catch(() => {})
 })
 
 // 全页只有工资表导出卡里的一个月份控件；改月份后考勤预检同步刷新
@@ -257,25 +276,26 @@ watch(() => ui.month, () => { runPrecheck() })
 
 function go(mode) {
   const ym = ui.month
+  const exportMode = expMode.value
   if (mode === 'summary') {
-    download(`/api/export/summary?ym=${ym}`, `工资全量数据包_${ym}.xlsx`)
+    download(`/api/export/summary?ym=${ym}&mode=${exportMode}`, `工资全量数据包_${ym}.xlsx`)
   } else if (mode === 'projectsAll') {
-    download(`/api/export/projects_all?ym=${ym}`, zipFilename.value)
+    download(`/api/export/projects_all?ym=${ym}&mode=${exportMode}`, zipFilename.value)
   } else if (mode === 'projectTyped') {
     try {
       const target = projectExportTarget(
-        expType.value, ym, expProj.value, isAdmin.value, isProjectScope.value, caps.value.forcedProject,
+        expType.value, ym, expProj.value, isAdmin.value, isProjectScope.value, caps.value.forcedProject, exportMode,
       )
       download(target.url, target.filename)
     } catch (e) {
       toast(e.message || '导出失败', false)
     }
   } else if (mode === 'hqAll') {
-    download(`/api/export/hq-staff?ym=${ym}`, `总部人员工资表_${ym}.xlsx`)
+    download(`/api/export/hq-staff?ym=${ym}&mode=${exportMode}`, `总部人员工资表_${ym}.xlsx`)
   } else if (mode === 'caseAll') {
-    download(`/api/export/case-staff?ym=${ym}`, `案场人员工资表_${ym}.xlsx`)
+    download(`/api/export/case-staff?ym=${ym}&mode=${exportMode}`, `案场人员工资表_${ym}.xlsx`)
   } else if (mode === 'mgrAll') {
-    download(`/api/export/managers-bundle?ym=${ym}`, `管理人员工资表及汇总_${ym}.xlsx`)
+    download(`/api/export/managers-bundle?ym=${ym}&mode=${exportMode}`, `管理人员工资表及汇总_${ym}.xlsx`)
   }
 }
 
@@ -342,6 +362,9 @@ async function attExport() {
 </script>
 
 <style scoped>
+.exp-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.exp-mode-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.exp-mode-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
 .pe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; margin-bottom: 8px; }
 .card-head h3 { margin: 0; white-space: nowrap; }

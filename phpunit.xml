@@ -33,5 +33,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- 既有导出测试默认走纯数值版；公式版测试显式传 mode=formula -->
+        <env name="PAYROLL_EXPORT_MODE" value="plain"/>
     </php>
 </phpunit>

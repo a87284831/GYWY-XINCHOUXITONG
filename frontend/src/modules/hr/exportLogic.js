@@ -46,7 +46,7 @@ export function exportCapabilities({
   }
 }
 
-export function projectExportTarget(type, ym, project, isAdmin = true, isProjectScope = false, userProject = '') {
+export function projectExportTarget(type, ym, project, isAdmin = true, isProjectScope = false, userProject = '', mode = 'formula') {
   const conf = PROJECT_EXPORT_TYPES.find((t) => t.value === type)
   if (!conf) throw new Error('导出人员类型错误')
   if (conf.adminOnly && !isAdmin) throw new Error('管理人员工资仅总部可导出，无权限')
@@ -60,7 +60,7 @@ export function projectExportTarget(type, ym, project, isAdmin = true, isProject
   }
   const p = encodeURIComponent(resolved)
   return {
-    url: `${endpoints[type]}?ym=${ym}&project=${p}`,
+    url: `${endpoints[type]}?ym=${ym}&project=${p}&mode=${encodeURIComponent(mode)}`,
     filename: `${resolved}_${conf.filePart}_${ym}.xlsx`,
   }
 }

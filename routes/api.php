@@ -102,6 +102,7 @@ Route::get('/payroll/history-template', [TemplateController::class, 'payrollHist
 Route::get('/maintenance/contracts/template', [TemplateController::class, 'maintenanceContracts']);
 Route::get('/maintenance/devices/template', [TemplateController::class, 'maintenanceDevices']);
 Route::get('/maintenance/partners/template', [TemplateController::class, 'maintenancePartners']);
+Route::get('/export/mode', [ExportController::class, 'exportMode']);
 Route::get('/export/project', [ExportController::class, 'project']);
 Route::get('/export/managers', [ExportController::class, 'managers']);
 Route::get('/export/managers-bundle', [ExportController::class, 'managersBundle']);

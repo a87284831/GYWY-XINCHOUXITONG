@@ -18,9 +18,13 @@ describe('visibleProjectExportTypes', () => {
 describe('projectExportTarget', () => {
   it('基层员工 → /api/export/project', () => {
     const r = projectExportTarget('staff', '2026-08', '甲项目')
-    expect(r.url).toBe('/api/export/project?ym=2026-08&project=' + encodeURIComponent('甲项目'))
+    expect(r.url).toBe('/api/export/project?ym=2026-08&project=' + encodeURIComponent('甲项目') + '&mode=formula')
     expect(r.filename).toContain('甲项目')
     expect(r.filename).toContain('2026-08')
+  })
+  it('导出模式参数：默认 formula，可显式 plain', () => {
+    expect(projectExportTarget('staff', '2026-08', '甲项目').url).toContain('&mode=formula')
+    expect(projectExportTarget('staff', '2026-08', '甲项目', true, false, '', 'plain').url).toContain('&mode=plain')
   })
   it('案场人员 → project-case', () => {
     expect(projectExportTarget('case', '2026-08', '甲项目').url).toContain('/api/export/project-case?')
