@@ -10,6 +10,11 @@
         ? '项目已锁定为本项目，不提供跨项目入口；全公司类报表仅总部账号可导出。'
         : '总部账号可导出全部项目，或在下方「分项目工资表」中任选一个项目。' }}
     </div>
+    <div v-if="isProjectScope" class="pe-alert" :class="salaryArchived ? 'ok' : 'warn'" style="margin:0 0 12px">
+      {{ salaryArchived
+        ? '本月薪资已归档，可正常导出。'
+        : '本月薪资总部尚未归档，工资表导出会失败；请等总部核定归档后再导出。' }}
+    </div>
     <div class="exp-mode">
       <span class="exp-mode-label">导出模式</span>
       <label v-for="m in exportModeOptions" :key="m.value" class="exp-mode-opt">
@@ -206,6 +211,7 @@ const attPersonType = ref('all')
 const attMode = ref('merged')
 const attLoading = ref(false)
 const attState = ref({ level: 'info', message: '正在预检本月已锁定项目…' })
+const salaryArchived = ref(true)
 
 const zipFilename = computed(() => isProjectScope.value
   ? `${caps.value.project}_工资表_${ui.month}.zip`
@@ -264,6 +270,7 @@ onMounted(() => {
   expProj.value = caps.value.project
   attProject.value = caps.value.defaultAttendanceProject
   runPrecheck()
+  checkSalaryArchive()
   // 导出模式默认值以后端配置为准（config/payroll.php 一行可改）
   api('/api/export/mode').then((r) => {
     if (r && r.default) expMode.value = r.default
@@ -272,11 +279,26 @@ onMounted(() => {
 })
 
 // 全页只有工资表导出卡里的一个月份控件；改月份后考勤预检同步刷新
-watch(() => ui.month, () => { runPrecheck() })
+watch(() => ui.month, () => { runPrecheck(); checkSalaryArchive() })
+
+// 项目账号导出前先看归档状态，未归档直接给出可见提示，不等到点了才报错
+async function checkSalaryArchive() {
+  if (!isProjectScope.value) { salaryArchived.value = true; return }
+  try {
+    const r = await api(`/api/payroll/archive-status?ym=${ui.month}`)
+    salaryArchived.value = !!r.archived
+  } catch (e) {
+    salaryArchived.value = false
+  }
+}
 
 function go(mode) {
   const ym = ui.month
   const exportMode = expMode.value
+  if (isProjectScope.value && !salaryArchived.value) {
+    toast('本月薪资总部尚未归档，暂不能导出工资表', false)
+    return
+  }
   if (mode === 'summary') {
     download(`/api/export/summary?ym=${ym}&mode=${exportMode}`, `工资全量数据包_${ym}.xlsx`)
   } else if (mode === 'projectsAll') {

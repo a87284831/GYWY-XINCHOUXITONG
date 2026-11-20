@@ -82,6 +82,7 @@ class AttendanceQuarterCoefGuardTest extends TestCase
         }
         $reqLetter = Coordinate::stringFromColumnIndex(5 + $daysInMonth);
         $sheet->setCellValue("{$reqLetter}3", '应出勤(手填)');
+        $sheet->setCellValue("{$reqLetter}5", 20); // 应出勤必填（0/留空拒绝）
         $coefLetter = Coordinate::stringFromColumnIndex(self::COEF_COL);
         $sheet->setCellValue("{$coefLetter}3", '绩效系数');
         $sheet->setCellValue('A5', 1);

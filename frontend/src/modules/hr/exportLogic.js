@@ -29,7 +29,10 @@ export function exportCapabilities({
   project = '',
 } = {}) {
   const forced = isProjectScope ? String(userProject || '') : ''
-  const salaryProjects = isProjectScope ? (forced ? [forced] : []) : projects.filter((p) => p !== '物业总部')
+  const carriers = ['物业公司总部', '物业总部']
+  const salaryProjects = isProjectScope
+    ? (forced ? [forced] : [])
+    : projects.filter((p) => !carriers.includes(p))
   const attendanceProjects = isProjectScope ? (forced ? [forced] : []) : projects.slice()
   return {
     isAdmin: !!isAdmin,

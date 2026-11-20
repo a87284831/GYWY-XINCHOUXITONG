@@ -354,7 +354,10 @@ class StoredAttendanceAnchorTest extends TestCase
                     $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4 + $d) . $r, $p['days'][$d - 1]);
                 }
             }
-            foreach ($p['stats'] ?? [] as $h => $v) {
+            $stats = $p['stats'] ?? [];
+            // 应出勤为必填（0/留空整单拒绝）：未显式指定时默认 22（本用例固定的出勤格子数）
+            if (!array_key_exists('应出勤(手填)', $stats)) $stats['应出勤(手填)'] = 22;
+            foreach ($stats as $h => $v) {
                 $sheet->setCellValue($letters[$h] . $r, $v);
             }
             $r++;

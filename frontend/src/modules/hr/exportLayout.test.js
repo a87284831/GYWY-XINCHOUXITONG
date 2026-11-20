@@ -56,6 +56,6 @@ describe('Export.vue 月份控件唯一性与参数链路', () => {
   })
 
   it('切换月份会触发考勤只读预检', () => {
-    expect(src).toMatch(/watch\(\(\) => ui\.month, \(\) => \{ runPrecheck\(\) \}\)/)
+    expect(src).toMatch(/watch\(\(\) => ui\.month, \(\) => \{ runPrecheck\(\)/)
   })
 })

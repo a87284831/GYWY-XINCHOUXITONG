@@ -758,7 +758,25 @@ class DingtalkCallbackController extends ApiController
             }
             if (!empty($systemUpdate)) {
                 $systemUpdate['updated_at'] = now();
-                DB::table('payroll_staff')->where('id', $dbId)->update($systemUpdate);
+                $oldStaff = DB::table('payroll_staff')->where('id', $dbId)
+                    ->first(['legacy_id', 'name', 'person_type', 'project_name']);
+                DB::transaction(function () use ($dbId, $systemUpdate, $oldStaff) {
+                    DB::table('payroll_staff')->where('id', $dbId)->update($systemUpdate);
+                    if (!$oldStaff) return;
+                    $newType = $systemUpdate['person_type'] ?? $oldStaff->person_type;
+                    $newProject = $systemUpdate['project_name'] ?? $oldStaff->project_name;
+                    $oldKey = \App\Services\StaffCategoryMigration::keyFor($oldStaff->person_type, $oldStaff->project_name);
+                    $newKey = \App\Services\StaffCategoryMigration::keyFor($newType, $newProject);
+                    if ($oldKey !== $newKey) {
+                        app(\App\Services\StaffCategoryMigration::class)->migrate(
+                            (int) $oldStaff->legacy_id, (string) $oldStaff->name,
+                            $oldStaff->person_type, $oldStaff->project_name,
+                            (string) $newType, (string) $newProject,
+                            // 钉钉无生效日期：全部未归档月份随分类迁移，已归档月份标记提示（不传生效日）
+                            'dingtalk_sync', 'dingtalk_sync', '钉钉花名册岗位职级变更', null
+                        );
+                    }
+                });
             }
         }
 

@@ -493,6 +493,19 @@ class StaffController extends ApiController
                     'by_user' => $account->username, 'created_at' => now(), 'updated_at' => now(),
                 ]);
             }
+            // 分类（基层/管理/案场/总部）变更：未归档工资行随分类迁移；已归档月份不动
+            $migration = null;
+            $oldKey = $existing ? \App\Services\StaffCategoryMigration::keyFor($existing->person_type ?? null, $existing->project_name ?? null) : null;
+            $newKey = \App\Services\StaffCategoryMigration::keyFor($personType, $project);
+            if ($existing && $oldKey !== $newKey) {
+                $migration = app(\App\Services\StaffCategoryMigration::class)->migrate(
+                    (int) $id, $name,
+                    $existing->person_type ?? null, $existing->project_name ?? null,
+                    $personType, $project,
+                    (string) ($account->username ?? ''), 'staff_edit',
+                    '人员分类由 ' . $oldKey . ' 变更为 ' . $newKey, $personSince
+                );
+            }
             // 离职/黑名单 → 账号自动停用；复职恢复
             $category = \App\Services\StaffCategory::derive((array) $payload, date('Y-m-d'));
             $bound = DB::table('payroll_accounts')->where('staff_id', $id)->first();
@@ -502,7 +515,7 @@ class StaffController extends ApiController
                     DB::table('payroll_accounts')->where('id', $bound->id)->update(['enabled' => $shouldEnable, 'updated_at' => now()]);
                 }
             }
-            return response()->json(['ok' => true, 'id' => $id]);
+            return response()->json(['ok' => true, 'id' => $id, 'person_type_migration' => $migration]);
         });
     }
 

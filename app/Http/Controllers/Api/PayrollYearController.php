@@ -27,6 +27,7 @@ class PayrollYearController extends ApiController
     {
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
+        if ($deny = $this->denyProjectScope($request, $account, 'data')) return $deny;
         $year = $this->year($request);
         $view = $this->buildView($account, $request, $year);
         return response()->json(array_merge(['ok' => true, 'year' => $year], $view));
@@ -37,6 +38,7 @@ class PayrollYearController extends ApiController
     {
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
+        if ($deny = $this->denyProjectScope($request, $account, 'export')) return $deny;
         $year = $this->year($request);
         $view = $this->buildView($account, $request, $year);
         if (empty($view['rows'])) {
@@ -61,6 +63,25 @@ class PayrollYearController extends ApiController
     {
         $y = (int) $request->input('year', date('Y'));
         return ($y >= 2020 && $y <= 2100) ? $y : (int) date('Y');
+    }
+
+    /**
+     * 全年发放明细属于全公司口径，项目范围账号一律拒绝（不靠过滤管理行兜底）。
+     * 越权尝试写审计日志，便于追溯。
+     */
+    private function denyProjectScope(Request $request, object $account, string $action): ?JsonResponse
+    {
+        if (!$this->isProjectScope($account)) return null;
+        \Illuminate\Support\Facades\Log::warning('payroll.annual.forbidden', [
+            'action' => $action,
+            'account' => (string) ($account->username ?? ''),
+            'role' => (string) ($account->role ?? ''),
+            'project' => (string) ($account->project_name ?? ''),
+            'year' => (string) $request->input('year', ''),
+            'ip' => (string) $request->ip(),
+            'path' => $request->path(),
+        ]);
+        return response()->json(['ok' => false, 'error' => '全年发放明细仅总部账号可查看'], 403);
     }
 
     private function projectFilter(object $account, Request $request): string

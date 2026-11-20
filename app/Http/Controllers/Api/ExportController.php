@@ -589,6 +589,25 @@ class ExportController extends ApiController
         return $this->xlsx($book, '工资全量数据包_' . $ym . '.xlsx', $formula);
     }
 
+    /** 汇总展示按行类型拆分：基层 / 管理 / 案场 / 总部（总部不进项目汇总）。 */
+    private function summarySplitRows($records): array
+    {
+        $out = ['base' => collect(), 'manager' => collect(), 'case' => collect(), 'hq' => collect()];
+        foreach ($records as $record) {
+            $row = $this->jsonValue($record->row_data);
+            if ((int) ($record->is_hq_row ?? 0) === 1) $out['hq']->push($row);
+            elseif ((int) ($record->is_manager_row ?? 0) === 1) $out['manager']->push($row);
+            elseif ((int) ($record->is_case_row ?? 0) === 1) $out['case']->push($row);
+            else $out['base']->push($row);
+        }
+        return $out;
+    }
+
+    private function summarySum($rows, string $field): float
+    {
+        return round($rows->sum(fn ($row) => (float) ($row[$field] ?? 0)), 2);
+    }
+
     /**
      * 汇总展示页导出（GET /api/summary/export?ym=2026-09&project=项目名）
      * 与薪资模块"汇总展示"页同一口径：项目|发放人数|应发|实发|预算|执行率|年度累计|核算状态。
@@ -613,18 +632,43 @@ class ExportController extends ApiController
             ->get()->groupBy('project_name');
         $items = [];
         foreach ($query->get()->groupBy('project_name') as $project => $records) {
-            $rows = $records->map(fn ($row) => $this->jsonValue($row->row_data));
+            $split = $this->summarySplitRows($records);
+            if ($split['hq']->isNotEmpty() && $split['base']->isEmpty()
+                && $split['manager']->isEmpty() && $split['case']->isEmpty()) {
+                continue; // 物业公司总部等载体项目不进入项目汇总
+            }
             $budget = isset($budgets[$project]) ? ($this->jsonValue($budgets[$project]->data) ?: []) : [];
             $monthBudget = (float) ($budget['months'][(string) $month] ?? 0);
             $annualBudget = (float) ($budget['annual'] ?? 0);
-            $ytd = $allYtd[$project] ?? collect();
-            $ytdGross = round($ytd->sum(fn ($record) => (float) (($this->jsonValue($record->row_data)['gross'] ?? 0))), 2);
-            $items[] = ['project' => $project, 'headcount' => $rows->count(),
-                'gross' => round($rows->sum(fn ($row) => (float) ($row['gross'] ?? 0)), 2),
-                'net' => round($rows->sum(fn ($row) => (float) ($row['net'] ?? 0)), 2),
-                'month_budget' => $monthBudget, 'month_rate' => $monthBudget > 0 ? round($rows->sum(fn ($row) => (float) ($row['gross'] ?? 0)) / $monthBudget, 4) : 0,
-                'annual_budget' => $annualBudget, 'ytd_gross' => $ytdGross,
-                'annual_rate' => $annualBudget > 0 ? round($ytdGross / $annualBudget, 4) : 0, 'calculated' => true];
+            $ytdSplit = $this->summarySplitRows($allYtd[$project] ?? collect());
+            $baseGross = $this->summarySum($split['base'], 'gross');
+            $managerGross = $this->summarySum($split['manager'], 'gross');
+            $caseGross = $this->summarySum($split['case'], 'gross');
+            $gross = round($baseGross + $managerGross, 2);
+            $baseNet = $this->summarySum($split['base'], 'net');
+            $managerNet = $this->summarySum($split['manager'], 'net');
+            $caseNet = $this->summarySum($split['case'], 'net');
+            $ytdBase = $this->summarySum($ytdSplit['base'], 'gross');
+            $ytdManager = $this->summarySum($ytdSplit['manager'], 'gross');
+            $ytdCase = $this->summarySum($ytdSplit['case'], 'gross');
+            $ytdGross = round($ytdBase + $ytdManager, 2);
+            $items[] = [
+                'project' => $project,
+                'headcount' => $split['base']->count() + $split['manager']->count(),
+                'base_headcount' => $split['base']->count(),
+                'manager_headcount' => $split['manager']->count(),
+                'case_headcount' => $split['case']->count(),
+                'base_gross' => $baseGross, 'manager_gross' => $managerGross, 'case_gross' => $caseGross,
+                'base_net' => $baseNet, 'manager_net' => $managerNet, 'case_net' => $caseNet,
+                'gross' => $gross, 'net' => round($baseNet + $managerNet, 2),
+                'month_budget' => $monthBudget,
+                'month_rate' => $monthBudget > 0 ? round($gross / $monthBudget, 4) : 0,
+                'annual_budget' => $annualBudget,
+                'ytd_base_gross' => $ytdBase, 'ytd_manager_gross' => $ytdManager, 'ytd_case_gross' => $ytdCase,
+                'ytd_gross' => $ytdGross,
+                'annual_rate' => $annualBudget > 0 ? round($ytdGross / $annualBudget, 4) : 0,
+                'calculated' => true,
+            ];
         }
         // 项目筛选（支持多选，逗号分隔）
         $projectFilter = $this->isProjectScope($account) ? (string) $account->project_name : $request->string('project')->toString();
@@ -634,34 +678,34 @@ class ExportController extends ApiController
         }
         if (!$items) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
 
-        $tHead = ['headcount' => 0, 'gross' => 0.0, 'net' => 0.0, 'month_budget' => 0.0, 'annual_budget' => 0.0, 'ytd_gross' => 0.0];
+        $tHead = ['headcount' => 0, 'base_headcount' => 0, 'manager_headcount' => 0, 'case_headcount' => 0,
+            'base_gross' => 0.0, 'manager_gross' => 0.0, 'case_gross' => 0.0,
+            'base_net' => 0.0, 'manager_net' => 0.0, 'case_net' => 0.0,
+            'gross' => 0.0, 'net' => 0.0, 'month_budget' => 0.0, 'annual_budget' => 0.0,
+            'ytd_base_gross' => 0.0, 'ytd_manager_gross' => 0.0, 'ytd_case_gross' => 0.0, 'ytd_gross' => 0.0];
         foreach ($items as $it) {
-            $tHead['headcount'] += $it['headcount'];
-            $tHead['gross'] += $it['gross'];
-            $tHead['net'] += $it['net'];
-            $tHead['month_budget'] += $it['month_budget'];
-            $tHead['annual_budget'] += $it['annual_budget'];
-            $tHead['ytd_gross'] += $it['ytd_gross'];
+            foreach (array_keys($tHead) as $k) $tHead[$k] += $it[$k];
         }
-        $tHead['gross'] = round($tHead['gross'], 2);
-        $tHead['net'] = round($tHead['net'], 2);
-        $tHead['month_budget'] = round($tHead['month_budget'], 2);
-        $tHead['annual_budget'] = round($tHead['annual_budget'], 2);
-        $tHead['ytd_gross'] = round($tHead['ytd_gross'], 2);
+        foreach (array_keys($tHead) as $k) {
+            if (!in_array($k, ['headcount', 'base_headcount', 'manager_headcount', 'case_headcount'], true)) {
+                $tHead[$k] = round($tHead[$k], 2);
+            }
+        }
         $tHead['month_rate'] = $tHead['month_budget'] > 0 ? round($tHead['gross'] / $tHead['month_budget'], 4) : 0;
         $tHead['annual_rate'] = $tHead['annual_budget'] > 0 ? round($tHead['ytd_gross'] / $tHead['annual_budget'], 4) : 0;
 
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet();
         $sheet->setTitle('汇总展示');
-        $sheet->mergeCells('A1:J1');
+        $sheet->mergeCells('A1:N1');
         $sheet->setCellValue('A1', $ym . ' 工资汇总展示' . ($selected ? '（筛选' . count($selected) . '项）' : ''));
         $sheet->getStyle('A1')->getFont()->setName('微软雅黑')->setBold(true)->setSize(15);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal('center')->setVertical('center');
         $sheet->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
         $sheet->getRowDimension(1)->setRowHeight(30);
 
-        $head = ['项目', '发放人数', '应发总金额', '实发总金额', '当月预算', '当月执行率', '年度预算', '年度累计应发', '年度执行率', '核算状态'];
+        $head = ['项目', '基层人数', '基层应发', '管理人数', '管理应发', '项目合计人数', '项目合计应发（基层+管理）',
+            '实发总金额', '当月预算', '当月执行率', '年度预算', '年度累计应发（基层+管理）', '年度执行率', '核算状态'];
         foreach ($head as $ci => $v) {
             $col = Coordinate::stringFromColumnIndex($ci + 1) . '2';
             $sheet->setCellValue($col, $v);
@@ -672,37 +716,70 @@ class ExportController extends ApiController
         $sheet->getRowDimension(2)->setRowHeight(22);
         $r = 3;
         foreach ($items as $it) {
-            $vals = [$it['project'], $it['headcount'], $it['gross'], $it['net'], $it['month_budget'],
-                $it['month_rate'], $it['annual_budget'], $it['ytd_gross'], $it['annual_rate'],
-                $it['calculated'] ? '已核算' : '未核算'];
+            $vals = [$it['project'], $it['base_headcount'], $it['base_gross'], $it['manager_headcount'], $it['manager_gross'],
+                $it['headcount'], $it['gross'], $it['net'], $it['month_budget'], $it['month_rate'],
+                $it['annual_budget'], $it['ytd_gross'], $it['annual_rate'], $it['calculated'] ? '已核算' : '未核算'];
             foreach ($vals as $ci => $v) {
                 if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
             }
             $r++;
         }
-        $tVals = ['总计', $tHead['headcount'], $tHead['gross'], $tHead['net'], $tHead['month_budget'],
+        $tVals = ['总计（基层+管理）', $tHead['base_headcount'], $tHead['base_gross'], $tHead['manager_headcount'],
+            $tHead['manager_gross'], $tHead['headcount'], $tHead['gross'], $tHead['net'], $tHead['month_budget'],
             $tHead['month_rate'], $tHead['annual_budget'], $tHead['ytd_gross'], $tHead['annual_rate'], ''];
         foreach ($tVals as $ci => $v) {
             if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
         }
-        $sheet->getStyle("A{$r}:J{$r}")->getFont()->setBold(true);
-        $sheet->getStyle("A{$r}:J{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
-        $last = $r;
-        $sheet->getColumnDimension('A')->setWidth(20);
-        $sheet->getColumnDimension('B')->setWidth(10);
-        foreach (['C', 'D', 'E', 'G', 'H'] as $c) {
-            $sheet->getColumnDimension($c)->setWidth(14);
+        $sheet->getStyle("A{$r}:N{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:N{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+        $mainLast = $r;
+
+        // 案场人员单独一段，不计入上面的项目合计
+        $r += 2;
+        $sheet->mergeCells("A{$r}:N{$r}");
+        $sheet->setCellValue("A{$r}", '案场人员（单独核算，不计入项目合计）');
+        $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle("A{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FCE4D6');
+        $r++;
+        $caseHead = ['项目', '案场人数', '案场应发', '案场实发'];
+        foreach ($caseHead as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . $r;
+            $sheet->setCellValue($col, $v);
+            $sheet->getStyle($col)->getFont()->setBold(true);
+            $sheet->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8D7DA');
+            $sheet->getStyle($col)->getAlignment()->setHorizontal('center');
         }
-        foreach (['F', 'I'] as $c) {
+        $r++;
+        foreach ($items as $it) {
+            if ($it['case_headcount'] <= 0) continue;
+            $vals = [$it['project'], $it['case_headcount'], $it['case_gross'], $it['case_net']];
+            foreach ($vals as $ci => $v) {
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            }
+            $r++;
+        }
+        $caseVals = ['案场合计（不计入项目合计）', $tHead['case_headcount'], $tHead['case_gross'], $tHead['case_net']];
+        foreach ($caseVals as $ci => $v) {
+            if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+        }
+        $sheet->getStyle("A{$r}:D{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:D{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
+        $last = $r;
+        $sheet->getColumnDimension('A')->setWidth(26);
+        $sheet->getColumnDimension('B')->setWidth(10);
+        foreach (['C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L'] as $c) {
+            $sheet->getColumnDimension($c)->setWidth(15);
+        }
+        foreach (['J', 'M'] as $c) {
             $sheet->getColumnDimension($c)->setWidth(12);
         }
-        $sheet->getColumnDimension('J')->setWidth(10);
+        $sheet->getColumnDimension('N')->setWidth(10);
         foreach (range(2, $last) as $rr) {
-            foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as $cc) {
+            foreach (range('A', 'N') as $cc) {
                 $st = $sheet->getStyle("{$cc}{$rr}");
                 $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
-                if (in_array($cc, ['C', 'D', 'E', 'G', 'H'], true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
-                if (in_array($cc, ['F', 'I'], true)) $st->getNumberFormat()->setFormatCode('0.00%');
+                if (in_array($cc, ['C', 'E', 'G', 'H', 'I', 'K', 'L'], true)) $st->getNumberFormat()->setFormatCode('#,##0.00');
+                if (in_array($cc, ['J', 'M'], true)) $st->getNumberFormat()->setFormatCode('0.00%');
             }
             $sheet->getRowDimension($rr)->setRowHeight(20);
         }
@@ -1562,13 +1639,13 @@ class ExportController extends ApiController
         }
 
         // ===== 校验区 =====
-        $this->fillCheckArea($sheet, $col, $totalRow, $sums);
+        $this->fillCheckArea($sheet, $col, $totalRow, $sums, $rows);
 
         return $totalRow;
     }
 
     /** 明细页底部校验区：系统值 / 公式值 / 差异；差异非 0 红底加粗 */
-    private function fillCheckArea($sheet, array $col, int $totalRow, array $sums): void
+    private function fillCheckArea($sheet, array $col, int $totalRow, array $sums, $rows = null): void
     {
         $start = $totalRow + 2;
         $sheet->setCellValue("A{$start}", '校验区（系统值 vs 公式值）');
@@ -1619,6 +1696,70 @@ class ExportController extends ApiController
         $style->getFont()->setBold(true)->getColor()->setRGB('9C0006');
         $conditional->setStyle($style);
         $sheet->getStyle("D{$firstDiff}:D{$lastDiff}")->setConditionalStyles([$conditional]);
+
+        // ===== 逐行校验（不只比合计）：系统值 - 本表公式值 =====
+        if ($rows === null || count($rows) === 0) return;
+        $rowStart = $lastDiff + 3;
+        $sheet->setCellValue("A{$rowStart}", '逐行校验（系统值 - 本表公式值，逐人逐列）');
+        $sheet->mergeCells("A{$rowStart}:I{$rowStart}");
+        $sheet->getStyle("A{$rowStart}")->getFont()->setBold(true)->setSize(11);
+        $sheet->getStyle("A{$rowStart}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
+
+        $rowHead = $rowStart + 1;
+        $heads = ['序号', '姓名', '应发基本工资差异', '应发绩效工资差异', '病假工资差异',
+            '应发合计差异', '五险合计差异', '实发差异', '结论'];
+        foreach ($heads as $i => $v) {
+            $coord = Coordinate::stringFromColumnIndex($i + 1) . $rowHead;
+            $sheet->setCellValue($coord, $v);
+            $st = $sheet->getStyle($coord);
+            $st->getFont()->setBold(true)->setSize(10);
+            $st->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+            $st->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+            $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+        }
+
+        $map = [
+            'C' => ['base_pay', $col['应发基本工资']],
+            'D' => ['perf_pay', $col['应发绩效工资']],
+            'E' => ['sick_pay', $col['病假工资']],
+            'F' => ['gross', $col['应发工资合计']],
+            'G' => ['soc_total', $col['五险一金合计']],
+            'H' => ['net', $col['实发工资']],
+        ];
+        $r = $rowHead + 1;
+        $firstRowCheck = $r;
+        $i = 0;
+        foreach ($rows as $row) {
+            $detailRow = 3 + $i;
+            $sheet->setCellValue("A{$r}", $i + 1);
+            $sheet->setCellValueExplicit("B{$r}", (string) ($row['name'] ?? ''), DataType::TYPE_STRING);
+            foreach ($map as $target => [$field, $letter]) {
+                $system = round((float) ($row[$field] ?? 0), 2);
+                $this->putFormula($sheet, "{$target}{$r}",
+                    "=ROUND({$system}-{$letter}{$detailRow},2)", 0);
+                $sheet->getStyle("{$target}{$r}")->getNumberFormat()->setFormatCode('#,##0.00;-#,##0.00;');
+            }
+            $this->putFormula($sheet, "I{$r}",
+                "=IF(AND(C{$r}=0,D{$r}=0,E{$r}=0,F{$r}=0,G{$r}=0,H{$r}=0),\"一致\",\"不一致\")", '一致');
+            $sheet->getStyle("I{$r}")->getAlignment()->setHorizontal('center');
+            foreach (range('A', 'I') as $cc) {
+                $st = $sheet->getStyle("{$cc}{$r}");
+                $st->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('BFBFBF'));
+                $st->getFont()->setName('微软雅黑')->setSize(10);
+            }
+            $i++;
+            $r++;
+        }
+        $lastRowCheck = $r - 1;
+        $rowConditional = new Conditional();
+        $rowConditional->setConditionType(Conditional::CONDITION_CELLIS)
+            ->setOperatorType(Conditional::OPERATOR_NOTEQUAL)
+            ->addCondition('0');
+        $rowStyle = new Style();
+        $rowStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFC7CE');
+        $rowStyle->getFont()->setBold(true)->getColor()->setRGB('9C0006');
+        $rowConditional->setStyle($rowStyle);
+        $sheet->getStyle("C{$firstRowCheck}:H{$lastRowCheck}")->setConditionalStyles([$rowConditional]);
     }
 
     /** 用公式替换已写入的系统值，并把原值作为缓存值保留 */
@@ -1783,6 +1924,9 @@ class ExportController extends ApiController
             ['', false],
             ['四、校验区怎么用', true],
             ['每张明细页合计行下方有「系统值 / 公式值 / 差异」校验区：系统值来自系统核算结果，公式值引用该页合计行；差异 = ROUND(系统值 - 公式值,2)。差异为 0 表示一致；不为 0 时差异单元格红底加粗，说明系统口径与公式口径存在差异，请以系统值为准并反馈。', false],
+            ['校验区下方还有「逐行校验」：按人逐列比较系统值与本表公式值，差异列红底；合计一致但逐行有差异时也会暴露，不再只看总数。', false],
+            ['常量列说明：应发基本工资、应发绩效工资、病假工资在月中调薪分段、季度累计绩效、试用段等场景，无法仅用本表列复现，会以 =ROUND(系统值,2) 的常量公式写入，这三个单元格不保证随本表输入变化重算；其余金额列均由本表列公式计算。', false],
+            ['', false],
         ];
         $r = 3;
         foreach ($lines as [$text, $bold]) {
@@ -1802,7 +1946,7 @@ class ExportController extends ApiController
                 $refs[] = $this->sheetRef($d['title']) . '!' . $col['应发工资合计'] . $d['total'];
             }
             $r++;
-            $sheet->setCellValue("A{$r}", '四、全表校验（明细页合计之和 vs 汇总页总计）');
+            $sheet->setCellValue("A{$r}", '五、全表校验（明细页合计之和 vs 汇总页总计）');
             $sheet->mergeCells("A{$r}:F{$r}");
             $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(11);
             $sheet->getRowDimension($r)->setRowHeight(22);

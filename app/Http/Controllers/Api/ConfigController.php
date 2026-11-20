@@ -10,7 +10,40 @@ class ConfigController extends ApiController
 {
     public function saveRules(Request $request): JsonResponse
     {
-        return $this->saveSnapshot($request, 'calc_rules.json', ['rules' => $request->input('rules', [])]);
+        $rules = $request->input('rules', []);
+        if (!is_array($rules)) return response()->json(['ok' => false, 'error' => '规则数据格式错误'], 400);
+        if ($error = $this->validatePayRatios($rules)) return $error;
+        return $this->saveSnapshot($request, 'calc_rules.json', ['rules' => $rules]);
+    }
+
+    /** 季度/半年度比例必须在 0~100%（0~1）区间；超出会直接导致超发/少发。 */
+    private function validatePayRatios(array $rules): ?JsonResponse
+    {
+        $payRules = $rules['pay_rules'] ?? [];
+        if (!is_array($payRules)) return response()->json(['ok' => false, 'error' => '绩效发放规则格式错误'], 400);
+        foreach ($payRules as $type => $rule) {
+            if (!is_array($rule) || ($rule['cycle'] ?? 'monthly') !== 'quarterly') continue;
+            $groups = [];
+            if (is_array($rule['levels'] ?? null)) $groups[] = $rule['levels'];
+            if (is_array($rule['default'] ?? null)) $groups[] = ['default' => $rule['default']];
+            foreach ($groups as $group) {
+                foreach ($group as $grade => $item) {
+                    if (!is_array($item)) continue;
+                    foreach (['quarter_ratio', 'half_year_ratio'] as $key) {
+                        if (!array_key_exists($key, $item)) continue;
+                        $value = $item[$key];
+                        if (!is_numeric($value) || (float) $value < 0 || (float) $value > 1) {
+                            $label = $key === 'quarter_ratio' ? '季度比例' : '半年度比例';
+                            return response()->json([
+                                'ok' => false,
+                                'error' => "{$type} / {$grade} 的{$label}必须在 0~100% 之间",
+                            ], 400);
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     public function saveSymbols(Request $request): JsonResponse

@@ -384,6 +384,18 @@ class PayrollCalculator
                 ];
             }
             $rows[] = $row;
+            // 历史存量应出勤为 0：兜底保留，但必须让核算结果可见，不能静默按日历天数发钱
+            if ((float) ($row['req_att'] ?? 0) <= 0 && (float) ($row['act_att'] ?? 0) > 0) {
+                \Illuminate\Support\Facades\Log::warning('payroll.calc.req_att_fallback', [
+                    'ym' => $ym, 'project' => $person->project_name, 'name' => $person->name,
+                    'act_att' => $row['act_att'], 'denom' => $row['req_att'] <= 0 ? 'calendar_days' : $row['req_att'],
+                ]);
+                $warnings[] = [
+                    'name' => $person->name, 'project' => $person->project_name,
+                    'reason' => '本月应出勤缺失（存值为0），已按当月日历天数计算基本工资，请核对考勤表',
+                    'level' => 'warning',
+                ];
+            }
             if ($hire === '') $noHireDate[] = $person->name;
         }
 
@@ -885,6 +897,9 @@ class PayrollCalculator
         // 非转正人员只有一段，等于直接用存值；存值为 0 时各段均为 0（不再被格子数反推成满勤）。
         // 病假/旷工同样锚定统计列存值，只按格子占比切段。
         $anchoredAttend = self::allocateAnchored($actual, $segmentAttend, $segmentDays);
+        // 满勤基准：把"应出勤"按同一分段权重分摊，供微调按出勤/系数可恢复地缩放
+        $fullTotal = $h > 0 ? $h : ($actual > 0 ? (float)date('t', strtotime($ym . '-01')) : 0.0);
+        $anchoredFull = self::allocateAnchored($fullTotal, $segmentAttend, $segmentDays);
         $anchoredSick   = self::allocateAnchored((float)$stats['sick'], $segmentSick, $segmentDays);
         $anchoredAbsent = self::allocateAnchored((float)$stats['absent'], $segmentAbsent, $segmentDays);
 
@@ -903,12 +918,17 @@ class PayrollCalculator
         $absentMult    = $this->rules->num('deduction_rules.absent.multiplier', 2);
 
         $basePay = 0.0; $perfPay = 0.0; $sickPay = 0.0; $absentFine = 0.0;
+        $baseFull = 0.0; $perfFull = 0.0;
         foreach ($segments as $i => $seg) {
             $segDays = $anchoredAttend[$i];
             $basePay += $seg['base'] * $segDays / $denom;
+            // 满勤基准：按应出勤分摊后的满勤段天数计算，不受当月实际出勤影响；
+            // 供微调按出勤/系数可恢复地缩放（单段满勤时等于 seg.base，不因日历天数与应出勤差异被放大）
+            $baseFull += $seg['base'] * $anchoredFull[$i] / $denom;
 
             if ($perfEnabled && !($perfSkipProbation && !empty($seg['probation']))) {
                 $perfPay += max(0, $seg['fixed'] - $seg['base']) * $coef * $segDays / $denom;
+                $perfFull += max(0, $seg['fixed'] - $seg['base']) * $anchoredFull[$i] / $denom;
             }
             if ($sickEnabled) {
                 $sickSegBase = $sickBase === 'fixed' ? $seg['fixed'] : $seg['base'];
@@ -942,9 +962,10 @@ class PayrollCalculator
         $perfPay = round($perfPay, 2);
         $sickPay = round($sickPay, 2);
 
-        // 满勤基准：供"微调"按出勤/系数可恢复地缩放 base_pay、perf_pay
-        $basePayRef = $actual > 0 ? round($basePay * $denom / $actual, 2) : $basePay;
-        $perfPayRef = ($actual > 0 && $coef != 0.0) ? round($perfPay * $denom / ($actual * $coef), 2) : $perfPay;
+        // 满勤基准：供"微调"按出勤/系数可恢复地缩放 base_pay、perf_pay。
+        // 用整段天数计算，不能反推（系数为 0 时反推会把基准写成 0，之后上调系数无法恢复绩效）。
+        $basePayRef = round($baseFull, 2);
+        $perfPayRef = round($perfFull, 2);
 
         // 季度绩效覆盖：管理/总部人员在季度末月按季度累计计算；7月/1月同时发半年度部分（两笔分开）
         $perfDetail = null;

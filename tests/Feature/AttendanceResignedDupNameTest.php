@@ -76,6 +76,7 @@ class AttendanceResignedDupNameTest extends TestCase
         }
         $reqLetter = Coordinate::stringFromColumnIndex(5 + $daysInMonth);
         $sheet->setCellValue("{$reqLetter}3", '应出勤(手填)');
+        $sheet->setCellValue("{$reqLetter}5", 20); // 应出勤必填（0/留空拒绝）
         // 第 5 行：徐振祥考勤行（√ 出勤 20 天，其余空）
         $sheet->setCellValue('A5', 1);
         $sheet->setCellValue('B5', '徐振祥');

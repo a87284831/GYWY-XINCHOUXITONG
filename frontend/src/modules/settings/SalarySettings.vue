@@ -64,8 +64,8 @@
                   <tbody>
                     <tr v-for="g in PAY_GRADES" :key="g">
                       <td>{{ g }}</td>
-                      <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].quarter_ratio" style="width:90px"></td>
-                      <td><input type="number" step="0.01" min="0" max="2" v-model="payRules[t].ratios[g].half_year_ratio" style="width:90px"></td>
+                      <td><input type="number" step="0.01" min="0" max="1" v-model="payRules[t].ratios[g].quarter_ratio" style="width:90px"></td>
+                      <td><input type="number" step="0.01" min="0" max="1" v-model="payRules[t].ratios[g].half_year_ratio" style="width:90px"></td>
                     </tr>
                   </tbody>
                 </table></div>

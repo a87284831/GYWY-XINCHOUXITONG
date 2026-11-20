@@ -105,7 +105,9 @@ class AttendanceGroupTemplateTest extends TestCase
                     $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4 + $d) . $r, $sym);
                 }
             }
-            if (isset($p['req'])) $sheet->setCellValue("{$reqLetter}{$r}", $p['req']);
+            // 应出勤为必填（0/留空整单拒绝）：未显式指定时默认填当月天数，保持既有用例聚焦原意
+            $req = array_key_exists('req', $p) ? $p['req'] : $days;
+            if ($req !== null) $sheet->setCellValue("{$reqLetter}{$r}", $req);
             $r++;
         }
         $path = tempnam(sys_get_temp_dir(), 'attgrp') . '.xlsx';
@@ -119,6 +121,26 @@ class AttendanceGroupTemplateTest extends TestCase
             'ym' => self::YM, 'project' => $group,
             'file' => new UploadedFile($path, 'g.xlsx', null, null, true),
         ] + $extra, ['X-Token' => $token]);
+    }
+
+    /** 下载模板里「应出勤(手填)」列默认留空；上传已强制必填，测试回传前统一补齐（表头在第4行，数据从第6行起） */
+    private function fillReqColumn($sheet, int $days): void
+    {
+        $nameCol = null; $reqCol = null;
+        for ($c = 1; $c <= \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $c++) {
+            $L = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+            $h = trim((string) $sheet->getCell("{$L}4")->getValue());
+            if ($h === '姓名') $nameCol = $L;
+            if ($h === '应出勤(手填)') $reqCol = $L;
+        }
+        if ($nameCol === null || $reqCol === null) return;
+        for ($r = 6; $r <= $sheet->getHighestRow(); $r++) {
+            if (trim((string) $sheet->getCell("{$nameCol}{$r}")->getValue()) === '') continue;
+            $cur = $sheet->getCell("{$reqCol}{$r}")->getValue();
+            if ($cur === null || trim((string) $cur) === '' || (float) $cur <= 0) {
+                $sheet->setCellValue("{$reqCol}{$r}", $days);
+            }
+        }
     }
 
     /** 读取下载响应中的姓名列（表头第3行按“姓名”动态定位，兼容单项目/多项目两种列序；数据从第5行开始） */
@@ -369,6 +391,7 @@ class AttendanceGroupTemplateTest extends TestCase
         }
         $this->assertNotNull($targetRow);
         $sheet->setCellValue("{$welfareCol}{$targetRow}", 150);
+        $this->fillReqColumn($sheet, (int) date('t', strtotime(self::YM . '-01')));
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($sheet->getParent()))->save($tmp);
         $this->upload($tmp, '甲项目', $this->adminToken)->assertOk();
         @unlink($tmp);
@@ -541,6 +564,7 @@ class AttendanceGroupTemplateTest extends TestCase
         for ($i = 0; $i < $days; $i++) {
             $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startIdx + $i) . '6', '√');
         }
+        $this->fillReqColumn($sheet, $days);
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($sheet->getParent()))->save($tmp);
         $up = $this->post('/api/attendance/upload', [
             'ym' => $ym, 'project' => '甲项目',

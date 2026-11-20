@@ -472,6 +472,25 @@ class PayrollController extends ApiController
         return !$rows->isEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1);
     }
 
+    /** 按行类型拆分：基层 / 管理 / 案场 / 总部（总部不计入项目汇总）。 */
+    private function splitSummaryRows($records): array
+    {
+        $out = ['base' => collect(), 'manager' => collect(), 'case' => collect(), 'hq' => collect()];
+        foreach ($records as $record) {
+            $row = $this->jsonValue($record->row_data);
+            if ((int) ($record->is_hq_row ?? 0) === 1) $out['hq']->push($row);
+            elseif ((int) ($record->is_manager_row ?? 0) === 1) $out['manager']->push($row);
+            elseif ((int) ($record->is_case_row ?? 0) === 1) $out['case']->push($row);
+            else $out['base']->push($row);
+        }
+        return $out;
+    }
+
+    private function sumRows($rows, string $field): float
+    {
+        return round($rows->sum(fn ($row) => (float) ($row[$field] ?? 0)), 2);
+    }
+
     public function summary(Request $request): JsonResponse
     {
         $account = $this->requireAccount($request);
@@ -491,29 +510,99 @@ class PayrollController extends ApiController
             ->get()->groupBy('project_name');
         $items = [];
         foreach ($query->get()->groupBy('project_name') as $project => $records) {
-            $rows = $records->map(fn ($row) => $this->jsonValue($row->row_data));
+            $split = $this->splitSummaryRows($records);
+            if ($split['hq']->isNotEmpty() && $split['base']->isEmpty()
+                && $split['manager']->isEmpty() && $split['case']->isEmpty()) {
+                continue; // 物业公司总部等载体项目不在项目汇总中展示
+            }
             $budget = isset($budgets[$project]) ? ($this->jsonValue($budgets[$project]->data) ?: []) : [];
             $monthBudget = (float) ($budget['months'][(string) $month] ?? 0);
             $annualBudget = (float) ($budget['annual'] ?? 0);
-            $ytd = $allYtd[$project] ?? collect();
-            $ytdGross = round($ytd->sum(fn ($record) => (float) (($this->jsonValue($record->row_data)['gross'] ?? 0))), 2);
-            $items[] = ['project' => $project, 'headcount' => $rows->count(),
-                'gross' => round($rows->sum(fn ($row) => (float) ($row['gross'] ?? 0)), 2),
-                'net' => round($rows->sum(fn ($row) => (float) ($row['net'] ?? 0)), 2),
-                'month_budget' => $monthBudget, 'month_rate' => $monthBudget > 0 ? round($rows->sum(fn ($row) => (float) ($row['gross'] ?? 0)) / $monthBudget, 4) : 0,
-                'annual_budget' => $annualBudget, 'ytd_gross' => $ytdGross,
-                'annual_rate' => $annualBudget > 0 ? round($ytdGross / $annualBudget, 4) : 0, 'calculated' => true];
+            $ytdSplit = $this->splitSummaryRows($allYtd[$project] ?? collect());
+
+            $baseGross = $this->sumRows($split['base'], 'gross');
+            $managerGross = $this->sumRows($split['manager'], 'gross');
+            $caseGross = $this->sumRows($split['case'], 'gross');
+            $gross = round($baseGross + $managerGross, 2);
+            $baseNet = $this->sumRows($split['base'], 'net');
+            $managerNet = $this->sumRows($split['manager'], 'net');
+            $caseNet = $this->sumRows($split['case'], 'net');
+            $ytdBase = $this->sumRows($ytdSplit['base'], 'gross');
+            $ytdManager = $this->sumRows($ytdSplit['manager'], 'gross');
+            $ytdCase = $this->sumRows($ytdSplit['case'], 'gross');
+            $ytdGross = round($ytdBase + $ytdManager, 2);
+
+            $items[] = [
+                'project' => $project,
+                'headcount' => $split['base']->count() + $split['manager']->count(),
+                'base_headcount' => $split['base']->count(),
+                'manager_headcount' => $split['manager']->count(),
+                'case_headcount' => $split['case']->count(),
+                'base_gross' => $baseGross, 'manager_gross' => $managerGross, 'case_gross' => $caseGross,
+                'base_net' => $baseNet, 'manager_net' => $managerNet, 'case_net' => $caseNet,
+                'gross' => $gross, 'net' => round($baseNet + $managerNet, 2),
+                'month_budget' => $monthBudget,
+                'month_rate' => $monthBudget > 0 ? round($gross / $monthBudget, 4) : 0,
+                'annual_budget' => $annualBudget,
+                'ytd_base_gross' => $ytdBase, 'ytd_manager_gross' => $ytdManager, 'ytd_case_gross' => $ytdCase,
+                'ytd_gross' => $ytdGross,
+                'annual_rate' => $annualBudget > 0 ? round($ytdGross / $annualBudget, 4) : 0,
+                'calculated' => true,
+            ];
         }
         $total = ['headcount' => array_sum(array_column($items, 'headcount')),
+            'base_headcount' => array_sum(array_column($items, 'base_headcount')),
+            'manager_headcount' => array_sum(array_column($items, 'manager_headcount')),
+            'case_headcount' => array_sum(array_column($items, 'case_headcount')),
+            'base_gross' => round(array_sum(array_column($items, 'base_gross')), 2),
+            'manager_gross' => round(array_sum(array_column($items, 'manager_gross')), 2),
+            'case_gross' => round(array_sum(array_column($items, 'case_gross')), 2),
             'gross' => round(array_sum(array_column($items, 'gross')), 2),
             'net' => round(array_sum(array_column($items, 'net')), 2),
+            'case_net' => round(array_sum(array_column($items, 'case_net')), 2),
             'month_budget' => round(array_sum(array_column($items, 'month_budget')), 2),
             'month_rate' => 0, 'annual_budget' => round(array_sum(array_column($items, 'annual_budget')), 2),
+            'ytd_base_gross' => round(array_sum(array_column($items, 'ytd_base_gross')), 2),
+            'ytd_manager_gross' => round(array_sum(array_column($items, 'ytd_manager_gross')), 2),
+            'ytd_case_gross' => round(array_sum(array_column($items, 'ytd_case_gross')), 2),
             'ytd_gross' => round(array_sum(array_column($items, 'ytd_gross')), 2), 'annual_rate' => 0];
         $total['month_rate'] = $total['month_budget'] > 0 ? round($total['gross'] / $total['month_budget'], 4) : 0;
         $total['annual_rate'] = $total['annual_budget'] > 0 ? round($total['ytd_gross'] / $total['annual_budget'], 4) : 0;
+        $caseTotal = ['headcount' => $total['case_headcount'], 'gross' => $total['case_gross'], 'net' => $total['case_net']];
+        $archived = $this->isProjectScope($account)
+            ? (DB::table('payroll_results')->where('year_month', $ym)
+                ->where('project_name', $account->project_name)
+                ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
+                ->where('archived', false)->doesntExist()
+                && DB::table('payroll_results')->where('year_month', $ym)
+                    ->where('project_name', $account->project_name)->exists())
+            : $this->allArchived($ym);
         return response()->json(['ok' => true, 'ym' => $ym, 'items' => $items, 'total' => $total,
-            'archived' => false]);
+            'case_total' => $caseTotal, 'archived' => $archived]);
+    }
+
+    /** GET /api/payroll/archive-status?ym=2026-10：导出前只读查询归档状态。 */
+    public function archiveStatus(Request $request): JsonResponse
+    {
+        $account = $this->requireAccount($request);
+        if ($account instanceof JsonResponse) return $account;
+        $ym = $request->string('ym')->toString();
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['ok' => false, 'error' => '月份格式应为 YYYY-MM'], 400);
+        }
+        if ($this->isProjectScope($account)) {
+            $rows = DB::table('payroll_results')->where('year_month', $ym)
+                ->where('project_name', $account->project_name)
+                ->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false)
+                ->get(['archived']);
+            return response()->json([
+                'ok' => true, 'ym' => $ym, 'project' => (string) $account->project_name,
+                'calculated' => $rows->isNotEmpty(),
+                'archived' => $rows->isNotEmpty() && $rows->every(fn ($r) => (int) $r->archived === 1),
+            ]);
+        }
+        return response()->json(['ok' => true, 'ym' => $ym, 'project' => null,
+            'calculated' => true, 'archived' => $this->allArchived($ym)]);
     }
 
     /** 该月总部人员工资表是否已全部归档锁定 */

@@ -269,7 +269,10 @@
         <h3>薪资微调 — {{ adjRow.name }}（{{ adjRow.project }}）</h3>
         <div class="msg info">修改后系统自动重算应发合计、个税累计预扣与实发工资；所有修改留存日志。</div>
         <div class="form-grid">
-          <label>应出勤(天)<input type="number" step="0.01" v-model="adjValues.req_att" /></label>
+          <label>应出勤(天)<input type="number" step="1" min="1" v-model="adjValues.req_att"
+            :style="reqAttError ? 'border-color:#dc2626' : ''" />
+            <div v-if="reqAttError" class="hint" style="color:#dc2626">{{ reqAttError }}</div>
+          </label>
           <label>实际出勤(天)<input type="number" step="0.01" v-model="adjValues.act_att" /></label>
           <label>绩效计薪出勤(天)<input type="number" step="0.01" v-model="adjValues.perf_att" /></label>
           <label>绩效系数<input type="number" step="0.01" v-model="adjValues.coef" /></label>
@@ -302,7 +305,7 @@
         </div>
         <div class="row end" style="margin-top:14px">
           <button class="btn" @click="closeAdjust">取消</button>
-          <button class="btn primary" @click="saveAdjust">保存微调</button>
+          <button class="btn primary" :disabled="!!reqAttError" @click="saveAdjust">保存微调</button>
         </div>
       </div>
     </div>
@@ -575,6 +578,12 @@ const adjRemark = ref('')
 const adjReason = ref('')
 const adjHistory = ref([])
 const adjHistoryLoading = ref(false)
+const reqAttError = computed(() => {
+  const v = Number(adjValues.req_att)
+  if (!Number.isFinite(v) || v <= 0) return '应出勤必须大于0'
+  if (!Number.isInteger(v)) return '应出勤必须为整数'
+  return ''
+})
 
 // 季度/半年度系数录入弹窗
 const coefDialog = reactive({ show: false, loading: false, saving: false, err: '', ym: '', period: '', half_period: null, items: [] })
@@ -992,6 +1001,7 @@ function closeAdjust() {
 
 async function saveAdjust() {
   const reason = adjReason.value.trim()
+  if (reqAttError.value) return toast(reqAttError.value, false)
   if (!reason) return toast('请填写修改原因', false)
   const changes = computeAdjustChanges(adjRow.value, adjValues, adjRemark.value)
   if (!Object.keys(changes).length) { closeAdjust(); return toast('没有修改') }

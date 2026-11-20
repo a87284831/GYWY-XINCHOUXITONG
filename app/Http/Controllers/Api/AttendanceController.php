@@ -666,6 +666,18 @@ class AttendanceController extends ApiController
                     $record[$key] = round((float) $value, 2);
                 }
             }
+            // 应出勤是必填项：0 或留空都视为漏填（存量历史数据不在上传/核算时清洗）
+            if (array_key_exists('req_attend', $columns)) {
+                $reqVal = $record['req_attend'] ?? null;
+                if ($reqVal === null || (float) $reqVal <= 0) {
+                    $errors[] = $this->noticeItem(
+                        'req_attend_missing',
+                        "第{$row}行 {$name}：应出勤(手填)未填写或为0，必须填写大于0的天数",
+                        '应出勤未填或为0',
+                        ['row' => $row, 'name' => $name, 'field' => 'req_attend', 'label' => '应出勤(手填)']
+                    );
+                }
+            }
             // 逐列比对统计列与符号统计（只比对表里实际存在的列；空值视为未填，不参与比对）
             $grid = \App\Services\PayrollCalculator::attendanceStats($daysData, $symbols);
             foreach ($statChecks as $key => $chk) {

@@ -334,6 +334,12 @@ class PayrollWriteController extends ApiController
             if (!in_array($field, $editable, true)) return response()->json(['ok' => false, 'error' => "字段不允许微调：{$field}"], 400);
             if ($field !== 'remark' && !is_numeric($value)) return response()->json(['ok' => false, 'error' => "字段数值无效：{$field}"], 400);
         }
+        if (array_key_exists('req_att', $changes)) {
+            $reqVal = (float) $changes['req_att'];
+            if ($reqVal <= 0 || floor($reqVal) !== $reqVal) {
+                return response()->json(['ok' => false, 'error' => '应出勤必须为大于0的整数'], 400);
+            }
+        }
         $record = DB::table('payroll_results')->where('year_month', $ym)->where('staff_legacy_id', $staffId)->first();
         if (!$record) return response()->json(['ok' => false, 'error' => '无该月核算数据'], 404);
         if ($record->archived) return response()->json(['ok' => false, 'error' => '已归档，不能微调'], 400);
@@ -362,13 +368,11 @@ class PayrollWriteController extends ApiController
             $act  = (float)($row['act_att'] ?? 0);
             $perf = (float)($row['perf_att'] ?? $act);
             $coef = (float)($row['coef'] ?? 0);
-            if ($req > 0) {
-                $baseRef = (float)($row['base_pay_ref'] ?? ($row['base_pay'] ?? 0));
-                $row['base_pay'] = round($baseRef * $act / $req, 2);
-                $row['base_pay_ref'] = round($baseRef, 2);
-            } else {
-                $row['base_pay'] = 0.0;
-            }
+            // 与核算同一分母口径：应出勤<=0 时，实际出勤>0 用当月日历天数兜底，否则用 1
+            $denom = $req > 0 ? $req : ($act > 0 ? (float) date('t', strtotime($ym . '-01')) : 1.0);
+            $baseRef = (float)($row['base_pay_ref'] ?? ($row['base_pay'] ?? 0));
+            $row['base_pay'] = $act > 0 ? round($baseRef * $act / $denom, 2) : 0.0;
+            $row['base_pay_ref'] = round($baseRef, 2);
             if ($pqBefore !== null) {
                 // 季末月季度绩效：base/att/req 取季内已落库累计，按季度公式重算；
                 // perf_att 被带走时把差额并入季度出勤（分母仍为季内 Σperf_req）。
@@ -384,13 +388,13 @@ class PayrollWriteController extends ApiController
                 $row['perf_quarter'] = $pqBefore;
                 $row['perf_pay'] = $pqBefore['amount'];
                 $row['perf_pay_ref'] = $pqBefore['amount'];
-            } elseif ($req > 0) {
-                $perfRef = (float)($row['perf_pay_ref'] ?? ($row['perf_pay'] ?? 0));
-                $row['perf_pay'] = round($perfRef * $perf / $req * $coef, 2);
+            } else {
+                $perfRef = (float)($row['perf_pay_ref'] ?? 0);
+                // 历史行在系数为 0 时基准可能被写成 0，用固定月薪-基本工资兜底恢复
+                if ($perfRef <= 0) $perfRef = max(0.0, (float)($row['fixed'] ?? 0) - (float)($row['base'] ?? 0));
+                $row['perf_pay'] = $perf > 0 && $act > 0 ? round($perfRef * $perf / $denom * $coef, 2) : 0.0;
                 // 锚定基准，避免多次微调互相复合
                 $row['perf_pay_ref'] = round($perfRef, 2);
-            } else {
-                $row['perf_pay'] = 0.0;
             }
         }
 
@@ -416,28 +420,37 @@ class PayrollWriteController extends ApiController
             $row['net'] = round($net + (float)($row['tax_diff'] ?? 0), 2);
         }
 
-        DB::table('payroll_results')->where('id', $record->id)->update([
-            'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
-        ]);
+        $operator = (string) ($account->name ?? $account->username ?? 'admin');
+        try {
+            // 工资行更新与审计日志必须同生共死：日志失败时回滚工资修改，避免"改了钱但无痕"
+            DB::transaction(function () use ($record, $row, $staffId, $changeItems, $request, $account, $operator) {
+                DB::table('payroll_results')->where('id', $record->id)->update([
+                    'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
+                ]);
 
-        // 微调审计日志（问题4）：只存字段级旧→新与关键合计快照，不存整行，避免表膨胀
-        DB::table('payroll_adjust_logs')->insert([
-            'staff_legacy_id' => $staffId,
-            'staff_name' => (string) ($row['name'] ?? ''),
-            'project_name' => (string) ($record->project_name ?? ($row['project'] ?? '')),
-            'ym' => $ym,
-            'changes' => json_encode($changeItems, JSON_UNESCAPED_UNICODE),
-            'row_after' => json_encode([
-                'gross' => isset($row['gross']) ? round((float) $row['gross'], 2) : null,
-                'net' => isset($row['net']) ? round((float) $row['net'], 2) : null,
-                'actual_tax' => isset($row['actual_tax']) ? round((float) $row['actual_tax'], 2) : null,
-                'soc_total' => isset($row['soc_total']) ? round((float) $row['soc_total'], 2) : null,
-            ], JSON_UNESCAPED_UNICODE),
-            'reason' => mb_substr(trim((string) $request->input('reason', '')), 0, 255),
-            'operator' => (string) ($account->name ?? $account->username ?? 'admin'),
-            'operator_role' => (string) ($account->role ?? ''),
-            'created_at' => now(),
-        ]);
+                // 微调审计日志（问题4）：只存字段级旧→新与关键合计快照，不存整行，避免表膨胀
+                DB::table('payroll_adjust_logs')->insert([
+                    'staff_legacy_id' => $staffId,
+                    'staff_name' => (string) ($row['name'] ?? ''),
+                    'project_name' => (string) ($record->project_name ?? ($row['project'] ?? '')),
+                    'ym' => $request->string('ym')->toString(),
+                    'changes' => json_encode($changeItems, JSON_UNESCAPED_UNICODE),
+                    'row_after' => json_encode([
+                        'gross' => isset($row['gross']) ? round((float) $row['gross'], 2) : null,
+                        'net' => isset($row['net']) ? round((float) $row['net'], 2) : null,
+                        'actual_tax' => isset($row['actual_tax']) ? round((float) $row['actual_tax'], 2) : null,
+                        'soc_total' => isset($row['soc_total']) ? round((float) $row['soc_total'], 2) : null,
+                    ], JSON_UNESCAPED_UNICODE),
+                    'reason' => mb_substr(trim((string) $request->input('reason', '')), 0, 255),
+                    'operator' => $operator,
+                    'operator_role' => (string) ($account->role ?? ''),
+                    'created_at' => now(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['ok' => false, 'error' => '微调保存失败，工资与日志已回滚：' . $e->getMessage()], 500);
+        }
 
         return response()->json(['ok' => true, 'row' => $row]);
     }

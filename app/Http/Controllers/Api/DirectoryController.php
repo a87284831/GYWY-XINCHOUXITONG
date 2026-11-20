@@ -78,7 +78,8 @@ class DirectoryController extends ApiController
         $rows = $query->orderBy('project_name')->orderBy('name')->get();
         $today = date('Y-m-d');
         $cat = (string) $request->input('cat', '');
-        $staff = $rows->map(function ($row) use ($today) {
+        $archivedMarkers = $this->archivedMarkers($rows->pluck('legacy_id')->all());
+        $staff = $rows->map(function ($row) use ($today, $archivedMarkers) {
             $legacy = $this->jsonValue($row->data) ?: [];
             $legacy['id'] = $row->legacy_id;
             $legacy['name'] = $row->name;
@@ -101,6 +102,11 @@ class DirectoryController extends ApiController
             $legacy['regular_date'] = $row->regular_date ?: ($legacy['regular_date'] ?? null);
             $legacy['resign_date'] = $row->resign_date ?: ($legacy['resign_date'] ?? null);
             $legacy['category'] = \App\Services\StaffCategory::derive((array) $row, $today);
+            // 分类变更后已归档月份仍计在旧分类：人员列表可见标记（来源：最近一次分类迁移审计）
+            $marker = $archivedMarkers[(int) $row->legacy_id] ?? null;
+            $legacy['archived_months'] = $marker['months'] ?? [];
+            $legacy['archived_notice'] = $marker['notice'] ?? '';
+            $legacy['archived_from_label'] = $marker['from_label'] ?? '';
             return $legacy;
         });
         $cats = ['在职' => 0, '离职' => 0, '黑名单' => 0];
@@ -109,5 +115,39 @@ class DirectoryController extends ApiController
         }
         if ($cat !== '') $staff = $staff->filter(fn ($s) => ($s['category'] ?? '') === $cat)->values();
         return response()->json(['ok' => true, 'staff' => $staff, 'counts' => $cats]);
+    }
+
+    /**
+     * 人员列表「已归档，仍计在旧分类」标记。
+     * 来源：最近一次分类迁移审计（迁移服务每次都全量重算该人的已归档月份，
+     * 因此最新一条即当前真实状态；分类改回后该记录为空，标记自动消失）。
+     *
+     * @param  array<int, mixed> $ids
+     * @return array<int, array{months: array<int, string>, from_label: string, notice: string}>
+     */
+    private function archivedMarkers(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (!$ids) return [];
+        $latest = [];
+        $rows = DB::table('payroll_staff_type_migrations')
+            ->whereIn('staff_legacy_id', $ids)
+            ->orderBy('id')
+            ->get(['staff_legacy_id', 'from_type', 'archived_months']);
+        foreach ($rows as $row) $latest[(int) $row->staff_legacy_id] = $row;
+
+        $markers = [];
+        foreach ($latest as $id => $row) {
+            $months = json_decode((string) ($row->archived_months ?? '[]'), true);
+            if (!is_array($months) || !$months) continue;
+            $months = array_values(array_map('strval', $months));
+            $fromLabel = \App\Services\StaffCategoryMigration::LABELS[$row->from_type] ?? (string) $row->from_type;
+            $markers[$id] = [
+                'months' => $months,
+                'from_label' => $fromLabel,
+                'notice' => implode('、', $months) . ' 已归档，仍计在' . $fromLabel,
+            ];
+        }
+        return $markers;
     }
 }

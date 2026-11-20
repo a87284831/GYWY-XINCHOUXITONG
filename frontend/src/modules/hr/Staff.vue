@@ -61,7 +61,9 @@
             <tr v-for="s in staff" :key="s.id">
               <td style="text-align:center"><input type="checkbox" class="stChk" style="width:auto" :checked="sel.has(s.id)" @change="toggle(s.id, $event.target.checked)" /></td>
               <td><span :class="'tag ' + (CAT_TAG[s.category] || 'gray')">{{ s.category || '-' }}</span></td>
-              <td><b>{{ s.name }}</b></td><td>{{ s.project }}</td><td>{{ s.dept_path || '未分配' }}</td><td>{{ s.position }}</td>
+              <td><b>{{ s.name }}</b>
+                <div v-if="s.archived_notice" class="tag orange" style="margin-top:2px" :title="archivedTitle(s)">{{ s.archived_notice }}</div>
+              </td><td>{{ s.project }}</td><td>{{ s.dept_path || '未分配' }}</td><td>{{ s.position }}</td>
               <td><span :class="s.person_type === 'case' ? 'tag green' : (s.person_type === 'manager' ? 'tag purple' : (s.person_type === 'hq' ? 'tag blue' : 'tag gray'))">{{ personTypeLabel(s.person_type) }}</span></td>
               <td>
                 <span v-if="s.pay_grade" class="tag blue">{{ s.pay_grade }}</span>
@@ -203,6 +205,7 @@ const CAT_TAG = { '在职': 'green', '离职': 'gray', '黑名单': 'red' }
 const STATUS_TAG = { '正式': 'green', '新聘': 'blue', '转正': 'purple', '试用': 'orange', '离职': 'gray' }
 const DEDUCT_ITEMS = ['租房租金', '住房贷款利息', '子女教育', '赡养老人', '继续教育', '婴幼儿照护']
 const personTypeLabel = (t) => (t === 'case' ? '案场人员' : t === 'manager' ? '管理人员' : t === 'hq' ? '总部人员' : (t ? '基层员工' : '—'))
+const archivedTitle = (s) => `以下月份工资已归档、金额锁定，仍按变更前分类统计：${(s.archived_months || []).join('、')}`
 
 const cat = ref('在职')
 const counts = ref({})

@@ -356,4 +356,70 @@ class PayrollExportFormulaTest extends TestCase
         $this->assertSame('一致', $sheet->getCell('E9')->getOldCalculatedValue());
         $this->assertSame(2, $book->getSheetCount());
     }
+
+    /** 逐行校验：不只比合计，按人逐列比对系统值与明细公式值，差异为 0 */
+    public function test_formula_check_area_compares_each_person_row_by_row(): void
+    {
+        $this->seedRow(['name' => '张三']);
+        $this->seedRow(['name' => '李四', 'fixed' => 6000, 'base' => 4500, 'base_pay' => 4500, 'perf_pay' => 1500,
+            'gross' => 6000, 'pen' => 500, 'med' => 200, 'une' => 100, 'house' => 400, 'big' => 50,
+            'soc_total' => 1250, 'actual_tax' => 0, 'net' => 4750]);
+
+        [$book, $sheet] = $this->loadSheet($this->exportProject('&mode=formula'));
+
+        $headRow = null;
+        $grid = $sheet->toArray(null, true, false, false);
+        foreach ($grid as $i => $row) {
+            if (trim((string) ($row[0] ?? '')) === '逐行校验（系统值 - 本表公式值，逐人逐列）') {
+                $headRow = $i + 2; // 标题下一行是表头
+                break;
+            }
+        }
+        $this->assertNotNull($headRow, '公式版必须包含逐行校验区');
+        $this->assertSame('序号', $sheet->getCell("A{$headRow}")->getValue());
+        $this->assertSame('姓名', $sheet->getCell("B{$headRow}")->getValue());
+        $this->assertSame('应发基本工资差异', $sheet->getCell("C{$headRow}")->getValue());
+
+        $first = $headRow + 1;
+        $second = $headRow + 2;
+        $this->assertSame(1, (int) $sheet->getCell("A{$first}")->getValue());
+        $this->assertSame('张三', $sheet->getCell("B{$first}")->getValue());
+        $this->assertSame(2, (int) $sheet->getCell("A{$second}")->getValue());
+        $this->assertSame('李四', $sheet->getCell("B{$second}")->getValue());
+
+        // 系统值 - 明细公式值；明细数据行 3、4
+        $this->assertSame('=ROUND(4000-M3,2)', $sheet->getCell("C{$first}")->getValue());
+        $this->assertSame('=ROUND(1000-N3,2)', $sheet->getCell("D{$first}")->getValue());
+        $this->assertSame('=ROUND(4500-M4,2)', $sheet->getCell("C{$second}")->getValue());
+        $this->assertSame('=ROUND(1500-N4,2)', $sheet->getCell("D{$second}")->getValue());
+        $this->assertSame('=ROUND(6000-AA4,2)', $sheet->getCell("F{$second}")->getValue());
+
+        foreach ([$first, $second] as $r) {
+            foreach (['C', 'D', 'E', 'F', 'G', 'H'] as $c) {
+                $this->assertEqualsWithDelta(0.0, (float) $sheet->getCell("{$c}{$r}")->getOldCalculatedValue(), 0.001,
+                    "{$c}{$r} 逐行差异应为 0");
+            }
+            $this->assertSame('一致', $sheet->getCell("I{$r}")->getOldCalculatedValue());
+        }
+        $this->assertNotEmpty($sheet->getStyle("C{$first}:H{$second}")->getConditionalStyles(),
+            '逐行差异列应有非 0 红底条件格式');
+    }
+
+    /** 说明页必须标注常量列，避免把「无法由本表列复现」的单元格误认为公式错误 */
+    public function test_notes_sheet_documents_constant_columns_and_row_check(): void
+    {
+        $this->seedRow();
+        [$book] = $this->loadSheet($this->exportProject('&mode=formula'));
+        $notes = $book->getSheetByName('说明');
+        $this->assertNotNull($notes);
+        $text = '';
+        foreach ($notes->toArray(null, true, false, false) as $row) {
+            $text .= implode(' ', array_filter($row, fn ($v) => $v !== null && $v !== '')) . "\n";
+        }
+        $this->assertStringContainsString('常量列', $text);
+        $this->assertStringContainsString('应发基本工资', $text);
+        $this->assertStringContainsString('应发绩效工资', $text);
+        $this->assertStringContainsString('病假工资', $text);
+        $this->assertStringContainsString('逐行校验', $text);
+    }
 }

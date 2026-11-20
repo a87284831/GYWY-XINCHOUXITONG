@@ -2,14 +2,36 @@
 
 // 复刻 renderSummary 的合计口径（app.js:698-704）
 export function summaryTotals(items) {
-  const t = { headcount: 0, gross: 0, net: 0, month_budget: 0, annual_budget: 0, ytd_gross: 0 }
+  const t = {
+    headcount: 0, base_headcount: 0, manager_headcount: 0, case_headcount: 0,
+    base_gross: 0, manager_gross: 0, case_gross: 0,
+    base_net: 0, manager_net: 0, case_net: 0,
+    gross: 0, net: 0, month_budget: 0, annual_budget: 0,
+    ytd_base_gross: 0, ytd_manager_gross: 0, ytd_case_gross: 0, ytd_gross: 0,
+  }
   for (const it of items) {
-    t.headcount += it.headcount
-    t.gross += it.gross
-    t.net += it.net
-    t.month_budget += it.month_budget
-    t.annual_budget += it.annual_budget
-    t.ytd_gross += it.ytd_gross
+    t.headcount += it.headcount || 0
+    t.base_headcount += it.base_headcount || 0
+    t.manager_headcount += it.manager_headcount || 0
+    t.case_headcount += it.case_headcount || 0
+    t.base_gross += it.base_gross || 0
+    t.manager_gross += it.manager_gross || 0
+    t.case_gross += it.case_gross || 0
+    t.base_net += it.base_net || 0
+    t.manager_net += it.manager_net || 0
+    t.case_net += it.case_net || 0
+    t.gross += it.gross || 0
+    t.net += it.net || 0
+    t.month_budget += it.month_budget || 0
+    t.annual_budget += it.annual_budget || 0
+    t.ytd_base_gross += it.ytd_base_gross || 0
+    t.ytd_manager_gross += it.ytd_manager_gross || 0
+    t.ytd_case_gross += it.ytd_case_gross || 0
+    t.ytd_gross += it.ytd_gross || 0
+  }
+  for (const k of ['base_gross', 'manager_gross', 'case_gross', 'base_net', 'manager_net', 'case_net',
+    'gross', 'net', 'month_budget', 'annual_budget', 'ytd_base_gross', 'ytd_manager_gross', 'ytd_case_gross', 'ytd_gross']) {
+    t[k] = Math.round(t[k] * 100) / 100
   }
   t.month_rate = t.month_budget > 0 ? t.gross / t.month_budget : 0
   t.annual_rate = t.annual_budget > 0 ? t.ytd_gross / t.annual_budget : 0
