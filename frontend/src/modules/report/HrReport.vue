@@ -26,7 +26,7 @@
           <RCard label="本月入职" :value="d.kpis.in" :delta="d.deltas.in" color="#16a34a" />
           <RCard label="本月离职" :value="d.kpis.out" :delta="d.deltas.out" color="#dc2626" />
           <RCard label="本月转正" :value="d.kpis.regular" :delta="d.deltas.regular" color="#8b5cf6" />
-          <RCard label="人均薪酬" :value="rMoneyOrDash(d.kpis.avg_pay)" :delta="d.deltas.avg_pay" sub="当月应发/发放人数" color="#f59e0b" />
+          <RCard label="人均薪酬" :value="rMoneyOrDash(d.kpis.avg_pay)" :delta="d.deltas.avg_pay" sub="当月应发/发放人数（基层+管理）" color="#f59e0b" />
           <RCard label="人均司龄" :value="d.kpis.avg_tenure + ' 年'" sub="在职员工平均司龄" color="#0ea5e9" />
         </div>
         <div class="rpt-grid-2">
@@ -48,9 +48,13 @@
             <div v-if="d.edu_dist.length" style="height:240px"><canvas :ref="(el) => setEl('hrEdu', el)"></canvas></div>
             <div v-else class="msg info" style="text-align:center;padding:30px">暂未录入学历信息</div>
           </RSection>
-          <RSection title="人力成本按项目分布">
+          <RSection title="人力成本按项目分布（基层+管理，案场单列）">
             <div v-if="d.cost_by_project.length" :style="{ height: Math.max(180, d.cost_by_project.length * 36) + 'px' }"><canvas :ref="(el) => setEl('hrCost', el)"></canvas></div>
             <div v-else class="msg info" style="text-align:center;padding:30px">暂无成本数据</div>
+            <div v-if="d.cost_breakdown" class="hint">
+              项目合计 = 基层 {{ rMoneyOrDash(d.cost_breakdown.base.gross) }} + 管理 {{ rMoneyOrDash(d.cost_breakdown.manager.gross) }}；
+              案场 {{ rMoneyOrDash(d.cost_breakdown.case.gross) }}（{{ d.cost_breakdown.case.headcount }} 人）、总部 {{ rMoneyOrDash(d.cost_breakdown.hq.gross) }} 单独列示，不并入项目合计。
+            </div>
           </RSection>
         </div>
         <div class="rpt-grid-2">

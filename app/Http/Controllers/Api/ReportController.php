@@ -14,24 +14,32 @@ class ReportController extends ApiController
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
         $year = (int) $request->input('year', now()->year); $ym = $request->input('ym') ?: sprintf('%04d-12', $year);
-        $query = DB::table('payroll_results')->where('year_month', $ym);
-        if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
-        $rows = $query->get()->map(fn ($row) => $this->jsonValue($row->row_data) ?: []);
-        $gross = $rows->sum(fn ($row) => (float) ($row['gross'] ?? 0)); $net = $rows->sum(fn ($row) => (float) ($row['net'] ?? 0));
-        $projects = $rows->groupBy(fn ($row) => $row['project'] ?? '')->map(fn ($items, $project) => [
-            'project' => $project, 'headcount' => $items->count(), 'gross' => round($items->sum(fn ($row) => (float) ($row['gross'] ?? 0)), 2),
-            'net' => round($items->sum(fn ($row) => (float) ($row['net'] ?? 0)), 2), 'month_budget' => 0, 'month_rate' => 0,
-        ])->values();
+        $records = $this->scopedResultRecords($account, $ym);
+        $split = $this->splitResultRecords($records);
+        $projectRows = $this->projectRows($split);
+        $gross = $this->sumFieldRows($projectRows, 'gross'); $net = $this->sumFieldRows($projectRows, 'net');
+        $headcount = $projectRows->count();
+        // 项目口径 = 基层 + 管理；案场/总部单独列出，不并入项目合计
+        $projects = $records->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $project) {
+            $s = $this->splitResultRecords($items); $p = $this->projectRows($s);
+            return ['project' => $project, 'headcount' => $p->count(),
+                'gross' => $this->sumFieldRows($p, 'gross'), 'net' => $this->sumFieldRows($p, 'net'),
+                'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
+                'manager_gross' => $this->sumFieldRows($s['manager'], 'gross'),
+                'case_gross' => $this->sumFieldRows($s['case'], 'gross'),
+                'hq_gross' => $this->sumFieldRows($s['hq'], 'gross'),
+                'case_headcount' => $s['case']->count(), 'month_budget' => 0, 'month_rate' => 0];
+        })->values();
         $staffQuery = DB::table('payroll_staff')->where('deleted', false);
         if ($this->isProjectScope($account)) $staffQuery->where('project_name', $account->project_name);
         $staff = $staffQuery->get(); $status = $staff->groupBy('status')->map->count();
         // 部门人数分布（按 dept_path 末级部门聚合；未挂部门归"未分配"）
         $deptHead = $staff->groupBy(fn ($s) => $this->deptName($s))->map->count();
-        // 部门人工成本（当月核算结果按人员所属部门聚合）
+        // 部门人工成本（项目口径：基层 + 管理）
         $deptCost = [];
         $staffDept = DB::table('payroll_staff')->pluck('dept_path', 'legacy_id');
-        $resultRows = $query->get();
-        foreach ($resultRows as $dbRow) {
+        foreach ($records as $dbRow) {
+            if ((int) ($dbRow->is_case_row ?? 0) === 1 || (int) ($dbRow->is_hq_row ?? 0) === 1) continue;
             $j = $this->jsonValue($dbRow->row_data) ?: [];
             $staffId = $dbRow->staff_legacy_id ?? ($j['id'] ?? null);
             $dept = $this->deptNameFromPath($staffId ? ($staffDept[$staffId] ?? null) : null);
@@ -43,16 +51,19 @@ class ReportController extends ApiController
         }
         $deptCost = array_values($deptCost);
         $months = collect(range(1, 12))->map(function ($month) use ($year, $account) {
-            $query = DB::table('payroll_results')->where('year_month', sprintf('%04d-%02d', $year, $month));
-            if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
-            $rows = $query->get(); return ['month' => $month, 'gross' => round($rows->sum(fn ($row) => (float) (($this->jsonValue($row->row_data)['gross'] ?? 0))), 2),
-                'net' => round($rows->sum(fn ($row) => (float) (($this->jsonValue($row->row_data)['net'] ?? 0))), 2), 'headcount' => $rows->count()];
+            $recs = $this->scopedResultRecords($account, sprintf('%04d-%02d', $year, $month));
+            $split = $this->splitResultRecords($recs); $rows = $this->projectRows($split);
+            return ['month' => $month, 'gross' => $this->sumFieldRows($rows, 'gross'),
+                'net' => $this->sumFieldRows($rows, 'net'), 'headcount' => $rows->count(),
+                'case_gross' => $this->sumFieldRows($split['case'], 'gross'),
+                'hq_gross' => $this->sumFieldRows($split['hq'], 'gross')];
         })->values();
         return response()->json(['ok' => true, 'year' => $year, 'ym' => $ym, 'months' => $months,
             'projects' => $projects, 'proj_cost' => $projects, 'status_dist' => $status,
             'dept_headcount' => $deptHead, 'dept_cost' => $deptCost,
-            'active_staff' => $staff->count(), 'month_headcount' => $rows->count(), 'month_gross' => round($gross, 2),
-            'month_net' => round($net, 2), 'avg_gross' => $rows->count() ? round($gross / $rows->count(), 2) : 0,
+            'active_staff' => $staff->count(), 'month_headcount' => $headcount, 'month_gross' => $gross,
+            'month_net' => $net, 'avg_gross' => $headcount ? round($gross / $headcount, 2) : 0,
+            'month_breakdown' => $this->categoryBreakdown($split),
             'ytd_gross' => round($months->where('month', '<=', (int) substr($ym, 5, 2))->sum('gross'), 2),
             'ytd_net' => round($months->where('month', '<=', (int) substr($ym, 5, 2))->sum('net'), 2),
             'composition' => [], 'staff_trend' => [], 'month_budgets' => [], 'proj_year' => [], 'attendance_anomaly' => []]);
@@ -115,17 +126,24 @@ class ReportController extends ApiController
         $hometownTop = array_slice($this->distribution($activeNow, 'hometown'), 0, 10);
         $statusDist = $this->statusDistribution($staff, $cur['monthEnd']);
 
-        // 人力成本（按项目，当月应发）
-        $costRows = $this->scopedResults($account, $ym);
-        $costByProject = $costRows->groupBy(fn ($j) => $j['project'] ?? '')->map(function ($items, $p) {
-            return ['label' => $p, 'headcount' => $items->count(), 'gross' => round($items->sum(fn ($j) => (float) ($j['gross'] ?? 0)), 2)];
-        })->sortByDesc('gross')->values();
+        // 人力成本（按项目，当月应发；项目口径 = 基层 + 管理，案场单列）
+        $costRecords = $this->scopedResultRecords($account, $ym);
+        $costSplit = $this->splitResultRecords($costRecords);
+        $costByProject = $costRecords->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $p) {
+            $s = $this->splitResultRecords($items); $rows = $this->projectRows($s);
+            return ['label' => $p, 'headcount' => $rows->count(), 'gross' => $this->sumFieldRows($rows, 'gross'),
+                'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
+                'manager_gross' => $this->sumFieldRows($s['manager'], 'gross'),
+                'case_gross' => $this->sumFieldRows($s['case'], 'gross'),
+                'case_headcount' => $s['case']->count()];
+        })->filter(fn ($r) => $r['headcount'] > 0 || $r['case_headcount'] > 0)->sortByDesc('gross')->values();
 
         return response()->json(['ok' => true, 'year' => $year, 'ym' => $ym, 'annual' => $annual,
             'kpis' => $cur, 'deltas' => $deltas,
             'structure' => $structure, 'trend' => $trend, 'age_dist' => $ageDist,
             'tenure_dist' => $tenureDist, 'edu_dist' => $eduDist, 'hometown_top' => $hometownTop,
-            'status_dist' => $statusDist, 'cost_by_project' => $costByProject]);
+            'status_dist' => $statusDist, 'cost_by_project' => $costByProject,
+            'cost_breakdown' => $this->categoryBreakdown($costSplit)]);
     }
 
     private function hrKpis($account, string $ym, bool $annual): array
@@ -138,8 +156,9 @@ class ReportController extends ApiController
         $in = $staff->filter(fn ($s) => $s->hire_date && ($annual ? str_starts_with((string) $s->hire_date, (string) $year) : str_starts_with((string) $s->hire_date, $m)));
         $out = $staff->filter(fn ($s) => $s->resign_date && ($annual ? str_starts_with((string) $s->resign_date, (string) $year) : str_starts_with((string) $s->resign_date, $m)));
         $regular = $staff->filter(fn ($s) => $s->regular_date && ($annual ? str_starts_with((string) $s->regular_date, (string) $year) : str_starts_with((string) $s->regular_date, $m)));
-        $costRows = $this->scopedResults($account, $ym);
-        $gross = $costRows->sum(fn ($j) => (float) ($j['gross'] ?? 0));
+        $costRecords = $this->scopedResultRecords($account, $ym);
+        $costRows = $this->projectRows($this->splitResultRecords($costRecords));
+        $gross = $this->sumFieldRows($costRows, 'gross');
         $cnt = $costRows->count();
         $avgPay = $cnt ? round($gross / $cnt, 2) : 0;
         $totalTenure = 0; $tenureCnt = 0;
@@ -162,11 +181,47 @@ class ReportController extends ApiController
         return $q->get();
     }
 
-    private function scopedResults($account, string $ym)
+    private function scopedResultRecords($account, string $ym)
     {
         $q = DB::table('payroll_results')->where('year_month', $ym);
         if ($this->isProjectScope($account)) $q->where('project_name', $account->project_name);
-        return $q->get()->map(fn ($row) => $this->jsonValue($row->row_data) ?: []);
+        return $q->get();
+    }
+
+    /** 按行类型拆分核算结果：基层 / 管理 / 案场 / 总部（与 /api/summary 口径一致） */
+    private function splitResultRecords($records): array
+    {
+        $out = ['base' => collect(), 'manager' => collect(), 'case' => collect(), 'hq' => collect()];
+        foreach ($records as $rec) {
+            $row = $this->jsonValue($rec->row_data) ?: [];
+            if ((int) ($rec->is_hq_row ?? 0) === 1) $out['hq']->push($row);
+            elseif ((int) ($rec->is_manager_row ?? 0) === 1) $out['manager']->push($row);
+            elseif ((int) ($rec->is_case_row ?? 0) === 1) $out['case']->push($row);
+            else $out['base']->push($row);
+        }
+        return $out;
+    }
+
+    /** 项目口径行：基层 + 管理（案场与总部单独展示，不并入项目合计） */
+    private function projectRows(array $split)
+    {
+        return $split['base']->concat($split['manager'])->values();
+    }
+
+    private function sumFieldRows($rows, string $field): float
+    {
+        return round($rows->sum(fn ($r) => (float) ($r[$field] ?? 0)), 2);
+    }
+
+    private function categoryBreakdown(array $split): array
+    {
+        $out = [];
+        foreach (['base' => '基层', 'manager' => '管理', 'case' => '案场', 'hq' => '总部'] as $key => $label) {
+            $rows = $split[$key];
+            $out[$key] = ['label' => $label, 'headcount' => $rows->count(),
+                'gross' => $this->sumFieldRows($rows, 'gross'), 'net' => $this->sumFieldRows($rows, 'net')];
+        }
+        return $out;
     }
 
     /** 截至基准日"在职"（含试用；不含离职/黑名单） */
@@ -265,32 +320,34 @@ class ReportController extends ApiController
         $month = (int) substr($ym, 5, 2);
         $prevYm = $this->prevMonth($ym);
 
-        $rows = $this->scopedResults($account, $ym);
-        $prevRows = $this->scopedResults($account, $prevYm);
-        $gross = $rows->sum(fn ($j) => (float) ($j['gross'] ?? 0));
-        $net = $rows->sum(fn ($j) => (float) ($j['net'] ?? 0));
+        $records = $this->scopedResultRecords($account, $ym);
+        $split = $this->splitResultRecords($records);
+        $rows = $this->projectRows($split);
+        $prevRows = $this->projectRows($this->splitResultRecords($this->scopedResultRecords($account, $prevYm)));
+        $gross = $this->sumFieldRows($rows, 'gross');
+        $net = $this->sumFieldRows($rows, 'net');
         $cnt = $rows->count();
-        $tax = $rows->sum(fn ($j) => (float) ($j['actual_tax'] ?? 0));
-        $soc = $rows->sum(fn ($j) => (float) ($j['soc_total'] ?? 0));
-        $prevGross = $prevRows->sum(fn ($j) => (float) ($j['gross'] ?? 0));
+        $tax = $this->sumFieldRows($rows, 'actual_tax');
+        $soc = $this->sumFieldRows($rows, 'soc_total');
+        $prevGross = $this->sumFieldRows($prevRows, 'gross');
         $prevCnt = $prevRows->count();
 
         // 本年累计应发/实发/个税/五险一金（year_month 为 'YYYY-MM' varchar，用 like + PHP 侧过滤，兼容 SQLite/MySQL）
         $cumQ = DB::table('payroll_results')->where('year_month', 'like', $year . '-%');
         if ($this->isProjectScope($account)) $cumQ->where('project_name', $account->project_name);
-        $cumRows = $cumQ->get()
-            ->filter(fn ($row) => (int) substr((string) $row->year_month, 5, 2) <= $month)
-            ->map(fn ($row) => $this->jsonValue($row->row_data) ?: []);
-        $ytdGross = $cumRows->sum(fn ($j) => (float) ($j['gross'] ?? 0));
-        $ytdNet = $cumRows->sum(fn ($j) => (float) ($j['net'] ?? 0));
-        $ytdTax = $cumRows->sum(fn ($j) => (float) ($j['actual_tax'] ?? 0));
-        $ytdSoc = $cumRows->sum(fn ($j) => (float) ($j['soc_total'] ?? 0));
+        $cumRecords = $cumQ->get()
+            ->filter(fn ($row) => (int) substr((string) $row->year_month, 5, 2) <= $month);
+        $cumRows = $this->projectRows($this->splitResultRecords($cumRecords));
+        $ytdGross = $this->sumFieldRows($cumRows, 'gross');
+        $ytdNet = $this->sumFieldRows($cumRows, 'net');
+        $ytdTax = $this->sumFieldRows($cumRows, 'actual_tax');
+        $ytdSoc = $this->sumFieldRows($cumRows, 'soc_total');
 
         // 预算：年度总预算 + 执行率（当月应发/当月预算）
         $budgetQ = DB::table('payroll_budgets')->where('year', $year);
         if ($this->isProjectScope($account)) $budgetQ->where('project_name', $account->project_name);
-        $annualBudget = 0; $monthBudget = 0;
-        foreach ($budgetQ->get() as $b) {
+        $annualBudget = 0; $monthBudget = 0; $budgetRows = $budgetQ->get();
+        foreach ($budgetRows as $b) {
             $d = $this->jsonValue($b->data) ?: [];
             $annualBudget += (float) ($d['annual'] ?? 0);
             $monthBudget += (float) ($d['months'][(string) $month] ?? 0);
@@ -316,13 +373,14 @@ class ReportController extends ApiController
             ['key' => 'budget_rate', 'label' => '年度预算执行率', 'value' => $ytdBudgetRate, 'unit' => '%', 'delta' => null],
         ];
 
-        // 月度趋势（近12月，含当月发放人数与当年累计应发）
-        $monthlyTrend = [];
+        // 月度趋势 + 预算执行率趋势（近12月；一次取每月记录，项目口径 = 基层 + 管理）
+        $monthlyTrend = []; $budgetTrend = [];
         $cumGross = 0; $cumNet = 0;
         foreach ($this->lastMonths($ym, 12) as $m) {
-            $mr = $this->scopedResults($account, $m);
-            $mg = round($mr->sum(fn ($j) => (float) ($j['gross'] ?? 0)), 2);
-            $mn = round($mr->sum(fn ($j) => (float) ($j['net'] ?? 0)), 2);
+            $mSplit = $this->splitResultRecords($this->scopedResultRecords($account, $m));
+            $mr = $this->projectRows($mSplit);
+            $mg = $this->sumFieldRows($mr, 'gross');
+            $mn = $this->sumFieldRows($mr, 'net');
             $mMonth = (int) substr($m, 5, 2);
             // 当年累计：1 月起重新累计
             if ($mMonth === 1) { $cumGross = 0; $cumNet = 0; }
@@ -330,21 +388,26 @@ class ReportController extends ApiController
             $monthlyTrend[] = [
                 'month' => $m, 'gross' => $mg, 'net' => $mn, 'cnt' => $mr->count(),
                 'avg' => $mr->count() ? round($mg / $mr->count(), 2) : 0,
-                'soc' => round($mr->sum(fn ($j) => (float) ($j['soc_total'] ?? 0)), 2),
-                'tax' => round($mr->sum(fn ($j) => (float) ($j['actual_tax'] ?? 0)), 2),
+                'soc' => $this->sumFieldRows($mr, 'soc_total'),
+                'tax' => $this->sumFieldRows($mr, 'actual_tax'),
+                'case_gross' => $this->sumFieldRows($mSplit['case'], 'gross'),
                 'cum_gross' => round($cumGross, 2), 'cum_net' => round($cumNet, 2),
             ];
+            $mb = 0;
+            foreach ($budgetRows as $b) { $d = $this->jsonValue($b->data) ?: []; $mb += (float) ($d['months'][(string) $mMonth] ?? 0); }
+            $budgetTrend[] = ['month' => $m, 'gross' => $mg, 'budget' => round($mb, 2), 'rate' => $mb > 0 ? round($mg / $mb * 100, 1) : 0];
         }
 
-        // 各项目薪酬对比（当月应发，按 payroll_results.project_name 聚合）
-        $projQ = DB::table('payroll_results')->where('year_month', $ym);
-        if ($this->isProjectScope($account)) $projQ->where('project_name', $account->project_name);
+        // 各项目薪酬对比（项目口径 = 基层 + 管理，案场单列）
         $projectCompare = [];
-        foreach ($projQ->get() as $pr) {
-            $rd = $this->jsonValue($pr->row_data) ?: [];
-            $p = (string) ($pr->project_name ?: '未分配');
-            $projectCompare[$p] = ['label' => $p, 'headcount' => ($projectCompare[$p]['headcount'] ?? 0) + 1,
-                'gross' => round(($projectCompare[$p]['gross'] ?? 0) + (float) ($rd['gross'] ?? 0), 2)];
+        foreach ($records->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配')) as $p => $items) {
+            $s = $this->splitResultRecords($items); $pr = $this->projectRows($s);
+            if ($pr->isEmpty() && $s['case']->isEmpty()) continue; // 纯总部载体项目不展示
+            $projectCompare[$p] = ['label' => $p, 'headcount' => $pr->count(), 'gross' => $this->sumFieldRows($pr, 'gross'),
+                'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
+                'manager_gross' => $this->sumFieldRows($s['manager'], 'gross'),
+                'case_gross' => $this->sumFieldRows($s['case'], 'gross'),
+                'case_headcount' => $s['case']->count()];
         }
         $projectCompare = array_values($projectCompare);
 
@@ -354,16 +417,6 @@ class ReportController extends ApiController
             'meal' => '餐补', 'night' => '夜班/话补', 'reward' => '奖励', 'backpay' => '补发工资', 'welfare' => '福利',
             'late_d' => '迟到扣款', 'miss_d' => '缺卡扣款', 'other_d' => '其他扣款', 'uniform_d' => '工装扣款',
         ]);
-
-        // 预算执行率趋势（近12月）
-        $budgetTrend = [];
-        foreach ($this->lastMonths($ym, 12) as $m) {
-            $mr = $this->scopedResults($account, $m);
-            $mg = round($mr->sum(fn ($j) => (float) ($j['gross'] ?? 0)), 2);
-            $mb = 0;
-            foreach ($budgetQ->get() as $b) { $d = $this->jsonValue($b->data) ?: []; $mb += (float) ($d['months'][(string) (int) substr($m, 5, 2)] ?? 0); }
-            $budgetTrend[] = ['month' => $m, 'gross' => $mg, 'budget' => round($mb, 2), 'rate' => $mb > 0 ? round($mg / $mb * 100, 1) : 0];
-        }
 
         // 绩效工资分布（= 固定 − 基本，区间直方图）
         $perfBuckets = ['0-500' => 0, '500-1000' => 0, '1000-2000' => 0, '2000-3000' => 0, '3000以上' => 0];
@@ -379,6 +432,11 @@ class ReportController extends ApiController
         return response()->json(['ok' => true, 'ym' => $ym, 'year' => $year, 'kpis' => $kpis,
             'monthly_trend' => $monthlyTrend, 'project_compare' => $projectCompare, 'composition' => $composition,
             'budget_trend' => $budgetTrend, 'perf_dist' => $this->assocToChart($perfBuckets),
+            'breakdown' => $this->categoryBreakdown($split),
+            'case_total' => ['headcount' => $split['case']->count(), 'gross' => $this->sumFieldRows($split['case'], 'gross'),
+                'net' => $this->sumFieldRows($split['case'], 'net')],
+            'hq_total' => ['headcount' => $split['hq']->count(), 'gross' => $this->sumFieldRows($split['hq'], 'gross'),
+                'net' => $this->sumFieldRows($split['hq'], 'net')],
             'budget' => ['annual' => round($annualBudget, 2), 'month' => round($monthBudget, 2), 'rate' => $budgetRate]]);
     }
 

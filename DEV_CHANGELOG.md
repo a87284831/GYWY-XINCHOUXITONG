@@ -44,6 +44,13 @@ npm run dev
 
 ## 改动历史
 
+### 2026-11-20 · 修复：三模块审计 3 项严重问题（v2026.11.20.2）
+
+- 采购填报明细 `handle_fill_items` 新增 `purchase_fill_scope()`：非管理员必须绑定有效项目，`project_id<=0` 直接拒绝并写「越权拒绝」审计（账号/项目/路径/动作），禁止退化为全量查询；`handle_fill_frequency` 同步收口。
+- 报价导入新增 `purchase_import_archive_rows()`：只清理/覆盖本次上传涉及的「项目 + 条线」，其他项目存档不动；写库前生成整月快照（`storage/app/purchase_import_snapshots`），失败整体回滚并删除快照；日志记录涉及项目、新增/覆盖删除/跳过条数与快照路径；价格回写去掉 `LIMIT 1`。
+- 报表中心 `ReportController` 统一 `splitResultRecords/projectRows/categoryBreakdown`：项目合计=基层+管理，案场/总部单列；驾驶舱、人力、薪酬三入口同口径，人均应发分子分母同时只取基层+管理；前端薪酬/人力报表增加四类金额与口径说明。
+- 测试：新增 `PurchaseScopeGuardTest`（5）、`ReportScopeConsistencyTest`（4）；PHPUnit 489/3504、Vitest 372、`npm run build` 通过。
+
 ### 2026-10-03 · 绩效考核：最终自审安全/边界修复（未推送）
 
 - **防分数注入（安全）**：指标定义入口（`plans/save` 草稿保存、`confirm_save` 审核态改指标）新增白名单清洗 `sanitizeCategories()`，只接受定义字段（id/内容/定义/来源部门/权重/类型/参数/核查人）；此前被考核人本人(founder)可经这两个入口注入 `checkScore/selfScore/approverScore/finalScore/attachments` 等流程字段直接加分

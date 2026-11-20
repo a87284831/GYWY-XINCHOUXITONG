@@ -404,62 +404,54 @@ function handle_import_archive() {
     };
 
     $linesMap = ['环境类' => '环境', '绿化类' => '绿化', '工程类' => '工程', '秩序部' => '秩序', '行政办公类' => '行政'];
-    $inserted = 0; $skipped = 0; $errors = [];
-    $db->beginTransaction();
-    try {
-        // 先清空该月存档
-        $db->prepare("DELETE FROM archived_purchases WHERE month=?")->execute([$month]);
-        foreach ($spreadsheet->getSheetNames() as $sheetName) {
-            if (!isset($linesMap[$sheetName])) continue;
-            $line = $linesMap[$sheetName];
-            $ws = $spreadsheet->getSheetByName($sheetName);
-            if (!$ws) continue;
-            $isEng = ($line === '工程');
-            $highest = $ws->getHighestRow();
-            for ($r = 3; $r <= $highest; $r++) {
-                $pname = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(2) . $r)->getValue());
-                if ($pname === '') continue;
-                $project_id = $projects[$pname] ?? null;
-                if (!$project_id) { $errors[] = "第{$r}行: 未知项目「{$pname}」"; $skipped++; continue; }
-                $item_name = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(3) . $r)->getValue());
-                $brand = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4) . $r)->getValue());
-                $spec = norm_spec((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(5) . $r)->getValue());
-                $unit = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(6) . $r)->getValue());
-                $qty = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(7) . $r)->getValue();
-                $price = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(8) . $r)->getValue();
-                $total = round($qty * $price, 2);
-                if ($qty <= 0 && $price <= 0) { $skipped++; continue; }
-                $product_id = $findProduct($item_name, $spec, $unit);
-                if (!$product_id) {
-                    $ukey = $item_name . '|' . $spec . '|' . $unit;
-                    if (!isset($unboundList[$ukey])) $unboundList[$ukey] = ['name' => $item_name, 'spec' => $spec, 'unit' => $unit, 'rows' => 0];
-                    $unboundList[$ukey]['rows']++;
-                }
-                $st = $db->prepare(
-                    "INSERT INTO archived_purchases (month, project_id, line, product_id, item_name, brand, spec, unit, quantity, price, total)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-                );
-                $st->execute([$month, $project_id, $line, $product_id, $item_name, $brand, $spec, $unit, $qty, $price, $total]);
-                // 价格回写填报记录（该月该项目的已确认/已提交记录，供退回修改时员工查看单价）
-                if ($price > 0) {
-                    db()->prepare("UPDATE purchase_items SET price=? WHERE month=? AND project_id=? AND item_name=? AND spec=? AND status IN ('submitted','confirmed','returned') AND (price IS NULL OR price=0) LIMIT 1")
-                        ->execute([$price, $month, $project_id, $item_name, $spec]);
-                }
-                $inserted++;
+    $scopeRows = []; $toInsert = []; $skipped = 0; $errors = [];
+    foreach ($spreadsheet->getSheetNames() as $sheetName) {
+        if (!isset($linesMap[$sheetName])) continue;
+        $line = $linesMap[$sheetName];
+        $ws = $spreadsheet->getSheetByName($sheetName);
+        if (!$ws) continue;
+        $highest = $ws->getHighestRow();
+        for ($r = 3; $r <= $highest; $r++) {
+            $pname = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(2) . $r)->getValue());
+            if ($pname === '') continue;
+            $project_id = $projects[$pname] ?? null;
+            if (!$project_id) { $errors[] = "第{$r}行: 未知项目「{$pname}」"; $skipped++; continue; }
+            $item_name = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(3) . $r)->getValue());
+            if ($item_name === '') { $skipped++; continue; }
+            $brand = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(4) . $r)->getValue());
+            $spec = norm_spec((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(5) . $r)->getValue());
+            $unit = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(6) . $r)->getValue());
+            $qty = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(7) . $r)->getValue();
+            $price = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(8) . $r)->getValue();
+            // 有项目、有商品名即纳入本次覆盖范围（用于清理旧存档），空数量空单价的行不写入
+            $scopeRows[] = ['project_id' => $project_id, 'line' => $line];
+            if ($qty <= 0 && $price <= 0) { $skipped++; continue; }
+            $product_id = $findProduct($item_name, $spec, $unit);
+            if (!$product_id) {
+                $ukey = $item_name . '|' . $spec . '|' . $unit;
+                if (!isset($unboundList[$ukey])) $unboundList[$ukey] = ['name' => $item_name, 'spec' => $spec, 'unit' => $unit, 'rows' => 0];
+                $unboundList[$ukey]['rows']++;
             }
+            $toInsert[] = ['project_id' => $project_id, 'line' => $line, 'product_id' => $product_id,
+                'item_name' => $item_name, 'brand' => $brand, 'spec' => $spec, 'unit' => $unit,
+                'quantity' => $qty, 'price' => $price, 'total' => round($qty * $price, 2)];
         }
-        $db->commit();
-    } catch (Exception $e) {
-        $db->rollBack();
-        return ['ok' => false, 'msg' => '导入失败: ' . $e->getMessage()];
     }
-    log_action('导入', "{$month} 导入存档：新增 {$inserted} 条，跳过 {$skipped} 条" . ($unboundList ? '，未绑定商品 ' . count($unboundList) . ' 种' : ''));
-    // 通知该月所有有存档项目的员工：报价导入完成
+
+    $result = purchase_import_archive_rows($month, $toInsert, $scopeRows);
+    if (empty($result['ok'])) {
+        $result['msg'] = ($result['msg'] ?? '导入失败') . ($errors ? '；异常：' . implode('; ', array_slice($errors, 0, 10)) : '');
+        return $result;
+    }
+    $inserted = (int)$result['inserted']; $deleted = (int)$result['deleted'];
+    $scopeProjects = array_values(array_unique(array_column($scopeRows, 'project_id')));
+    log_action('导入', json_encode(['month' => $month, 'projects' => $scopeProjects,
+        'pairs' => $result['pairs'], 'inserted' => $inserted, 'deleted' => $deleted,
+        'skipped' => $skipped, 'snapshot' => $result['snapshot'],
+        'operator' => auth_user()['username'] ?? '-'], JSON_UNESCAPED_UNICODE));
+    // 通知本次涉及项目的员工：报价导入完成
     try {
-        $st = db()->prepare("SELECT DISTINCT project_id FROM archived_purchases WHERE month=?");
-        $st->execute([$month]);
-        $pids = $st->fetchAll(PDO::FETCH_COLUMN);
-        foreach ($pids as $pid) {
+        foreach ($scopeProjects as $pid) {
             foreach (project_user_ids((int)$pid) as $uid) {
                 notify_user((int)$uid, 'price_imported', "{$month}月 报价已导入", "本月采购报价已导入存档，可在「我的填报记录」查看最终单价与金额。", "/app/purchase/my-items?month=$month");
             }
@@ -486,10 +478,88 @@ function handle_import_archive() {
             log_action('预算超支', "{$month} " . implode('；', $over));
         }
     } catch (Throwable $e) {}
-    $msg = "导入完成：新增 {$inserted} 条记录，跳过 {$skipped} 条空行";
+    $msg = "导入完成：新增 {$inserted} 条，覆盖旧存档 {$deleted} 条，跳过 {$skipped} 条空行";
     if ($errors) $msg .= '；异常：' . implode('; ', array_slice($errors, 0, 10));
     if ($unboundList) $msg .= '；未绑定商品库商品 ' . count($unboundList) . ' 种（' . implode('、', array_slice(array_column($unboundList, 'name'), 0, 8)) . '）';
-    return ['ok' => true, 'msg' => $msg, 'unbound' => array_values($unboundList)];
+    return ['ok' => true, 'msg' => $msg, 'unbound' => array_values($unboundList),
+        'scope' => ['projects' => $scopeProjects, 'inserted' => $inserted, 'deleted' => $deleted]];
+}
+
+/** 本次上传覆盖的 (项目, 条线) 集合（去重） */
+function purchase_import_scope_pairs(array $rows): array
+{
+    $pairs = [];
+    foreach ($rows as $r) {
+        $pid = (int)($r['project_id'] ?? 0);
+        $line = (string)($r['line'] ?? '');
+        if ($pid > 0 && $line !== '') $pairs[$pid . '|' . $line] = [$pid, $line];
+    }
+    ksort($pairs);
+    return array_values($pairs);
+}
+
+/** 写入前快照（整月存档），返回文件路径；失败返回 null */
+function purchase_import_snapshot(string $month, array $rows): ?string
+{
+    try {
+        $dir = function_exists('storage_path')
+            ? storage_path('app/purchase_import_snapshots')
+            : rtrim(sys_get_temp_dir(), '/\\') . '/purchase_import_snapshots';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) return null;
+        $file = rtrim($dir, '/\\') . '/' . $month . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.json';
+        $payload = json_encode(['month' => $month, 'created_at' => date('c'), 'rows' => $rows], JSON_UNESCAPED_UNICODE);
+        return @file_put_contents($file, $payload) === false ? null : $file;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 将解析后的报价行写入存档：
+ *  - 只清理/覆盖本次上传涉及的 (项目, 条线)，其他项目其他条线保持不动；
+ *  - 写库前生成整月快照，失败整体回滚并删除快照；
+ *  - 返回影响范围统计，供日志与页面提示。
+ */
+function purchase_import_archive_rows(string $month, array $rows, ?array $scopeRows = null): array
+{
+    $scopeRows = $scopeRows ?? $rows;
+    $scopePairs = purchase_import_scope_pairs($scopeRows);
+    $scopeProjects = array_values(array_unique(array_map(fn($r) => (int)$r['project_id'], $scopeRows)));
+    if (!$scopePairs) return ['ok' => false, 'msg' => '未找到可导入数据，未做任何修改'];
+    $db = db();
+    $snapshotRows = $db->prepare("SELECT * FROM archived_purchases WHERE month=? ORDER BY id");
+    $snapshotRows->execute([$month]);
+    $beforeRows = $snapshotRows->fetchAll(PDO::FETCH_ASSOC);
+    $snapshot = purchase_import_snapshot($month, $beforeRows);
+    if ($snapshot === null) return ['ok' => false, 'msg' => '快照生成失败，已取消导入（未修改任何数据）'];
+
+    $inserted = 0; $deleted = 0;
+    $db->beginTransaction();
+    try {
+        foreach ($scopePairs as [$pid, $line]) {
+            $del = $db->prepare("DELETE FROM archived_purchases WHERE month=? AND project_id=? AND line=?");
+            $del->execute([$month, $pid, $line]);
+            $deleted += $del->rowCount();
+        }
+        foreach ($rows as $r) {
+            $db->prepare("INSERT INTO archived_purchases (month, project_id, line, product_id, item_name, brand, spec, unit, quantity, price, total) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$month, $r['project_id'], $r['line'], $r['product_id'], $r['item_name'], $r['brand'], $r['spec'], $r['unit'], $r['quantity'], $r['price'], $r['total']]);
+            $inserted++;
+            // 价格回写填报记录（供退回修改时员工查看单价）；同一商品多行时一并回写
+            if ((float)$r['price'] > 0) {
+                $db->prepare("UPDATE purchase_items SET price=? WHERE month=? AND project_id=? AND item_name=? AND spec=? AND status IN ('submitted','confirmed','returned') AND (price IS NULL OR price=0)")
+                    ->execute([$r['price'], $month, $r['project_id'], $r['item_name'], $r['spec']]);
+            }
+        }
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        @unlink($snapshot);
+        log_action('导入失败', json_encode(['month' => $month, 'projects' => $scopeProjects, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE));
+        return ['ok' => false, 'msg' => '导入失败，已整体回滚：' . $e->getMessage()];
+    }
+    return ['ok' => true, 'inserted' => $inserted, 'deleted' => $deleted, 'projects' => $scopeProjects,
+        'pairs' => count($scopePairs), 'snapshot' => $snapshot];
 }
 
 // 批量导入历史月份：多个文件（文件名需含月份，如 2026-01 或 2026年1月），逐个导入

@@ -20,11 +20,14 @@ function handle_fill_window() {
 function handle_fill_items() {
     $user = require_auth();
     $month = $_GET['month'] ?? date('Y-m');
-    $project_id = (int)($_GET['project_id'] ?? 0);
-    // 项目角色只能看自己项目
-    if ($user['role'] !== 'admin') {
-        $project_id = (int)$user['project_id'];
+    // 项目角色只能看自己项目；项目未识别时必须拒绝，禁止退化为全量查询
+    $scope = purchase_fill_scope($user, (int)($_GET['project_id'] ?? 0));
+    if (!$scope['ok']) {
+        log_action('越权拒绝', sprintf('采购填报明细 月份=%s 账号=%s 项目=%s 路径=%s',
+            $month, $user['username'] ?? '-', (int)($user['project_id'] ?? 0), $_SERVER['REQUEST_URI'] ?? '/api/purchase/fill/items'));
+        return ['ok' => false, 'msg' => $scope['error']];
     }
+    $project_id = $scope['project_id'];
     $line = $_GET['line'] ?? '';
     $sql = "SELECT pi.*, p.name AS project_name FROM purchase_items pi JOIN payroll.payroll_projects p ON pi.project_id=p.id WHERE pi.month=?";
     $params = [$month];
@@ -229,11 +232,15 @@ function handle_fill_frequency() {
     $spec = norm_spec($_GET['spec'] ?? '');
     $unit = trim($_GET['unit'] ?? '');
     $line = trim($_GET['line'] ?? '');
-    $project_id = (int)($_GET['project_id'] ?? 0);
     $month = $_GET['month'] ?? date('Y-m');
-    if ($user['role'] !== 'admin' && $project_id <= 0) {
-        $project_id = (int)$user['project_id'];
+    $scope = purchase_fill_scope($user, (int)($_GET['project_id'] ?? 0));
+    if (!$scope['ok']) {
+        log_action('越权拒绝', sprintf('采购采购频率 月份=%s 账号=%s 项目=%s 路径=%s',
+            $month, $user['username'] ?? '-', (int)($user['project_id'] ?? 0), $_SERVER['REQUEST_URI'] ?? '/api/purchase/fill/frequency'));
+        return ['ok' => false, 'msg' => $scope['error']];
     }
+    $project_id = $scope['project_id'];
+    if ($project_id <= 0) return ['ok' => false, 'msg' => '项目缺失'];
     if ($product_id <= 0 && $item_name === '') return ['ok' => false, 'msg' => '缺少商品'];
     // 计算近3个自然月（不含当前填报月）
     $m = date_create_from_format('Y-m', $month);
@@ -274,6 +281,22 @@ function handle_fill_frequency() {
 }
 
 /** 内部工具 */
+/**
+ * 解析采购数据范围：非管理员必须绑定唯一项目，绝不退化为无项目过滤的全量查询。
+ * 返回 ['ok'=>bool, 'project_id'=>int, 'error'=>string]；管理员 project_id=0 表示全部项目。
+ */
+function purchase_fill_scope(array $user, int $requestedProjectId = 0): array
+{
+    if (($user['role'] ?? '') !== 'admin') {
+        $pid = (int)($user['project_id'] ?? 0);
+        if ($pid <= 0) {
+            return ['ok' => false, 'project_id' => 0, 'error' => '项目未识别，无权查看采购数据'];
+        }
+        return ['ok' => true, 'project_id' => $pid, 'error' => ''];
+    }
+    return ['ok' => true, 'project_id' => max(0, $requestedProjectId), 'error' => ''];
+}
+
 function fetch_item($id) {
     $st = db()->prepare("SELECT * FROM purchase_items WHERE id=?");
     $st->execute([$id]);

@@ -28,6 +28,13 @@
             :delta="k.delta !== null && k.delta !== undefined ? k.delta : null"
             :color="colorOf(k.key)" />
         </div>
+        <div v-if="d.breakdown" class="rpt-kpi-row">
+          <RCard label="基层应发" :value="rMoneyOrDash(d.breakdown.base.gross)" :sub="d.breakdown.base.headcount + ' 人'" color="#2563eb" />
+          <RCard label="管理应发" :value="rMoneyOrDash(d.breakdown.manager.gross)" :sub="d.breakdown.manager.headcount + ' 人'" color="#8b5cf6" />
+          <RCard label="案场应发（单列）" :value="rMoneyOrDash(d.breakdown.case.gross)" :sub="d.breakdown.case.headcount + ' 人 · 不计入项目合计'" color="#f59e0b" />
+          <RCard label="总部应发（单列）" :value="rMoneyOrDash(d.breakdown.hq.gross)" :sub="d.breakdown.hq.headcount + ' 人 · 单独列示'" color="#64748b" />
+        </div>
+        <div class="hint">项目合计 = 基层 + 管理；案场与总部单独列示，不并入项目合计。应发/实发/人均/趋势/构成均按此口径。</div>
         <div class="rpt-grid-2">
           <RSection title="月度工资总额趋势（近12月）"><div style="height:260px"><canvas :ref="(el) => setEl('salTrend', el)"></canvas></div></RSection>
           <RSection title="各项目薪酬对比（当月应发）">
