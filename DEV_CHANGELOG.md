@@ -102,3 +102,12 @@ npm run dev
 - 提交：`3864dab` chore(frontend): vite dev proxy 改指向本地后端 127.0.0.1:8899
 
 ---
+
+## 2026-11-21 · 采购库合并收尾（v2026.11.20.3）
+
+- 背景：用户批准把采购独立 MySQL 并入主库。只读核查确认采购连接早已指向 `payroll`（`PROC_DB_NAME=payroll`），旧库 `gy_procurement` 仅剩陈旧副本。
+- 改动：新增 `deploy/merge-procurement-db.sh`（幂等；旧库存在时补差+核验，旧库不存在时纯核验）；旧库 dump 到 `/root/gy_procurement_deprecated_20261120.sql.gz` 后 `DROP DATABASE`；删除前后主库 12 张采购表行数与金额合计逐项一致。
+- 文档：新增 `docs/数据库说明.md`；重写 `DEPLOYMENT.md`；补齐 `docs/项目开发文档.md` 第十二章；纠正 `docs/项目交接文档.md` 的过期生产 IP 与旧库删除记录。
+- 未改动：薪酬表结构、核算逻辑、导出与汇总口径、采购业务代码。
+- 提交：`576ee1a` docs（changelog 提交另行记录）。
+
