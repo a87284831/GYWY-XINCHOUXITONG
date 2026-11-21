@@ -88,4 +88,25 @@ class PurchaseQtyValidationTest extends TestCase
         $this->assertStringContainsString('1 条填报未确认', \purchase_import_status_guard(3, 2));
         $this->assertNull(\purchase_import_status_guard(3, 3));
     }
+
+    public function test_archive_rows_match_exact_line_and_item_id(): void
+    {
+        $items = [
+            ['id' => 11, 'project_id' => 1, 'line' => '环境', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+            ['id' => 12, 'project_id' => 1, 'line' => '工程', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+            ['id' => 13, 'project_id' => 1, 'line' => '环境', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 5],
+            ['id' => 14, 'project_id' => 1, 'line' => '环境', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+        ];
+        $rows = [
+            ['project_id' => 1, 'line' => '环境', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+            ['project_id' => 1, 'line' => '环境', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+            ['project_id' => 1, 'line' => '工程', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+            ['project_id' => 1, 'line' => '绿化', 'item_name' => 'A4纸', 'brand' => '', 'spec' => '70g', 'unit' => '包', 'quantity' => 2],
+        ];
+        $out = \purchase_match_item_ids($items, $rows);
+        $this->assertSame(11, $out[0]['item_id'], '优先数量一致且同一条填报只用一次');
+        $this->assertSame(14, $out[1]['item_id'], '第二行使用另一条同规格填报');
+        $this->assertSame(12, $out[2]['item_id'], '不同条线不能串');
+        $this->assertNull($out[3]['item_id'], '找不到对应填报时保持 null');
+    }
 }

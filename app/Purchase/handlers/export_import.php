@@ -8,6 +8,51 @@ function purchase_import_status_guard(int $total, int $confirmed): ?string {
     return null;
 }
 
+/**
+ * 把报价存档行关联到填报明细 id（M3）。
+ * 匹配键：项目 + 条线 + 商品名称 + 品牌 + 规格 + 单位；优先数量一致，且同一条填报只使用一次。
+ * 返回带 item_id 的行；找不到对应填报时 item_id 为 null（保留旧数据兼容）。
+ */
+function purchase_match_item_ids(array $items, array $rows): array {
+    $buckets = [];
+    foreach ($items as $it) {
+        $key = implode('|', [
+            (int)($it['project_id'] ?? 0), (string)($it['line'] ?? ''),
+            (string)($it['item_name'] ?? ''), (string)($it['brand'] ?? ''),
+            (string)($it['spec'] ?? ''), (string)($it['unit'] ?? ''),
+        ]);
+        $buckets[$key][] = $it;
+    }
+    $used = [];
+    foreach ($rows as &$r) {
+        $key = implode('|', [
+            (int)($r['project_id'] ?? 0), (string)($r['line'] ?? ''),
+            (string)($r['item_name'] ?? ''), (string)($r['brand'] ?? ''),
+            (string)($r['spec'] ?? ''), (string)($r['unit'] ?? ''),
+        ]);
+        $chosen = null; $fallback = null;
+        foreach ($buckets[$key] ?? [] as $cand) {
+            $cid = (int)$cand['id'];
+            if (isset($used[$cid])) continue;
+            if ($fallback === null) $fallback = $cand;
+            if (abs((float)($cand['quantity'] ?? 0) - (float)($r['quantity'] ?? 0)) < 0.005) {
+                $chosen = $cand;
+                break;
+            }
+        }
+        $chosen = $chosen ?: $fallback;
+        if ($chosen !== null) {
+            $r['item_id'] = (int)$chosen['id'];
+            $used[(int)$chosen['id']] = true;
+        } else {
+            $r['item_id'] = null;
+        }
+    }
+    unset($r);
+    return $rows;
+}
+
+
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -480,8 +525,12 @@ function handle_import_archive() {
         }
     }
 
-    $result = purchase_import_archive_rows($month, $toInsert, $scopeRows);
-    if (empty($result['ok'])) {
+    // M3：给每条存档关联填报明细 id，删除退回记录时按 id 精确删，不再靠名称猜
+    $itemSt = db()->prepare("SELECT id, project_id, line, item_name, brand, spec, unit, quantity FROM purchase_items WHERE month=?");
+    $itemSt->execute([$month]);
+    $toInsert = purchase_match_item_ids($itemSt->fetchAll(PDO::FETCH_ASSOC), $toInsert);
+
+    $result = purchase_import_archive_rows($month, $toInsert, $scopeRows);    if (empty($result['ok'])) {
         $result['msg'] = ($result['msg'] ?? '导入失败') . ($errors ? '；异常：' . implode('; ', array_slice($errors, 0, 10)) : '');
         return $result;
     }
@@ -584,8 +633,8 @@ function purchase_import_archive_rows(string $month, array $rows, ?array $scopeR
             $deleted += $del->rowCount();
         }
         foreach ($rows as $r) {
-            $db->prepare("INSERT INTO archived_purchases (month, project_id, line, product_id, item_name, brand, spec, unit, quantity, price, total) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-                ->execute([$month, $r['project_id'], $r['line'], $r['product_id'], $r['item_name'], $r['brand'], $r['spec'], $r['unit'], $r['quantity'], $r['price'], $r['total']]);
+            $db->prepare("INSERT INTO archived_purchases (month, project_id, item_id, line, product_id, item_name, brand, spec, unit, quantity, price, total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$month, $r['project_id'], $r['item_id'] ?? null, $r['line'], $r['product_id'], $r['item_name'], $r['brand'], $r['spec'], $r['unit'], $r['quantity'], $r['price'], $r['total']]);
             $inserted++;
             // 价格回写填报记录（供退回修改时员工查看单价）；同一商品多行时一并回写
             if ((float)$r['price'] > 0) {

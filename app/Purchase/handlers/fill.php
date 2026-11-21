@@ -242,12 +242,20 @@ function handle_fill_delete($id) {
         return ['ok' => false, 'msg' => fill_window_msg($item['month'])];
     }
     // 删除退回记录时同步删除对应存档行（价格已导入过的）
-    // 必须同时匹配条线/品牌/单位，避免不同条线同名称同规格的存档被误删
+    // 优先按 item_id 精确删除；历史存档没有 item_id 时回退到字段匹配（含条线/品牌/单位）
     if ($item['status'] === 'returned') {
-        db()->prepare("DELETE FROM archived_purchases WHERE month=? AND project_id=? AND line=? AND item_name=?
-                       AND COALESCE(brand,'')=? AND COALESCE(spec,'')=? AND COALESCE(unit,'')=?")
-            ->execute([$item['month'], $item['project_id'], $item['line'], $item['item_name'],
-                (string)($item['brand'] ?? ''), (string)($item['spec'] ?? ''), (string)($item['unit'] ?? '')]);
+        $deleted = 0;
+        if (!empty($item['id'])) {
+            $st = db()->prepare("DELETE FROM archived_purchases WHERE month=? AND item_id=?");
+            $st->execute([$item['month'], (int)$item['id']]);
+            $deleted = $st->rowCount();
+        }
+        if ($deleted === 0) {
+            db()->prepare("DELETE FROM archived_purchases WHERE month=? AND project_id=? AND line=? AND item_name=?
+                           AND COALESCE(brand,'')=? AND COALESCE(spec,'')=? AND COALESCE(unit,'')=?")
+                ->execute([$item['month'], $item['project_id'], $item['line'], $item['item_name'],
+                    (string)($item['brand'] ?? ''), (string)($item['spec'] ?? ''), (string)($item['unit'] ?? '')]);
+        }
     }
     db()->prepare("DELETE FROM purchase_items WHERE id=?")->execute([$id]);
     log_action('删除', "{$item['month']} {$item['item_name']}({$item['spec']}) 删除填报记录（原状态 {$item['status']}）");
