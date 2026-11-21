@@ -1,6 +1,26 @@
 <?php
 /** 招采端接口 */
 
+/** 确认前置校验：仅 submitted 可确认；returned 需员工重新提交 */
+function purchase_confirm_guard(?string $status): ?string {
+    if ($status === 'returned') return '该记录已退回，员工尚未重新提交，暂不能确认';
+    if ($status !== 'submitted') return '仅已提交的记录可确认（当前状态：' . $status . '）';
+    return null;
+}
+
+/** 撤销确认前置校验：仅 confirmed 可撤销 */
+function purchase_unconfirm_guard(?string $status): ?string {
+    if ($status !== 'confirmed') return '仅已确认的记录可撤销确认（当前状态：' . $status . '）';
+    return null;
+}
+
+/** 归档前报价校验：未导入报价需 force 二次确认 */
+function purchase_archive_quote_guard(int $quoteRows, bool $force): ?array {
+    if ($quoteRows > 0 || $force) return null;
+    return ['ok' => false, 'need_confirm' => true, 'code' => 'no_quote',
+        'msg' => '本月尚未导入报价，归档后该月采购金额将全部为 0（汇总、预算执行、驾驶舱均按 0 统计）。确认仍要归档？'];
+}
+
 // 填报进度总览：各项目×条线状态
 function handle_admin_overview() {
     require_admin();
@@ -92,9 +112,8 @@ function handle_admin_confirm_item($id) {
     $item = fetch_item($id);
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可确认'];
-    if ($item['status'] === 'returned') {
-        return ['ok' => false, 'msg' => '该记录已退回，员工尚未重新提交，暂不能确认'];
-    }
+    $guard = purchase_confirm_guard($item['status']);
+    if ($guard !== null) return ['ok' => false, 'msg' => $guard];
     db()->prepare("UPDATE purchase_items SET status='confirmed', return_reason='', returned_at=NULL WHERE id=?")->execute([$id]);
     log_action('确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']} x{$item['quantity']}");
     // Q14③：确认完成提醒员工
@@ -159,6 +178,8 @@ function handle_admin_unconfirm_item($id) {
     $item = fetch_item($id);
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可取消确认'];
+    $guard = purchase_unconfirm_guard($item['status']);
+    if ($guard !== null) return ['ok' => false, 'msg' => $guard];
     db()->prepare("UPDATE purchase_items SET status='submitted' WHERE id=?")->execute([$id]);
     log_action('取消确认', "{$item['month']} 项目{$item['project_id']} {$item['item_name']}");
     return ['ok' => true, 'msg' => '已撤销确认'];
@@ -220,10 +241,16 @@ function handle_admin_archive() {
         $suffix = count($names) > 0 ? '，如：' . implode('、', $names) : '';
         return ['ok' => false, 'msg' => "本月尚有 {$pending} 条未确认，全部确认后才能归档" . $suffix];
     }
+    // 归档前校验报价是否已导入：未导入时该月金额会全部为 0，需管理员二次确认
+    $stA = db()->prepare("SELECT COUNT(*) FROM archived_purchases WHERE month=?");
+    $stA->execute([$month]);
+    $quoteRows = (int)$stA->fetchColumn();
+    $quoteBlock = purchase_archive_quote_guard($quoteRows, !empty($in['force']));
+    if ($quoteBlock !== null) return $quoteBlock;
     $uid = (int)(\App\Purchase\Support::context()['id'] ?? $in['by'] ?? 0);
     db()->prepare("INSERT INTO monthly_archive (month, archived_at, archived_by, note) VALUES (?,NOW(),?,'')")
         ->execute([$month, $uid]);
-    log_action('归档确认', "{$month} 归档锁定（最终版，共 {$total} 条）");
+    log_action('归档确认', "{$month} 归档锁定（最终版，共 {$total} 条，报价 " . ($quoteRows > 0 ? "{$quoteRows} 条" : '未导入') . "）");
     return ['ok' => true, 'msg' => "本月已归档锁定（{$total} 条全部确认），员工端与招采端均只读"];
 }
 

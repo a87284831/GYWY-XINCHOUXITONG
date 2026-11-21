@@ -1,6 +1,26 @@
 <?php
 /** 填报模块 */
 
+/**
+ * 数量/库存校验：必须是合法数字、最多两位小数、不超过上限。
+ * 数量必须 > 0；库存允许 0，不允许负数。
+ */
+function purchase_qty_value($value, string $label, bool $allowZero, bool $required, ?string &$error): ?float {
+    if ($value === null || (is_string($value) && trim($value) === '')) {
+        if ($required) { $error = $label . '必填'; return null; }
+        return 0.0;
+    }
+    if (!is_numeric($value)) { $error = $label . '必须是数字'; return null; }
+    $f = (float)$value;
+    if ($allowZero ? $f < 0 : $f <= 0) {
+        $error = $allowZero ? $label . '不能为负数' : $label . '必须大于 0';
+        return null;
+    }
+    if ($f > 999999) { $error = $label . '不能超过 999999'; return null; }
+    if (abs($f - round($f, 2)) > 0.000001) { $error = $label . '最多保留两位小数'; return null; }
+    return round($f, 2);
+}
+
 // 当前/指定月份填报窗口
 function handle_fill_window() {
     $month = $_GET['month'] ?? date('Y-m');
@@ -63,8 +83,11 @@ function handle_fill_create() {
     $brand = trim($in['brand'] ?? '');
     $spec = norm_spec($in['spec'] ?? '');
     $unit = trim($in['unit'] ?? '');
-    $quantity = (float)($in['quantity'] ?? 0);
-    $stock = (float)($in['stock'] ?? 0);
+    $qtyErr = null;
+    $quantity = purchase_qty_value($in['quantity'] ?? null, '数量', false, true, $qtyErr);
+    if ($qtyErr !== null) return ['ok' => false, 'msg' => $qtyErr];
+    $stock = purchase_qty_value($in['stock'] ?? null, '库存', true, false, $qtyErr);
+    if ($qtyErr !== null) return ['ok' => false, 'msg' => $qtyErr];
     $reason = trim($in['reason'] ?? '');
     $use_location = trim($in['use_location'] ?? '');
     $remark = trim($in['remark'] ?? '');
@@ -117,7 +140,11 @@ function handle_fill_update($id) {
             if ($f === 'product_id') { $v = $v ? (int)$v : null; }
             elseif ($f === 'is_custom') { $v = (int)$v ? 1 : 0; }
             elseif ($f === 'status') { $v = in_array($v, ['draft', 'submitted']) ? $v : 'draft'; }
-            elseif (in_array($f, ['quantity', 'stock'])) { $v = (float)$v; }
+            elseif (in_array($f, ['quantity', 'stock'])) {
+                $qtyErr = null;
+                $v = purchase_qty_value($v, $f === 'quantity' ? '数量' : '库存', $f === 'stock', $f === 'quantity', $qtyErr);
+                if ($qtyErr !== null) return ['ok' => false, 'msg' => $qtyErr];
+            }
             elseif ($f === 'spec') { $v = norm_spec((string)$v); }
             else { $v = trim((string)$v); }
             $params[] = $v;
@@ -215,9 +242,12 @@ function handle_fill_delete($id) {
         return ['ok' => false, 'msg' => fill_window_msg($item['month'])];
     }
     // 删除退回记录时同步删除对应存档行（价格已导入过的）
+    // 必须同时匹配条线/品牌/单位，避免不同条线同名称同规格的存档被误删
     if ($item['status'] === 'returned') {
-        db()->prepare("DELETE FROM archived_purchases WHERE month=? AND project_id=? AND item_name=? AND spec=?")
-            ->execute([$item['month'], $item['project_id'], $item['item_name'], $item['spec']]);
+        db()->prepare("DELETE FROM archived_purchases WHERE month=? AND project_id=? AND line=? AND item_name=?
+                       AND COALESCE(brand,'')=? AND COALESCE(spec,'')=? AND COALESCE(unit,'')=?")
+            ->execute([$item['month'], $item['project_id'], $item['line'], $item['item_name'],
+                (string)($item['brand'] ?? ''), (string)($item['spec'] ?? ''), (string)($item['unit'] ?? '')]);
     }
     db()->prepare("DELETE FROM purchase_items WHERE id=?")->execute([$id]);
     log_action('删除', "{$item['month']} {$item['item_name']}({$item['spec']}) 删除填报记录（原状态 {$item['status']}）");

@@ -85,6 +85,25 @@ async function doArchive() {
     toast(d.msg || '本月已归档')
     load()
   } catch (e) {
+    if (e.payload && e.payload.need_confirm) {
+      try {
+        await ElMessageBox.confirm(
+          e.message + '\n\n归档后如需补报价，必须先「撤销归档」。仍要归档？',
+          '报价未导入',
+          { type: 'warning', confirmButtonText: '仍要归档', cancelButtonText: '先去导入报价' }
+        )
+      } catch (_) {
+        return
+      }
+      try {
+        const d2 = await api('/api/purchase/admin/archive', { body: { month: month.value, force: true } })
+        toast(d2.msg || '本月已归档')
+        load()
+      } catch (e2) {
+        toast(e2.message, false)
+      }
+      return
+    }
     toast(e.message, false)
   }
 }

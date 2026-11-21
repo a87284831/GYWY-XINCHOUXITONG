@@ -51,8 +51,8 @@
 ## 3. 发布前检查
 
 1. 本地全量测试通过：
-   - `php artisan test`（当前基线 489 tests / 3508 assertions）
-   - `cd frontend && npm run test:run`（28 文件 / 372 用例）
+   - `php artisan test`（当前基线 502 tests / 3573 assertions）
+   - `cd frontend && npm.cmd test`（28 文件 / 373 用例）
    - `npm run build` 成功
 2. 版本号顺延并写入 `changelog.json` 顶部（格式 `vYYYY.MM.DD.N`，不覆盖他人条目）。
 3. 服务器快照（数据库 + 代码 + 前端），记录路径与 md5：

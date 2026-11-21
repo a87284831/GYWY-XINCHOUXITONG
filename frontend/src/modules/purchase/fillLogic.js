@@ -42,8 +42,15 @@ export function validateRow(row, idx) {
   if (!row.item_name) return '第 ' + idx + ' 行：请填写商品名称'
   if (notInLibrary(row)) return '第 ' + idx + ' 行：「' + row.item_name + '」未匹配到清单内商品，请从联想列表选择，或打开行尾「清单外」开关'
   if (!row.spec) return '第 ' + idx + ' 行：请填写规格型号'
-  if (!row.quantity) return '第 ' + idx + ' 行：请填写数量'
+  const qty = Number(row.quantity)
+  if (!Number.isFinite(qty) || qty <= 0) return '第 ' + idx + ' 行：数量必须大于 0'
+  if (qty > 999999) return '第 ' + idx + ' 行：数量不能超过 999999'
+  if (Math.abs(qty * 100 - Math.round(qty * 100)) > 1e-6) return '第 ' + idx + ' 行：数量最多保留两位小数'
   if (row.stock === '' || row.stock === null || row.stock === undefined) return '第 ' + idx + ' 行：请填写库存'
+  const stock = Number(row.stock)
+  if (!Number.isFinite(stock) || stock < 0) return '第 ' + idx + ' 行：库存不能为负数'
+  if (stock > 999999) return '第 ' + idx + ' 行：库存不能超过 999999'
+  if (Math.abs(stock * 100 - Math.round(stock * 100)) > 1e-6) return '第 ' + idx + ' 行：库存最多保留两位小数'
   return null
 }
 

@@ -57,7 +57,7 @@ describe('validateRow（逐行校验文案）', () => {
     expect(validateRow({ line: '', item_name: '', is_custom: false, quantity: 0 }, 3)).toBe('第 3 行：请选择条线')
     expect(validateRow({ line: '环境', item_name: '', is_custom: false, quantity: 0 }, 2)).toBe('第 2 行：请填写商品名称')
     expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '', is_custom: false, quantity: 5, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写规格型号')
-    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 0, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写数量')
+    expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 0, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：数量必须大于 0')
     expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, stock: '', product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe('第 1 行：请填写库存')
   })
   it('清单外也要求规格（2026-10-20 必填项收紧）；齐备返回 null', () => {
@@ -65,8 +65,15 @@ describe('validateRow（逐行校验文案）', () => {
     expect(validateRow({ line: '环境', item_name: '临时物资', spec: '500ml', is_custom: true, quantity: 2, stock: 0 }, 1)).toBe(null)
     expect(validateRow({ line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, quantity: 5, stock: 1, product_id: 9, specs: [{ id: 9, spec: '70g' }] }, 1)).toBe(null)
   })
-  it('清单内模式名称未匹配清单：拦截并引导开清单外开关', () => {
-    // 联想无结果（无 product_id 且无 specs）→ notInLibrary 命中
+  it('数量/库存边界：负数、超上限、超过两位小数都拦截', () => {
+    const base = { line: '环境', item_name: 'A4纸', spec: '70g', is_custom: false, product_id: 9, specs: [{ id: 9, spec: '70g' }] }
+    expect(validateRow({ ...base, quantity: -1, stock: 1 }, 1)).toBe('第 1 行：数量必须大于 0')
+    expect(validateRow({ ...base, quantity: 1000000, stock: 1 }, 1)).toBe('第 1 行：数量不能超过 999999')
+    expect(validateRow({ ...base, quantity: 1.234, stock: 1 }, 1)).toBe('第 1 行：数量最多保留两位小数')
+    expect(validateRow({ ...base, quantity: 1, stock: -1 }, 1)).toBe('第 1 行：库存不能为负数')
+    expect(validateRow({ ...base, quantity: 1, stock: 0 }, 1)).toBe(null)
+  })
+  it('清单内模式名称未匹配清单：拦截并引导开清单外开关', () => {    // 联想无结果（无 product_id 且无 specs）→ notInLibrary 命中
     const r = { line: '环境', item_name: '清单外商品X', spec: '', is_custom: false, quantity: 5, product_id: null, specs: [] }
     expect(notInLibrary(r)).toBe(true)
     expect(validateRow(r, 2)).toBe('第 2 行：「清单外商品X」未匹配到清单内商品，请从联想列表选择，或打开行尾「清单外」开关')

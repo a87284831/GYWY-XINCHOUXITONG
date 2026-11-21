@@ -10,6 +10,21 @@
           <option v-for="m in 12" :key="m" :value="m">{{ m }} 月</option>
         </select>
       </label>
+      <label class="fld">项目
+        <select v-model="project">
+          <option value="">全部项目</option>
+          <option v-for="p in projects" :key="p.name" :value="p.name">{{ p.name }}</option>
+        </select>
+      </label>
+      <label class="fld">分类
+        <select v-model="category">
+          <option value="all">全部</option>
+          <option value="base">基层</option>
+          <option value="manager">管理</option>
+          <option value="case">案场</option>
+          <option value="hq">总部</option>
+        </select>
+      </label>
       <button class="btn primary" @click="load">刷新</button>
     </div>
     <div style="margin-top:12px">
@@ -64,6 +79,9 @@ const TREND_KEYS = ['迟到', '早退', '缺卡', '旷工', '事假', '病假', 
 const rep = useReportStore()
 const d = ref(null)
 const loadErr = ref('')
+const projects = ref([])
+const project = ref('')
+const category = ref('all')
 const charts = createCharts()
 const els = {}
 function setEl(key, el) { els[key] = el }
@@ -105,15 +123,25 @@ async function draw() {
   }
 }
 
+async function loadProjects() {
+  try {
+    const r = await api('/api/projects')
+    projects.value = r.projects || []
+  } catch (e) { /* 项目列表失败不阻塞报表 */ }
+}
+
 async function load() {
   loadErr.value = ''
   try {
-    d.value = await api(`/api/report/attendance?ym=${rep.ym}`)
+    const qs = new URLSearchParams({ ym: rep.ym })
+    if (project.value) qs.set('project', project.value)
+    if (category.value !== 'all') qs.set('category', category.value)
+    d.value = await api('/api/report/attendance?' + qs.toString())
     draw()
   } catch (e) { loadErr.value = e.message }
 }
 
-onMounted(load)
+onMounted(() => { loadProjects(); load() })
 onBeforeUnmount(() => charts.destroyAll())
 </script>
 

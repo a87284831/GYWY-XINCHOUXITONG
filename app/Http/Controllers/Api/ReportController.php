@@ -14,14 +14,15 @@ class ReportController extends ApiController
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
         $year = (int) $request->input('year', now()->year); $ym = $request->input('ym') ?: sprintf('%04d-12', $year);
-        $records = $this->scopedResultRecords($account, $ym);
+        $project = $this->reportProject($request, $account); $category = $this->reportCategory($request);
+        $records = $this->scopedResultRecords($account, $ym, $project, $category);
         $split = $this->splitResultRecords($records);
-        $projectRows = $this->projectRows($split);
+        $projectRows = $this->reportRows($split, $category);
         $gross = $this->sumFieldRows($projectRows, 'gross'); $net = $this->sumFieldRows($projectRows, 'net');
         $headcount = $projectRows->count();
         // 项目口径 = 基层 + 管理；案场/总部单独列出，不并入项目合计
-        $projects = $records->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $project) {
-            $s = $this->splitResultRecords($items); $p = $this->projectRows($s);
+        $projects = $records->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $project) use ($category) {
+            $s = $this->splitResultRecords($items); $p = $this->reportRows($s, $category);
             return ['project' => $project, 'headcount' => $p->count(),
                 'gross' => $this->sumFieldRows($p, 'gross'), 'net' => $this->sumFieldRows($p, 'net'),
                 'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
@@ -30,14 +31,16 @@ class ReportController extends ApiController
                 'hq_gross' => $this->sumFieldRows($s['hq'], 'gross'),
                 'case_headcount' => $s['case']->count(), 'month_budget' => 0, 'month_rate' => 0];
         })->values();
-        $staffQuery = DB::table('payroll_staff')->where('deleted', false);
-        if ($this->isProjectScope($account)) $staffQuery->where('project_name', $account->project_name);
+        $staffQuery = DB::table('payroll_staff');
+        $this->applyStaffScope($staffQuery, $project, $category, $account);
         $staff = $staffQuery->get(); $status = $staff->groupBy('status')->map->count();
         // 部门人数分布（按 dept_path 末级部门聚合；未挂部门归"未分配"）
         $deptHead = $staff->groupBy(fn ($s) => $this->deptName($s))->map->count();
         // 部门人工成本（项目口径：基层 + 管理）
         $deptCost = [];
-        $staffDept = DB::table('payroll_staff')->pluck('dept_path', 'legacy_id');
+        $staffDeptQuery = DB::table('payroll_staff');
+        if ($project !== null && $project !== '') $staffDeptQuery->where('project_name', $project);
+        $staffDept = $staffDeptQuery->pluck('dept_path', 'legacy_id');
         foreach ($records as $dbRow) {
             if ((int) ($dbRow->is_case_row ?? 0) === 1 || (int) ($dbRow->is_hq_row ?? 0) === 1) continue;
             $j = $this->jsonValue($dbRow->row_data) ?: [];
@@ -50,9 +53,13 @@ class ReportController extends ApiController
             ];
         }
         $deptCost = array_values($deptCost);
-        $months = collect(range(1, 12))->map(function ($month) use ($year, $account) {
-            $recs = $this->scopedResultRecords($account, sprintf('%04d-%02d', $year, $month));
-            $split = $this->splitResultRecords($recs); $rows = $this->projectRows($split);
+        $monthKeys = collect(range(1, 12))->map(fn ($m) => sprintf('%04d-%02d', $year, $m))->all();
+        $yearQ = DB::table('payroll_results')->whereIn('year_month', $monthKeys);
+        $this->applyResultScope($yearQ, $project, $category, $account);
+        $yearRecords = $yearQ->get()->groupBy('year_month');
+        $months = collect(range(1, 12))->map(function ($month) use ($year, $yearRecords, $category) {
+            $recs = $yearRecords->get(sprintf('%04d-%02d', $year, $month), collect());
+            $split = $this->splitResultRecords($recs); $rows = $this->reportRows($split, $category);
             return ['month' => $month, 'gross' => $this->sumFieldRows($rows, 'gross'),
                 'net' => $this->sumFieldRows($rows, 'net'), 'headcount' => $rows->count(),
                 'case_gross' => $this->sumFieldRows($split['case'], 'gross'),
@@ -66,6 +73,7 @@ class ReportController extends ApiController
             'month_breakdown' => $this->categoryBreakdown($split),
             'ytd_gross' => round($months->where('month', '<=', (int) substr($ym, 5, 2))->sum('gross'), 2),
             'ytd_net' => round($months->where('month', '<=', (int) substr($ym, 5, 2))->sum('net'), 2),
+            'filters' => ['project' => $project, 'category' => $category],
             'composition' => [], 'staff_trend' => [], 'month_budgets' => [], 'proj_year' => [], 'attendance_anomaly' => []]);
     }
 
@@ -90,13 +98,14 @@ class ReportController extends ApiController
         $year = (int) $request->input('year', now()->year);
         $ym = (string) $request->input('ym');
         $annual = (bool) $request->input('annual', false);
+        $project = $this->reportProject($request, $account); $category = $this->reportCategory($request);
         if (!preg_match('/^\d{4}-\d{2}$/', $ym)) $ym = $annual ? sprintf('%04d-12', $year) : sprintf('%04d-%02d', $year, (int) date('m'));
         if ($annual) $ym = sprintf('%04d-12', $year);
         $prevYm = $this->prevMonth($ym);
 
         // —— KPI（当前月 + 上月）——
-        $cur = $this->hrKpis($account, $ym, $annual);
-        $prev = $this->hrKpis($account, $prevYm, $annual);
+        $cur = $this->hrKpis($account, $ym, $annual, $project, $category);
+        $prev = $this->hrKpis($account, $prevYm, $annual, $project, $category);
         $deltas = [];
         foreach (['active', 'in', 'out', 'regular', 'avg_pay'] as $k) {
             $cv = $cur[$k]; $pv = $prev[$k];
@@ -104,7 +113,7 @@ class ReportController extends ApiController
         }
 
         // —— 图表数据 ——
-        $staff = $this->scopedStaff($account);
+        $staff = $this->scopedStaff($account, $project, $category);
         $activeNow = $this->activeStaffOf($staff, $cur['monthEnd']);
         $structure = $activeNow->groupBy('project_name')->map->count()->sortDesc()->map(fn ($c, $p) => ['label' => $p, 'value' => $c])->values();
 
@@ -127,10 +136,10 @@ class ReportController extends ApiController
         $statusDist = $this->statusDistribution($staff, $cur['monthEnd']);
 
         // 人力成本（按项目，当月应发；项目口径 = 基层 + 管理，案场单列）
-        $costRecords = $this->scopedResultRecords($account, $ym);
+        $costRecords = $this->scopedResultRecords($account, $ym, $project, $category);
         $costSplit = $this->splitResultRecords($costRecords);
-        $costByProject = $costRecords->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $p) {
-            $s = $this->splitResultRecords($items); $rows = $this->projectRows($s);
+        $costByProject = $costRecords->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配'))->map(function ($items, $p) use ($category) {
+            $s = $this->splitResultRecords($items); $rows = $this->reportRows($s, $category);
             return ['label' => $p, 'headcount' => $rows->count(), 'gross' => $this->sumFieldRows($rows, 'gross'),
                 'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
                 'manager_gross' => $this->sumFieldRows($s['manager'], 'gross'),
@@ -143,21 +152,22 @@ class ReportController extends ApiController
             'structure' => $structure, 'trend' => $trend, 'age_dist' => $ageDist,
             'tenure_dist' => $tenureDist, 'edu_dist' => $eduDist, 'hometown_top' => $hometownTop,
             'status_dist' => $statusDist, 'cost_by_project' => $costByProject,
-            'cost_breakdown' => $this->categoryBreakdown($costSplit)]);
+            'cost_breakdown' => $this->categoryBreakdown($costSplit),
+            'filters' => ['project' => $project, 'category' => $category]]);
     }
 
-    private function hrKpis($account, string $ym, bool $annual): array
+    private function hrKpis($account, string $ym, bool $annual, ?string $project = null, string $category = 'all'): array
     {
         $monthEnd = date('Y-m-t', strtotime($ym . '-01'));
-        $staff = $this->scopedStaff($account);
+        $staff = $this->scopedStaff($account, $project, $category);
         $active = $this->activeStaffOf($staff, $monthEnd);
         $m = substr($ym, 0, 7);
         $year = (int) substr($ym, 0, 4);
         $in = $staff->filter(fn ($s) => $s->hire_date && ($annual ? str_starts_with((string) $s->hire_date, (string) $year) : str_starts_with((string) $s->hire_date, $m)));
         $out = $staff->filter(fn ($s) => $s->resign_date && ($annual ? str_starts_with((string) $s->resign_date, (string) $year) : str_starts_with((string) $s->resign_date, $m)));
         $regular = $staff->filter(fn ($s) => $s->regular_date && ($annual ? str_starts_with((string) $s->regular_date, (string) $year) : str_starts_with((string) $s->regular_date, $m)));
-        $costRecords = $this->scopedResultRecords($account, $ym);
-        $costRows = $this->projectRows($this->splitResultRecords($costRecords));
+        $costRecords = $this->scopedResultRecords($account, $ym, $project, $category);
+        $costRows = $this->reportRows($this->splitResultRecords($costRecords), $category);
         $gross = $this->sumFieldRows($costRows, 'gross');
         $cnt = $costRows->count();
         $avgPay = $cnt ? round($gross / $cnt, 2) : 0;
@@ -174,18 +184,105 @@ class ReportController extends ApiController
         ];
     }
 
-    private function scopedStaff($account)
+    private function scopedStaff($account, ?string $project = null, string $category = 'all')
     {
         $q = DB::table('payroll_staff')->where('deleted', false);
-        if ($this->isProjectScope($account)) $q->where('project_name', $account->project_name);
+        $this->applyStaffScope($q, $project, $category, $account);
         return $q->get();
     }
 
-    private function scopedResultRecords($account, string $ym)
+    private function scopedResultRecords($account, string $ym, ?string $project = null, string $category = 'all')
     {
         $q = DB::table('payroll_results')->where('year_month', $ym);
-        if ($this->isProjectScope($account)) $q->where('project_name', $account->project_name);
+        $this->applyResultScope($q, $project, $category, $account);
         return $q->get();
+    }
+
+    /** 报表项目筛选：项目账号强制本项目；管理员可按项目名筛选（空=全部） */
+    private function reportProject(Request $request, object $account): ?string
+    {
+        if ($this->isProjectScope($account)) return (string) $account->project_name;
+        $project = trim((string) $request->input('project', ''));
+        return $project !== '' ? $project : null;
+    }
+
+    /** 报表分类筛选：all/base/manager/case/hq（默认 all，保持原口径） */
+    private function reportCategory(Request $request): string
+    {
+        $category = strtolower(trim((string) $request->input('category', 'all')));
+        return in_array($category, ['base', 'manager', 'case', 'hq'], true) ? $category : 'all';
+    }
+
+    /** 工资结果行按项目 + 行类型过滤（与 /api/summary 的 is_*_row 口径一致） */
+    private function applyResultScope($q, ?string $project, string $category, object $account): void
+    {
+        $project = $this->isProjectScope($account) ? (string) $account->project_name : $project;
+        if ($project !== null && $project !== '') $q->where('project_name', $project);
+        if ($category === 'base') {
+            $q->where('is_manager_row', false)->where('is_case_row', false)->where('is_hq_row', false);
+        } elseif ($category === 'manager') {
+            $q->where('is_manager_row', true)->where('is_hq_row', false);
+        } elseif ($category === 'case') {
+            $q->where('is_case_row', true);
+        } elseif ($category === 'hq') {
+            $q->where('is_hq_row', true);
+        }
+    }
+
+    /** 人员档案按项目 + 人员分类过滤（base=staff，兼容 person_type 为空的历史数据） */
+    private function applyStaffScope($q, ?string $project, string $category, object $account): void
+    {
+        $q->where('deleted', false);
+        $project = $this->isProjectScope($account) ? (string) $account->project_name : $project;
+        if ($project !== null && $project !== '') $q->where('project_name', $project);
+        if ($category === 'all') return;
+        $type = ['base' => 'staff', 'manager' => 'manager', 'case' => 'case', 'hq' => 'hq'][$category] ?? null;
+        if ($type === null) return;
+        if ($type === 'staff') {
+            $q->where(function ($w) {
+                $w->where('person_type', 'staff')->orWhereNull('person_type')->orWhere('person_type', '');
+            });
+        } else {
+            $q->where('person_type', $type);
+        }
+    }
+
+    /** 当前筛选口径下的报表行：all=基层+管理（原口径），其余=所选分类 */
+    private function reportRows(array $split, string $category)
+    {
+        if ($category === 'all') return $this->projectRows($split);
+        return $split[$category === 'base' ? 'base' : $category];
+    }
+
+    private function categoryOfType(?string $type): string
+    {
+        return ['manager' => 'manager', 'case' => 'case', 'hq' => 'hq'][$type ?? ''] ?? 'base';
+    }
+
+    /**
+     * 考勤报表的人员分类索引：优先按月分类（categoryMap），回退档案 person_type。
+     * 返回 [legacy_id => person_type, "项目|姓名" => person_type]。
+     */
+    private function attendanceTypeIndex(?string $project, string $ym): array
+    {
+        $catMap = \App\Services\PayrollCalculator::categoryMap($ym);
+        $q = DB::table('payroll_staff')->where('deleted', false);
+        if ($project !== null && $project !== '') $q->where('project_name', $project);
+        $byId = []; $byKey = [];
+        foreach ($q->get(['legacy_id', 'name', 'project_name', 'person_type']) as $s) {
+            $type = $catMap[$s->legacy_id] ?? ($s->person_type ?: 'staff');
+            $byId[(int) $s->legacy_id] = $type;
+            $byKey[$s->project_name . '|' . $s->name] = $type;
+        }
+        return [$byId, $byKey];
+    }
+
+    private function attendanceTypeOf(array $p, ?string $project, string $name, array $byId, array $byKey): string
+    {
+        if (isset($p['staff_id']) && $p['staff_id'] !== null && isset($byId[(int) $p['staff_id']])) {
+            return $byId[(int) $p['staff_id']];
+        }
+        return $byKey[($project ?: '') . '|' . $name] ?? 'staff';
     }
 
     /** 按行类型拆分核算结果：基层 / 管理 / 案场 / 总部（与 /api/summary 口径一致） */
@@ -319,11 +416,12 @@ class ReportController extends ApiController
         $year = (int) substr($ym, 0, 4);
         $month = (int) substr($ym, 5, 2);
         $prevYm = $this->prevMonth($ym);
+        $project = $this->reportProject($request, $account); $category = $this->reportCategory($request);
 
-        $records = $this->scopedResultRecords($account, $ym);
+        $records = $this->scopedResultRecords($account, $ym, $project, $category);
         $split = $this->splitResultRecords($records);
-        $rows = $this->projectRows($split);
-        $prevRows = $this->projectRows($this->splitResultRecords($this->scopedResultRecords($account, $prevYm)));
+        $rows = $this->reportRows($split, $category);
+        $prevRows = $this->reportRows($this->splitResultRecords($this->scopedResultRecords($account, $prevYm, $project, $category)), $category);
         $gross = $this->sumFieldRows($rows, 'gross');
         $net = $this->sumFieldRows($rows, 'net');
         $cnt = $rows->count();
@@ -334,10 +432,10 @@ class ReportController extends ApiController
 
         // 本年累计应发/实发/个税/五险一金（year_month 为 'YYYY-MM' varchar，用 like + PHP 侧过滤，兼容 SQLite/MySQL）
         $cumQ = DB::table('payroll_results')->where('year_month', 'like', $year . '-%');
-        if ($this->isProjectScope($account)) $cumQ->where('project_name', $account->project_name);
+        $this->applyResultScope($cumQ, $project, $category, $account);
         $cumRecords = $cumQ->get()
             ->filter(fn ($row) => (int) substr((string) $row->year_month, 5, 2) <= $month);
-        $cumRows = $this->projectRows($this->splitResultRecords($cumRecords));
+        $cumRows = $this->reportRows($this->splitResultRecords($cumRecords), $category);
         $ytdGross = $this->sumFieldRows($cumRows, 'gross');
         $ytdNet = $this->sumFieldRows($cumRows, 'net');
         $ytdTax = $this->sumFieldRows($cumRows, 'actual_tax');
@@ -345,7 +443,7 @@ class ReportController extends ApiController
 
         // 预算：年度总预算 + 执行率（当月应发/当月预算）
         $budgetQ = DB::table('payroll_budgets')->where('year', $year);
-        if ($this->isProjectScope($account)) $budgetQ->where('project_name', $account->project_name);
+        if ($project !== null && $project !== '') $budgetQ->where('project_name', $project);
         $annualBudget = 0; $monthBudget = 0; $budgetRows = $budgetQ->get();
         foreach ($budgetRows as $b) {
             $d = $this->jsonValue($b->data) ?: [];
@@ -355,7 +453,7 @@ class ReportController extends ApiController
         $budgetRate = $monthBudget > 0 ? round($gross / $monthBudget * 100, 1) : 0;
         $ytdBudgetRate = $annualBudget > 0 ? round($ytdGross / $annualBudget * 100, 1) : 0;
 
-        $active = $this->activeStaffOf($this->scopedStaff($account), date('Y-m-t', strtotime($ym . '-01')))->count();
+        $active = $this->activeStaffOf($this->scopedStaff($account, $project, $category), date('Y-m-t', strtotime($ym . '-01')))->count();
 
         $kpis = [
             ['key' => 'active', 'label' => '在职人员', 'value' => $active, 'delta' => null],
@@ -373,12 +471,16 @@ class ReportController extends ApiController
             ['key' => 'budget_rate', 'label' => '年度预算执行率', 'value' => $ytdBudgetRate, 'unit' => '%', 'delta' => null],
         ];
 
-        // 月度趋势 + 预算执行率趋势（近12月；一次取每月记录，项目口径 = 基层 + 管理）
+        // 月度趋势 + 预算执行率趋势（近12月；一次取回按月分组，避免逐月查询）
         $monthlyTrend = []; $budgetTrend = [];
         $cumGross = 0; $cumNet = 0;
-        foreach ($this->lastMonths($ym, 12) as $m) {
-            $mSplit = $this->splitResultRecords($this->scopedResultRecords($account, $m));
-            $mr = $this->projectRows($mSplit);
+        $trendMonths = $this->lastMonths($ym, 12);
+        $trendQ = DB::table('payroll_results')->whereIn('year_month', $trendMonths);
+        $this->applyResultScope($trendQ, $project, $category, $account);
+        $trendRecords = $trendQ->get()->groupBy('year_month');
+        foreach ($trendMonths as $m) {
+            $mSplit = $this->splitResultRecords($trendRecords->get($m, collect()));
+            $mr = $this->reportRows($mSplit, $category);
             $mg = $this->sumFieldRows($mr, 'gross');
             $mn = $this->sumFieldRows($mr, 'net');
             $mMonth = (int) substr($m, 5, 2);
@@ -401,8 +503,12 @@ class ReportController extends ApiController
         // 各项目薪酬对比（项目口径 = 基层 + 管理，案场单列）
         $projectCompare = [];
         foreach ($records->groupBy(fn ($r) => (string) ($r->project_name ?: '未分配')) as $p => $items) {
-            $s = $this->splitResultRecords($items); $pr = $this->projectRows($s);
-            if ($pr->isEmpty() && $s['case']->isEmpty()) continue; // 纯总部载体项目不展示
+            $s = $this->splitResultRecords($items); $pr = $this->reportRows($s, $category);
+            if ($category === 'all') {
+                if ($pr->isEmpty() && $s['case']->isEmpty()) continue; // 纯总部载体项目不展示
+            } elseif ($pr->isEmpty()) {
+                continue;
+            }
             $projectCompare[$p] = ['label' => $p, 'headcount' => $pr->count(), 'gross' => $this->sumFieldRows($pr, 'gross'),
                 'base_gross' => $this->sumFieldRows($s['base'], 'gross'),
                 'manager_gross' => $this->sumFieldRows($s['manager'], 'gross'),
@@ -430,6 +536,7 @@ class ReportController extends ApiController
         }
 
         return response()->json(['ok' => true, 'ym' => $ym, 'year' => $year, 'kpis' => $kpis,
+            'filters' => ['project' => $project, 'category' => $category],
             'monthly_trend' => $monthlyTrend, 'project_compare' => $projectCompare, 'composition' => $composition,
             'budget_trend' => $budgetTrend, 'perf_dist' => $this->assocToChart($perfBuckets),
             'breakdown' => $this->categoryBreakdown($split),
@@ -456,13 +563,15 @@ class ReportController extends ApiController
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
         $ym = (string) $request->input('ym');
         if (!preg_match('/^\d{4}-\d{2}$/', $ym)) $ym = date('Y-m');
+        $project = $this->reportProject($request, $account); $category = $this->reportCategory($request);
         $q = DB::table('payroll_attendance')->where('year_month', $ym);
-        if ($this->isProjectScope($account)) $q->where('project_name', $account->project_name);
+        if ($project !== null && $project !== '') $q->where('project_name', $project);
         $records = $q->get();
+        [$typeById, $typeByKey] = $this->attendanceTypeIndex($project, $ym);
 
         // 从符号库动态生成分类（替代硬编码，符号库修改后报表自动跟随）
         $symbols = \App\Services\PayrollCalculator::symbols();
-        $ANOMALY = []; $normalAttend = [];
+        $ANOMALY = [];
         // 异常类别集合（业务概念，不随符号文本变化）
         $anomalyCats = ['迟到', '早退', '缺卡', '旷工', '事假', '病假', '产假'];
         foreach ($symbols as $sym => $meta) {
@@ -470,8 +579,6 @@ class ReportController extends ApiController
             $name = (string) ($meta['name'] ?? $sym);
             if (in_array($cat, $anomalyCats, true)) {
                 $ANOMALY[$sym] = $name;
-            } elseif (!empty($meta['in_actual'])) {
-                $normalAttend[] = $sym;
             }
         }
 
@@ -484,21 +591,23 @@ class ReportController extends ApiController
             $proj = ['project' => $project, 'headcount' => 0, 'required' => 0, 'actual' => 0];
             foreach ($rows as $name => $p) {
                 if (!is_array($p)) continue;
+                $type = $this->attendanceTypeOf($p, $project, $name, $typeById, $typeByKey);
+                if ($category !== 'all' && $this->categoryOfType($type) !== $category) continue;
                 $days = is_array($p['days'] ?? null) ? $p['days'] : [];
                 $proj['headcount']++;
-                $person = ['name' => $name, 'project' => $project, 'required' => 0, 'actual' => 0, 'anomalies' => []];
+                // 与核算/考勤页同一规则：统计列有存值优先用存值，只有缺失（null）才数符号
+                $grid = \App\Services\PayrollCalculator::attendanceStats($days, $symbols);
+                $required = (float) \App\Services\PayrollCalculator::storedOrFallback($p, 'req_attend', $grid['required']);
+                $actual = (float) \App\Services\PayrollCalculator::storedOrFallback($p, 'act_attend', $grid['attend']);
+                $proj['required'] += $required; $proj['actual'] += $actual;
+                $person = ['name' => $name, 'project' => $project, 'required' => $required, 'actual' => $actual, 'anomalies' => []];
                 foreach ($days as $sym) {
                     $sym = trim((string) $sym);
                     if ($sym === '') continue;
                     $item = \App\Services\PayrollCalculator::symbolLookup($sym, $symbols);
-                    $cat = $item ? (string) ($item['category'] ?? '') : '';
-                    if ($cat === '公休') continue;
-                    $v = $item ? (float) ($item['value'] ?? 1) : 1;
                     // 用符号库中的标准符号做数组 key 查找，避免别名不匹配
                     $stdSym = $item ? (string) ($item['symbol'] ?? $sym) : $sym;
-                    $proj['required'] += $v; $person['required'] += $v;
-                    if (in_array($stdSym, $normalAttend, true)) { $proj['actual'] += $v; $person['actual'] += $v; }
-                    elseif (isset($ANOMALY[$stdSym])) {
+                    if (isset($ANOMALY[$stdSym])) {
                         $anomalyTotals[$ANOMALY[$stdSym]]++;
                         $person['anomalies'][] = $ANOMALY[$stdSym];
                     }
@@ -513,16 +622,21 @@ class ReportController extends ApiController
             $projSummary[] = $proj;
         }
 
-        // 异常趋势（近6月）
+        // 异常趋势（近6月；一次取回按月分组）
         $anomalyTrend = [];
-        foreach ($this->lastMonths($ym, 6) as $m) {
-            $tq = DB::table('payroll_attendance')->where('year_month', $m);
-            if ($this->isProjectScope($account)) $tq->where('project_name', $account->project_name);
+        $trendMonths = $this->lastMonths($ym, 6);
+        $trendQ = DB::table('payroll_attendance')->whereIn('year_month', $trendMonths);
+        if ($project !== null && $project !== '') $trendQ->where('project_name', $project);
+        $trendRecords = $trendQ->get()->groupBy('year_month');
+        foreach ($trendMonths as $m) {
             $t = ['month' => $m, 'total' => 0]; foreach ($ANOMALY as $label) $t[$label] = 0;
-            foreach ($tq->get() as $rec) {
+            [$mTypeById, $mTypeByKey] = $this->attendanceTypeIndex($project, $m);
+            foreach ($trendRecords->get($m, collect()) as $rec) {
                 $rows = json_decode((string) $rec->rows, true) ?: [];
-                foreach ($rows as $p) {
+                foreach ($rows as $name => $p) {
                     if (!is_array($p)) continue;
+                    $type = $this->attendanceTypeOf($p, $project, $name, $mTypeById, $mTypeByKey);
+                    if ($category !== 'all' && $this->categoryOfType($type) !== $category) continue;
                     foreach (($p['days'] ?? []) as $sym) {
                         $sym = trim((string) $sym);
                         if (isset($ANOMALY[$sym])) { $t[$ANOMALY[$sym]]++; $t['total']++; }
@@ -540,8 +654,10 @@ class ReportController extends ApiController
         $symbolCount = [];
         foreach ($records as $rec) {
             $rows = json_decode((string) $rec->rows, true) ?: [];
-            foreach ($rows as $p) {
+            foreach ($rows as $name => $p) {
                 if (!is_array($p)) continue;
+                $type = $this->attendanceTypeOf($p, $project, $name, $typeById, $typeByKey);
+                if ($category !== 'all' && $this->categoryOfType($type) !== $category) continue;
                 foreach (($p['days'] ?? []) as $sym) {
                     $sym = trim((string) $sym); if ($sym === '') continue;
                     $item = \App\Services\PayrollCalculator::symbolLookup($sym, $symbols);
@@ -554,6 +670,7 @@ class ReportController extends ApiController
         $symbolDist = array_map(fn ($v, $k) => ['label' => $k, 'value' => $v], array_values($symbolCount), array_keys($symbolCount));
 
         return response()->json(['ok' => true, 'ym' => $ym,
+            'filters' => ['project' => $project, 'category' => $category],
             'projects' => $projSummary, 'anomaly_totals' => $anomalyTotals, 'anomaly_trend' => $anomalyTrend,
             'top' => $top, 'symbol_dist' => $symbolDist]);
     }
@@ -561,8 +678,20 @@ class ReportController extends ApiController
     public function staffExport(Request $request)
     {
         $account = $this->requireAccount($request); if ($account instanceof JsonResponse) return $account;
-        $query = DB::table('payroll_staff'); if ($this->isProjectScope($account)) $query->where('project_name', $account->project_name);
-        if (!$this->isProjectScope($account) && $request->filled('project')) $query->where('project_name', $request->string('project'));
+        $includeDeleted = filter_var($request->input('include_deleted', false), FILTER_VALIDATE_BOOLEAN);
+        $project = $this->reportProject($request, $account);
+        $category = $this->reportCategory($request);
+        $query = DB::table('payroll_staff');
+        if (!$includeDeleted) $query->where('deleted', false);
+        if ($project !== null && $project !== '') $query->where('project_name', $project);
+        if ($category !== 'all') {
+            $type = ['base' => 'staff', 'manager' => 'manager', 'case' => 'case', 'hq' => 'hq'][$category] ?? null;
+            if ($type === 'staff') {
+                $query->where(function ($w) { $w->where('person_type', 'staff')->orWhereNull('person_type')->orWhere('person_type', ''); });
+            } elseif ($type !== null) {
+                $query->where('person_type', $type);
+            }
+        }
         if ($request->filled('status')) $query->where('status', $request->string('status'));
         if ($request->filled('kw')) {
             $kw = $request->string('kw');
@@ -583,19 +712,22 @@ class ReportController extends ApiController
             '性别', '本人联系方式', '身份证号', '出生日期', '民族', '婚姻状况', '毕业院校', '所学专业', '学历', '毕业时间', '资格证书',
             '政治面貌', '家庭住址', '紧急联系人', '紧急联系人电话', '银行卡号', '招聘渠道', '籍贯',
             '入职日期', '转正日期', '离职日期'];
+        if ($includeDeleted) $headers[] = '是否已删除';
         $sheet->fromArray($headers, null, 'A1');
         $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . '1')->getFont()->setBold(true);
         foreach ($rows as $index => $row) {
             $data = $this->jsonValue($row->data) ?: [];
             $birth = $data['birth_date'] ?? '';
-            $sheet->fromArray([\App\Services\StaffCategory::derive((array) $row, $today), $row->name, $row->project_name,
+            $line = [\App\Services\StaffCategory::derive((array) $row, $today), $row->name, $row->project_name,
                 $row->dept_path ?: '未分配', $row->position, $leaderName[(int) $row->leader_id] ?? '', $row->status,
                 $row->fixed_monthly, $row->base_salary,
                 $data['gender'] ?? '', $data['phone'] ?? '', $data['id_card'] ?? '', $birth, $data['nation'] ?? '', $data['marital'] ?? '',
                 $data['school'] ?? '', $data['major'] ?? '', $data['education'] ?? '', $data['grad_date'] ?? '', $data['certificate'] ?? '',
                 $data['politics'] ?? '', $data['home_addr'] ?? '', $data['emergency_contact'] ?? '', $data['emergency_phone'] ?? '',
                 $data['bank_card'] ?? '', $data['recruit_channel'] ?? '', $data['hometown'] ?? '',
-                $row->hire_date, $row->regular_date, $row->resign_date], null, 'A' . ($index + 2));
+                $row->hire_date, $row->regular_date, $row->resign_date];
+            if ($includeDeleted) $line[] = ((int) ($row->deleted ?? 0) === 1) ? '是' : '否';
+            $sheet->fromArray($line, null, 'A' . ($index + 2));
         }
         $stream = fopen('php://memory', 'w+b'); (new Xlsx($book))->save($stream); rewind($stream);
         return response()->streamDownload(fn () => fpassthru($stream), '人员档案.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);

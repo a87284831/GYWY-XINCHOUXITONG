@@ -210,7 +210,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     // 失败行红框标记
     expect(tableRows()[1].classList.contains('row-error')).toBe(true)
     // 提示包含原因
-    expect(H.state.toasts.some((t) => t.msg.includes('请填写数量'))).toBe(true)
+    expect(H.state.toasts.some((t) => t.msg.includes('数量必须大于 0'))).toBe(true)
     // 后端仅落库合法行
     expect(H.state.items.length).toBe(1)
     expect(H.state.items[0].item_name).toBe('合法商品B')
@@ -233,7 +233,7 @@ describe('FillForm 整改后行为基线（员工视角）', () => {
     expect(localStorage.getItem(DKEY)).toBeTruthy()
     btnByText('提交全部').click()
     await flush(10)
-    expect(H.state.toasts.some((t) => t.msg.includes('未填完整') && t.msg.includes('请填写数量'))).toBe(true)
+    expect(H.state.toasts.some((t) => t.msg.includes('未填完整') && t.msg.includes('数量必须大于 0'))).toBe(true)
     // 一条请求都没发
     expect(H.state.calls.filter((c) => c.method === 'POST' && c.path === '/api/purchase/fill/items').length).toBe(0)
     // 行保留 + 红框

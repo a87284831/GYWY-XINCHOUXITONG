@@ -1,6 +1,13 @@
 <?php
 /** 导出Excel / 导入存档 */
 
+/** 导入报价前置校验：必须存在填报且全部已确认 */
+function purchase_import_status_guard(int $total, int $confirmed): ?string {
+    if ($total === 0) return '本月无填报记录，不能导入报价';
+    if ($confirmed < $total) return '本月尚有 ' . ($total - $confirmed) . ' 条填报未确认，全部确认后才能导入报价';
+    return null;
+}
+
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -305,11 +312,14 @@ function handle_export_my_month() {
     $spreadsheet = new Spreadsheet();
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('填报明细');
+    // 未导入报价时与管理端导出保持同一口径：展示参考价并明确标注，避免两份文件金额不一致
+    $titleText = "广盈物业 {$month} {$pname} 采购填报明细" . ($imported ? '' : '（报价未导入，单价/金额为参考价）');
     $ws->mergeCells('A1:J1');
-    $ws->setCellValue('A1', "广盈物业 {$month} {$pname} 采购填报明细");
-    style_title($ws, 'A1:J1', 1, "广盈物业 {$month} {$pname} 采购填报明细", 14);
+    $ws->setCellValue('A1', $titleText);
+    style_title($ws, 'A1:J1', 1, $titleText, 14);
 
-    $headers = ['条线', '商品名称', '规格型号', '品牌', '单位', '数量', '单价（元）', '金额（元）', '申购原因', '库存'];
+    $headers = ['条线', '商品名称', '规格型号', '品牌', '单位', '数量',
+        $imported ? '单价（元）' : '单价（参考价）', $imported ? '金额（元）' : '金额（参考价）', '申购原因', '库存'];
     foreach ($headers as $i => $h) {
         $ws->setCellValue(Coordinate::stringFromColumnIndex($i + 1) . '2', $h);
     }
@@ -324,12 +334,28 @@ function handle_export_my_month() {
         $ws->setCellValue('D' . $r, $it['brand']);
         $ws->setCellValue('E' . $r, $it['unit']);
         $ws->setCellValue('F' . $r, (float)$it['quantity']);
-        $ws->setCellValue('G' . $r, $imported ? (float)$it['price'] : '');
-        $ws->setCellValue('H' . $r, $imported ? round((float)$it['total'], 2) : '');
+        $rowAmount = 0;
+        if ($imported) {
+            $rowAmount = round((float)$it['total'], 2);
+            $ws->setCellValue('G' . $r, (float)$it['price']);
+            $ws->setCellValue('H' . $r, $rowAmount);
+        } else {
+            $refPrice = ref_price((string)$it['item_name'], (string)($it['spec'] ?? ''), $month);
+            if ($refPrice > 0) {
+                $rowAmount = round((float)$it['quantity'] * $refPrice, 2);
+                $ws->setCellValue('G' . $r, $refPrice);
+                $ws->setCellValue('H' . $r, $rowAmount);
+                $ws->getStyle('G' . $r . ':H' . $r)->getFill()
+                    ->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFF2CC');
+            } else {
+                $ws->setCellValue('G' . $r, '');
+                $ws->setCellValue('H' . $r, '');
+            }
+        }
         $ws->setCellValue('I' . $r, $imported ? ($it['remark'] ?? '') : ($it['reason'] ?? ''));
         $ws->setCellValue('J' . $r, $imported ? '' : (float)($it['stock'] ?? 0));
         $totQty += (float)$it['quantity'];
-        if ($imported) $totAmount += (float)$it['total'];
+        $totAmount += $rowAmount;
         style_data($ws, "A{$r}:J{$r}");
         $ws->getStyle('A' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $ws->getStyle('B' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
@@ -343,7 +369,7 @@ function handle_export_my_month() {
     // 合计行
     $ws->setCellValue('E' . $r, '合计');
     $ws->setCellValue('F' . $r, round($totQty, 2));
-    if ($imported) $ws->setCellValue('H' . $r, round($totAmount, 2));
+    if ($totAmount > 0) $ws->setCellValue('H' . $r, round($totAmount, 2));
     $ws->getStyle("A{$r}:J{$r}")->getFont()->setBold(true);
     $ws->getStyle("A{$r}:J{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
     style_data($ws, "A{$r}:J{$r}");
@@ -371,6 +397,22 @@ function handle_import_archive() {
         return ['ok' => false, 'msg' => '缺少月份或文件'];
     }
     if (month_archived($month)) return ['ok' => false, 'msg' => '本月已归档锁定，不可导入报价'];
+    // 报价必须对应最终填报：存在草稿/已提交/已退回时先确认，避免存档与填报不一致
+    $stC = db()->prepare("SELECT COUNT(*) c, COALESCE(SUM(status='confirmed'),0) cf FROM purchase_items WHERE month=?");
+    $stC->execute([$month]);
+    $cnt = $stC->fetch();
+    $totalItems = (int)($cnt['c'] ?? 0); $confirmedItems = (int)($cnt['cf'] ?? 0);
+    $statusBlock = purchase_import_status_guard($totalItems, $confirmedItems);
+    if ($statusBlock !== null) {
+        if ($confirmedItems < $totalItems) {
+            $stU = db()->prepare("SELECT line, item_name, spec, status FROM purchase_items WHERE month=? AND status<>'confirmed' ORDER BY line, id LIMIT 8");
+            $stU->execute([$month]);
+            $names = array_map(fn($x) => $x['item_name'] . ($x['spec'] ? "({$x['spec']})" : '') . "[{$x['status']}]", $stU->fetchAll());
+            $suffix = count($names) > 0 ? '，如：' . implode('、', $names) : '';
+            return ['ok' => false, 'msg' => $statusBlock . $suffix];
+        }
+        return ['ok' => false, 'msg' => $statusBlock];
+    }
     $tmp = $_FILES['file']['tmp_name'];
     if (!is_uploaded_file($tmp)) return ['ok' => false, 'msg' => '文件上传失败'];
     $reader = IOFactory::createReaderForFile($tmp);

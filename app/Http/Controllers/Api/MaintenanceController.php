@@ -178,7 +178,8 @@ class MaintenanceController extends ApiController
         $att = DB::table('maintenance_attachments')->where('legacy_id', $id)->first();
         if (!$att) return response()->json(['ok' => false, 'error' => '附件不存在'], 404);
         $contract = DB::table('maintenance_contracts')->where('legacy_id', $att->contract_id)->first();
-        if ($contract && $this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
+        if (!$contract) return response()->json(['ok' => false, 'error' => '合同不存在'], 404);
+        if ($this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
         Storage::disk('local')->delete('maintenance/atts/' . $att->file_name);
         DB::table('maintenance_attachments')->where('legacy_id', $id)->delete();
         return response()->json(['ok' => true]);
@@ -233,7 +234,8 @@ class MaintenanceController extends ApiController
         $record = DB::table('maintenance_records')->where('legacy_id', $id)->first();
         if (!$record) return response()->json(['ok' => false, 'error' => '记录不存在'], 404);
         $contract = DB::table('maintenance_contracts')->where('legacy_id', $record->contract_id)->first();
-        if ($contract && $this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
+        if (!$contract) return response()->json(['ok' => false, 'error' => '合同不存在'], 404);
+        if ($this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
         $content = trim((string) $request->input('content', $record->content));
         if ($content === '') return response()->json(['ok' => false, 'error' => '记录内容不能为空'], 400);
         $kind = (string) $request->input('kind', $record->kind);
@@ -254,7 +256,8 @@ class MaintenanceController extends ApiController
         $record = DB::table('maintenance_records')->where('legacy_id', $id)->first();
         if (!$record) return response()->json(['ok' => false, 'error' => '记录不存在'], 404);
         $contract = DB::table('maintenance_contracts')->where('legacy_id', $record->contract_id)->first();
-        if ($contract && $this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
+        if (!$contract) return response()->json(['ok' => false, 'error' => '合同不存在'], 404);
+        if ($this->isProjectScope($account) && $contract->project_name !== $account->project_name) return response()->json(['ok' => false, 'error' => '无权操作其他项目合同'], 403);
         foreach (DB::table('maintenance_attachments')->where('record_id', $id)->get() as $att) {
             Storage::disk('local')->delete('maintenance/atts/' . $att->file_name);
         }
