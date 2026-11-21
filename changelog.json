@@ -2,7 +2,7 @@
   {
     "version": "v2026.11.21.3",
     "date": "2026-11-21",
-    "commit": "e666212",
+    "commit": "",
     "items": [
       {
         "category": "运维",
@@ -13,7 +13,7 @@
   {
     "version": "v2026.11.21.2",
     "date": "2026-11-21",
-    "commit": "a399c71",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -24,7 +24,7 @@
   {
     "version": "v2026.11.21.1",
     "date": "2026-11-21",
-    "commit": "87e42bb",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -55,7 +55,7 @@
   {
     "version": "v2026.11.20.3",
     "date": "2026-11-21",
-    "commit": "576ee1a",
+    "commit": "",
     "items": [
       {
         "category": "运维",
@@ -74,7 +74,7 @@
   {
     "version": "v2026.11.20.2",
     "date": "2026-11-20",
-    "commit": "f73fe33",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -93,7 +93,7 @@
   {
     "version": "v2026.11.20.1",
     "date": "2026-11-20",
-    "commit": "a764c8f",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -128,7 +128,7 @@
   {
     "version": "v2026.11.19.2",
     "date": "2026-11-19",
-    "commit": "2faf350",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -151,7 +151,7 @@
   {
     "version": "v2026.11.19.1",
     "date": "2026-11-19",
-    "commit": "c02c987",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -174,7 +174,7 @@
   {
     "version": "v2026.11.16.3",
     "date": "2026-11-16",
-    "commit": "61c467a",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -193,7 +193,7 @@
   {
     "version": "v2026.11.16.2",
     "date": "2026-11-16",
-    "commit": "2d3c25c",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -204,7 +204,7 @@
   {
     "version": "v2026.11.16.1",
     "date": "2026-11-16",
-    "commit": "52e7c44",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -227,7 +227,7 @@
   {
     "version": "v2026.11.13.8",
     "date": "2026-11-16",
-    "commit": "e041957",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -238,7 +238,7 @@
   {
     "version": "v2026.11.13.7",
     "date": "2026-11-15",
-    "commit": "27c701d",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -253,7 +253,7 @@
   {
     "version": "v2026.11.13.6",
     "date": "2026-11-15",
-    "commit": "12de0f8",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -268,7 +268,7 @@
   {
     "version": "v2026.11.13.5",
     "date": "2026-11-14",
-    "commit": "ed39c45",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -287,7 +287,7 @@
   {
     "version": "v2026.11.13.4",
     "date": "2026-11-13",
-    "commit": "6b5e9da",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -306,7 +306,7 @@
   {
     "version": "v2026.11.13.3",
     "date": "2026-11-13",
-    "commit": "39d06bd",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -325,7 +325,7 @@
   {
     "version": "v2026.11.13.2",
     "date": "2026-11-13",
-    "commit": "2482de9",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -344,7 +344,7 @@
   {
     "version": "v2026.11.13.1",
     "date": "2026-11-13",
-    "commit": "9a64370",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -359,7 +359,7 @@
   {
     "version": "v2026.11.12.1",
     "date": "2026-11-12",
-    "commit": "5d08c8c",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -370,7 +370,7 @@
   {
     "version": "v2026.11.11.1",
     "date": "2026-11-11",
-    "commit": "4e28e76",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -385,7 +385,7 @@
   {
     "version": "v2026.11.10.3",
     "date": "2026-11-10",
-    "commit": "32878e5",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -400,7 +400,7 @@
   {
     "version": "v2026.11.10.2",
     "date": "2026-11-10",
-    "commit": "ace11e1",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -415,7 +415,7 @@
   {
     "version": "v2026.11.10.1",
     "date": "2026-11-10",
-    "commit": "d4a0a7c",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -434,7 +434,7 @@
   {
     "version": "v2026.11.09.3",
     "date": "2026-11-09",
-    "commit": "1ab9ca2",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -453,7 +453,7 @@
   {
     "version": "v2026.11.09.2",
     "date": "2026-11-09",
-    "commit": "96e2451",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -480,7 +480,7 @@
   {
     "version": "v2026.11.09.1",
     "date": "2026-11-09",
-    "commit": "2bcd102",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -495,7 +495,7 @@
   {
     "version": "v2026.11.07.1",
     "date": "2026-11-07",
-    "commit": "30c8216",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -518,7 +518,7 @@
   {
     "version": "v2026.11.06.1",
     "date": "2026-11-06",
-    "commit": "5ab0e80",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -541,7 +541,7 @@
   {
     "version": "v2026.11.05.3",
     "date": "2026-11-05",
-    "commit": "8cf0946",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -552,7 +552,7 @@
   {
     "version": "v2026.11.05.2",
     "date": "2026-11-05",
-    "commit": "541f746",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -637,7 +637,7 @@
   {
     "version": "v2026.11.04.5",
     "date": "2026-11-04",
-    "commit": "4e31e11",
+    "commit": "",
     "items": [
       {
         "category": "运维",
@@ -648,7 +648,7 @@
   {
     "version": "v2026.11.04.4",
     "date": "2026-11-04",
-    "commit": "8ebf72d",
+    "commit": "",
     "items": [
       {
         "category": "运维",
@@ -659,7 +659,7 @@
   {
     "version": "v2026.11.04.3",
     "date": "2026-11-04",
-    "commit": "4a5c757",
+    "commit": "",
     "items": [
       {
         "category": "运维",
@@ -674,7 +674,7 @@
   {
     "version": "v2026.11.04.2",
     "date": "2026-11-04",
-    "commit": "df8c0fd",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -685,7 +685,7 @@
   {
     "version": "v2026.11.04.1",
     "date": "2026-11-04",
-    "commit": "143792f",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -700,7 +700,7 @@
   {
     "version": "v2026.11.03.1",
     "date": "2026-11-03",
-    "commit": "0d14e12",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -723,7 +723,7 @@
   {
     "version": "v2026.10.29.1",
     "date": "2026-10-29",
-    "commit": "d7c81a1",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -734,7 +734,7 @@
   {
     "version": "v2026.10.28.2",
     "date": "2026-10-28",
-    "commit": "9a7a31c",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -753,7 +753,7 @@
   {
     "version": "v2026.10.28.1",
     "date": "2026-10-28",
-    "commit": "264fd51",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -784,7 +784,7 @@
   {
     "version": "v2026.10.27.5",
     "date": "2026-10-27",
-    "commit": "e745788",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -799,7 +799,7 @@
   {
     "version": "v2026.10.27.4",
     "date": "2026-10-27",
-    "commit": "0bf328b",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -810,7 +810,7 @@
   {
     "version": "v2026.10.27.3",
     "date": "2026-10-27",
-    "commit": "4ee925e",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -825,7 +825,7 @@
   {
     "version": "v2026.10.27.2",
     "date": "2026-10-27",
-    "commit": "411db2c",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -840,7 +840,7 @@
   {
     "version": "v2026.10.27.1",
     "date": "2026-10-27",
-    "commit": "f6ce4ed",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -851,7 +851,7 @@
   {
     "version": "v2026.10.26.6",
     "date": "2026-10-26",
-    "commit": "be63d70",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -866,7 +866,7 @@
   {
     "version": "v2026.10.26.4",
     "date": "2026-10-26",
-    "commit": "66ef9f5",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -877,7 +877,7 @@
   {
     "version": "v2026.10.26.3",
     "date": "2026-10-26",
-    "commit": "8ba235f",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -888,7 +888,7 @@
   {
     "version": "v2026.10.26.2",
     "date": "2026-10-26",
-    "commit": "4a45bfa",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -899,7 +899,7 @@
   {
     "version": "v2026.10.26.1",
     "date": "2026-10-26",
-    "commit": "9a92be4",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -910,7 +910,7 @@
   {
     "version": "v2026.10.25.1",
     "date": "2026-10-25",
-    "commit": "6e9a4f3",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -937,7 +937,7 @@
   {
     "version": "v2026.10.24.5",
     "date": "2026-10-24",
-    "commit": "4631ee8",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -964,7 +964,7 @@
   {
     "version": "v2026.10.24.4",
     "date": "2026-10-24",
-    "commit": "a39f452",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -995,7 +995,7 @@
   {
     "version": "v2026.10.24.3",
     "date": "2026-10-24",
-    "commit": "64a5407",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -1010,7 +1010,7 @@
   {
     "version": "v2026.10.24.2",
     "date": "2026-10-24",
-    "commit": "a3acf5b",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -1037,7 +1037,7 @@
   {
     "version": "v2026.10.24.1",
     "date": "2026-10-24",
-    "commit": "c4be512",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -1064,7 +1064,7 @@
   {
     "version": "v2026.10.23.11",
     "date": "2026-10-23",
-    "commit": "cd667ee",
+    "commit": "",
     "items": [
       {
         "category": "新增",
@@ -1099,7 +1099,7 @@
   {
     "version": "v2026.10.23.10",
     "date": "2026-10-23",
-    "commit": "6339d7a",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -1110,7 +1110,7 @@
   {
     "version": "v2026.10.23.9",
     "date": "2026-10-23",
-    "commit": "39b7c44",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -1121,7 +1121,7 @@
   {
     "version": "v2026.10.23.6",
     "date": "2026-10-23",
-    "commit": "38485e2",
+    "commit": "",
     "items": [
       {
         "category": "已知问题",
@@ -1132,7 +1132,7 @@
   {
     "version": "v2026.10.23.5",
     "date": "2026-10-23",
-    "commit": "1d9c21c",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -1147,7 +1147,7 @@
   {
     "version": "v2026.10.23.4",
     "date": "2026-10-23",
-    "commit": "57c5a09",
+    "commit": "",
     "items": [
       {
         "category": "优化",
@@ -1170,7 +1170,7 @@
   {
     "version": "v2026.10.23.3",
     "date": "2026-10-23",
-    "commit": "fbe0fdb",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -1181,7 +1181,7 @@
   {
     "version": "v2026.10.23.2",
     "date": "2026-10-23",
-    "commit": "e00aea0",
+    "commit": "",
     "items": [
       {
         "category": "修复",
@@ -1192,7 +1192,7 @@
   {
     "version": "v2026.10.23.1",
     "date": "2026-10-23",
-    "commit": "19ed636",
+    "commit": "",
     "items": [
       {
         "category": "新增",
