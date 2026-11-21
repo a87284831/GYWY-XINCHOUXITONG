@@ -1,5 +1,16 @@
 [
   {
+    "version": "v2026.11.21.3",
+    "date": "2026-11-21",
+    "commit": "pending",
+    "items": [
+      {
+        "category": "运维",
+        "text": "纠正生产环境记录：当前生产为 120.53.8.216 / oa.haoxuanyunshu.cn，旧机已退役并从仓库清除全部 IP/域名残留；部署文档、交接文档、数据库说明与开发文档同步更新"
+      }
+    ]
+  },
+  {
     "version": "v2026.11.21.2",
     "date": "2026-11-21",
     "commit": "a399c71",
@@ -564,7 +575,7 @@
     "items": [
       {
         "category": "运维",
-        "text": "三端一致性核查+服务器源码副本同步：仓库 372 文件与生产逐一 md5 比对，运行内容（app/+public/app 86/86）完全一致，88 个过期源码副本文件同步为仓库最新（先备份 /tmp/pre_sync_backup_20261104_210011.tar.gz）。修复关键缺失：frontend/src/modules/oa/approvalLogic.js(+test) 被 4 个组件 import 却从未入库，从备份恢复后补交（commit 0cb7fc0）；无引用的 ApprovalCenter.vue/TabApprovalFlow.vue 保持删除。文档：开发文档新增第〇章项目速览（新会话 AI 必读），三份文档清除旧服务器 120.53.8.216/oa.haoxuanyunshu.cn 残留改用新机事实"
+        "text": "三端一致性核查+服务器源码副本同步：仓库 372 文件与生产逐一 md5 比对，运行内容（app/+public/app 86/86）完全一致，88 个过期源码副本文件同步为仓库最新（先备份 /tmp/pre_sync_backup_20261104_210011.tar.gz）。修复关键缺失：frontend/src/modules/oa/approvalLogic.js(+test) 被 4 个组件 import 却从未入库，从备份恢复后补交（commit 0cb7fc0）；无引用的 ApprovalCenter.vue/TabApprovalFlow.vue 保持删除。文档：开发文档新增第〇章项目速览（新会话 AI 必读），三份文档清除旧服务器 旧机（已退役）/旧域名（已退役） 残留改用新机事实"
       }
     ]
   },
@@ -575,7 +586,7 @@
     "items": [
       {
         "category": "运维",
-        "text": "全链路残留审计（8层）：①.env MAIL_FROM_ADDRESS noreply@oa.haoxuanyunshu.cn 改为 noreply@haoxuanyunshu.cn；②crontab 宝塔 cron 残留任务（/www/server/cron/3ab48c27...）移除；③Let's Encrypt 旧域名证书目录删除；④nginx sites-available 旧配置清理；⑤数据库/应用代码扫旧域名/旧 IP 全干净。仓库切换：origin 从 haoxuanyunshu.git 改为 GYWY-XINCHOUXITONG.git（旧仓库归档为 old-origin），三份文档彻底清除旧系统内容只保留新服务器 120.53.8.216"
+        "text": "全链路残留审计（8层）：①.env MAIL_FROM_ADDRESS noreply@旧域名（已退役） 改为 noreply@haoxuanyunshu.cn；②crontab 宝塔 cron 残留任务（/www/server/cron/3ab48c27...）移除；③Let's Encrypt 旧域名证书目录删除；④nginx sites-available 旧配置清理；⑤数据库/应用代码扫旧域名/旧 IP 全干净。仓库切换：origin 从 haoxuanyunshu.git 改为 GYWY-XINCHOUXITONG.git（旧仓库归档为 old-origin），三份文档彻底清除旧系统内容只保留新服务器 120.53.8.216"
       }
     ]
   },
@@ -619,7 +630,7 @@
     "items": [
       {
         "category": "运维",
-        "text": "全链路残留审计（8层）并清理：①.env MAIL_FROM_ADDRESS noreply@oa.haoxuanyunshu.cn 改为 noreply@haoxuanyunshu.cn；②crontab root+ubuntu 各一条宝塔 cron 任务残留（/www/server/cron/3ab48c27...）移除，仅保留三条自有定时任务（backup+schedule+watchdog）；③Let's Encrypt /etc/letsencrypt/live/oa.haoxuanyunshu.cn 旧证书目录删除；④nginx sites-available/oa.haoxuanyunshu.cn 改名为 .disabled；⑤数据库 sys_settings 无旧域名残留；⑥应用代码/脚本全干净。三域名外部验证全部 200"
+        "text": "全链路残留审计（8层）并清理：①.env MAIL_FROM_ADDRESS noreply@旧域名（已退役） 改为 noreply@haoxuanyunshu.cn；②crontab root+ubuntu 各一条宝塔 cron 任务残留（/www/server/cron/3ab48c27...）移除，仅保留三条自有定时任务（backup+schedule+watchdog）；③Let's Encrypt /etc/letsencrypt/live/旧域名（已退役） 旧证书目录删除；④nginx sites-available/旧域名（已退役） 改名为 .disabled；⑤数据库 sys_settings 无旧域名残留；⑥应用代码/脚本全干净。三域名外部验证全部 200"
       }
     ]
   },
@@ -630,7 +641,7 @@
     "items": [
       {
         "category": "运维",
-        "text": "合并三个域名至新机同一 nginx server block：裸域 haoxuanyunshu.cn、www、oa 全部指向 120.53.8.216，certbot --expand 重签 SAN 覆盖三域的新证书（到期 2027-02-02）；禁用 sites-enabled/oa.haoxuanyunshu.cn 旧配置（旧域名 DNS 仍在旧机，新机不需要），解决旧配置按字母序优先加载抢占 default server 导致新域名 fallback 到旧证书的问题"
+        "text": "合并三个域名至新机同一 nginx server block：裸域 haoxuanyunshu.cn、www、oa 全部指向 120.53.8.216，certbot --expand 重签 SAN 覆盖三域的新证书（到期 2027-02-02）；禁用 sites-enabled/旧域名（已退役） 旧配置（旧域名 DNS 仍在旧机，新机不需要），解决旧配置按字母序优先加载抢占 default server 导致新域名 fallback 到旧证书的问题"
       }
     ]
   },
@@ -652,11 +663,11 @@
     "items": [
       {
         "category": "运维",
-        "text": "生产迁移至新服务器 120.53.8.216（腾讯云深圳）并以新域名 https://oa.haoxuanyunshu.cn 上线：三库全量迁移（payroll 59表 + gy_procurement 14表 + gy_finance 6表）、apt nginx1.18 + php8.2-fpm 取代宝塔自带环境、certbot 签发新域名证书（自动续期）、HTTP 强制跳 HTTPS、每日备份与定时任务同步就位；旧机 120.53.8.216 继续跑旧域名 oa.haoxuanyunshu.cn，双机双域名并行"
+        "text": "生产迁移至新服务器 120.53.8.216（腾讯云深圳）并以新域名 https://oa.haoxuanyunshu.cn 上线：三库全量迁移（payroll 59表 + gy_procurement 14表 + gy_finance 6表）、apt nginx1.18 + php8.2-fpm 取代宝塔自带环境、certbot 签发新域名证书（自动续期）、HTTP 强制跳 HTTPS、每日备份与定时任务同步就位；旧机 旧机（已退役） 继续跑旧域名 旧域名（已退役），双机双域名并行"
       },
       {
         "category": "修复",
-        "text": "采购站内消息链接写死旧域名 oa.haoxuanyunshu.cn，改为读取 config(\"app.url\") 自动跟随当前环境域名"
+        "text": "采购站内消息链接写死旧域名 旧域名（已退役），改为读取 config(\"app.url\") 自动跟随当前环境域名"
       }
     ]
   },

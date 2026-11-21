@@ -8,9 +8,9 @@
 # 用法（本地 PowerShell，cwd=laravel-app）：
 #   1. cd frontend; npm.cmd run build
 #   2. tar -czf $env:TEMP\app-bundle.tar.gz -C public app
-#   3. scp $env:TEMP\app-bundle.tar.gz root@120.53.8.216:/tmp/
-#   4. scp deploy/deploy-frontend-full.sh root@120.53.8.216:/tmp/
-#   5. ssh root@120.53.8.216 "bash /tmp/deploy-frontend-full.sh"
+#   3. scp $env:TEMP\app-bundle.tar.gz ubuntu@120.53.8.216:/tmp/
+#   4. scp deploy/deploy-frontend-full.sh ubuntu@120.53.8.216:/tmp/
+#   5. ssh ubuntu@120.53.8.216 "bash /tmp/deploy-frontend-full.sh"
 # ============================================================
 set -e
 REMOTE=/var/www/payroll/laravel-app

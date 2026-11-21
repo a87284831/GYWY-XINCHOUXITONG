@@ -4,7 +4,7 @@
 
 **Goal:** 一次性完成垃圾文件清理部署、静态资源缓存/压缩、财务图表修复、token 传递安全化、采购驾驶舱缓存、iframe 保活，显著改善采购/财务模块加载速度。
 
-**Architecture:** 保持现有 iframe 多前端架构不变（采购 SPA 无源码，完整统一不可行）。所有改动在本地完成并经用户确认后，按任务分批部署到服务器（120.53.8.216），每次部署前先打包备份。
+**Architecture:** 保持现有 iframe 多前端架构不变（采购 SPA 无源码，完整统一不可行）。所有改动在本地完成并经用户确认后，按任务分批部署到服务器（旧机（已退役）），每次部署前先打包备份。
 
 **Tech Stack:** Laravel 12 / PHP 8.2 / Nginx（宝塔）/ 原生 JS SPA / Vite 产物（只读补丁）/ MySQL 8 双库（payroll + gy_procurement）
 
@@ -18,7 +18,7 @@
 - 不修改采购 SPA 的打包产物 JS（`public/purchase/assets/*.js`），只允许在其 `index.html` 注入补丁脚本（沿用 `__dashAllShim` 既有模式）
 - 不动 `vendor/`、`storage/` 业务数据；不提交 `.env`
 - git 提交信息用中文，风格参照 `git log`（如"修复清单外审核双加载根因: ..."）
-- 服务器站点配置真实路径：`/etc/nginx/sites-enabled/oa.haoxuanyunshu.cn`（本地样例 `nginx.conf.example` 仅供参考）
+- 服务器站点配置真实路径：`/etc/nginx/sites-enabled/旧域名（已退役）`（本地样例 `nginx.conf.example` 仅供参考）
 
 ## Review Focus
 
@@ -126,14 +126,14 @@ git commit -m "安全: token 不再走 URL 传参, 同源 sessionStorage 共享 
 ### Task 3: Nginx gzip + 静态缓存配置（本地准备，部署经确认）
 
 **Files:**
-- Create: `deploy/nginx-haoxuanyunshu.conf`（本地准备完整 server 块）
-- Modify（部署时）: 服务器 `/etc/nginx/sites-enabled/oa.haoxuanyunshu.cn`
+- Create: `deploy/nginx-旧域名（已退役）.conf`（本地准备完整 server 块）
+- Modify（部署时）: 服务器 `/etc/nginx/sites-enabled/旧域名（已退役）`
 
 **Interfaces:** Produces: 带 hash 的 assets 长缓存 + 文本资源 gzip + index.html 不缓存
 
 - [ ] **Step 1: 本地读取服务器现有配置（只读）**
 
-`ssh root@120.53.8.216 "cat /etc/nginx/sites-enabled/oa.haoxuanyunshu.cn"`，以其为基底（不是以 nginx.conf.example）
+`ssh root@旧机（已退役） "cat /etc/nginx/sites-enabled/旧域名（已退役）"`，以其为基底（不是以 nginx.conf.example）
 
 - [ ] **Step 2: 在 server 块内追加三段**
 
@@ -156,7 +156,7 @@ location ~* \.(js|css|woff2?|png|jpg|svg)$ { expires 7d; add_header Cache-Contro
 - [ ] **Step 4: Commit**
 
 ```bash
-git add deploy/nginx-haoxuanyunshu.conf
+git add deploy/nginx-旧域名（已退役）.conf
 git commit -m "运维: 准备 nginx gzip+静态缓存配置(部署待确认)"
 ```
 
@@ -235,13 +235,13 @@ tar czf /root/cleanup_backup_20260926.tar.gz -C /var/www/payroll/laravel-app \
 
 - [ ] **Step 3: 健康检查**
 
-`curl -s https://oa.haoxuanyunshu.cn/up` → `Application up`；抽查采购/财务页面 200
+`curl -s 旧域名（已退役）/up` → `Application up`；抽查采购/财务页面 200
 
 ### Task 7: Nginx 配置部署
 
 - [ ] **Step 1: 【经用户确认后】上传并备份现配置**
 
-`cp /etc/nginx/sites-enabled/oa.haoxuanyunshu.cn /root/nginx_conf_backup_20260926.conf`，再覆盖为新配置
+`cp /etc/nginx/sites-enabled/旧域名（已退役） /root/nginx_conf_backup_20260926.conf`，再覆盖为新配置
 
 - [ ] **Step 2: nginx -t 通过后 reload**
 
@@ -249,7 +249,7 @@ tar czf /root/cleanup_backup_20260926.tar.gz -C /var/www/payroll/laravel-app \
 
 - [ ] **Step 3: 验证响应头**
 
-`curl -sI https://oa.haoxuanyunshu.cn/purchase/assets/index-I9x5KFB--v3.js | grep -iE 'content-encoding|expires|cache-control'` → 应见 gzip + immutable；`curl -sI .../purchase/index.html` → 无长缓存
+`curl -sI 旧域名（已退役）/purchase/assets/index-I9x5KFB--v3.js | grep -iE 'content-encoding|expires|cache-control'` → 应见 gzip + immutable；`curl -sI .../purchase/index.html` → 无长缓存
 
 - [ ] **Step 4: 顺带核查 OPcache**
 

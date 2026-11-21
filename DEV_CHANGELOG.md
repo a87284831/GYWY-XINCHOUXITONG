@@ -10,7 +10,7 @@
 - **协作分支**：`feature/frontend-unification`
 - **开工前**：`git pull` 同步最新代码
 - **改完**：`git add` → `git commit` → `git push`
-- **生产域名**：`oa.haoxuanyunshu.cn` / `oa.haoxuanyunshu.cn`（部署在宝塔）→ **严禁改动**任何与该域名相关的配置、DNS、API 目标
+- **生产域名**：`旧域名（已退役）` / `旧域名（已退役）`（部署在宝塔）→ **严禁改动**任何与该域名相关的配置、DNS、API 目标
 - **本地测试后端**：`http://127.0.0.1:8899`（两人各自在自己本机 8899 端口跑 Laravel）
 
 ## 本地启动方式
@@ -95,7 +95,7 @@ npm run dev
 **改动 1：前端 dev 代理改指向本地后端**
 
 - 文件：`frontend/vite.config.js`（第 13-22 行 `server.proxy` 块）
-- 改动前：`/api` 代理到 `https://oa.haoxuanyunshu.cn`（生产域名）
+- 改动前：`/api` 代理到 `旧域名（已退役）`（生产域名）
 - 改动后：`/api` 代理到 `http://127.0.0.1:8899`（本地测试后端）
 - 同时把 `secure: true` 改为 `secure: false`（本地走 HTTP 不需要 SSL 校验）
 - 影响：仅影响**本地开发**的 `npm run dev`；生产构建产物（`public/app/`）不受影响，生产部署仍然走 Nginx + Laravel 直连

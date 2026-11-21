@@ -1,24 +1,24 @@
 # 部署与运维手册
 
-> 更新日期：2026-11-20 ｜ 适用：物业薪酬管理系统生产环境
+> 更新日期：2026-11-21 ｜ 适用：物业薪酬管理系统生产环境
 > 读者：接手开发/运维。本文与 `docs/数据库说明.md`、`docs/项目开发文档.md` 配套，可脱离对话独立使用。
-> 生产域名：`oa.haoxuanyunshu.cn`（裸域 `oa.haoxuanyunshu.cn`）。历史文档中的 `120.53.8.216` / `haoxuanyunshu.cn` 均已过期，**不要按旧记录操作**。
+> 生产域名：`oa.haoxuanyunshu.cn` 与 `www.haoxuanyunshu.cn`（Laravel 系统）；裸域 `haoxuanyunshu.cn` 为 landing 页。旧机（已退役）的 IP/域名已从仓库清除，**不要使用**。
 
 ---
 
 ## 1. 生产环境
 
-| 项 | 值（2026-11-20 实测） |
+| 项 | 值（2026-11-21 实测） |
 |---|---|
 | 服务器 | `120.53.8.216` |
 | 系统 | Ubuntu 22.04.5 LTS，内核 5.15 |
-| 规格 | 2 核 / 3.7G 内存 / 40G 磁盘（已用约 14G） |
-| SSH | `root@120.53.8.216:22`（凭证由管理员保管，禁止写入仓库） |
+| 规格 | 2 核 / 3.7G 内存 / 59G 磁盘（已用约 9.8G） |
+| SSH | `ubuntu@120.53.8.216:22`（`payroll_deploy` 密钥，`ubuntu` 有 passwordless sudo；私钥禁止写入仓库） |
 | Web 根目录 | `/var/www/payroll/laravel-app/public` |
 | 应用目录 | `/var/www/payroll/laravel-app` |
 | PHP | 8.2.35 CLI + `php8.2-fpm`，FPM 运行用户 **www-data** |
 | Nginx | 1.18（apt 安装，配置在 `/etc/nginx/sites-enabled/`） |
-| MySQL | 8.0.46，`127.0.0.1:3306`，业务库 `payroll` |
+| MySQL | 8.0.45，`127.0.0.1:3306`，业务库 `payroll` |
 | 缓存在线 | `CACHE_STORE=file`，`QUEUE_CONNECTION=sync` |
 | 时区 | Asia/Shanghai |
 | 备份目录 | `/var/backups/payroll-db/` |
@@ -59,17 +59,17 @@
 
 ```bash
 TS=$(date +%Y%m%d_%H%M%S)
-mkdir -p /root/pre_deploy_$TS
-mysqldump --single-transaction --no-tablespaces --routines --triggers \
-  --databases payroll > /root/pre_deploy_$TS/db.sql
-gzip -c /root/pre_deploy_$TS/db.sql > /root/pre_deploy_$TS/db.sql.gz
-rm -f /root/pre_deploy_$TS/db.sql
-gzip -t /root/pre_deploy_$TS/db.sql.gz
-tar -czf /root/pre_deploy_$TS/app_code.tar.gz \
+sudo mkdir -p /root/pre_deploy_$TS
+sudo mysqldump --single-transaction --no-tablespaces --routines --triggers \
+  --databases payroll gy_finance > /tmp/db_$TS.sql
+sudo gzip -c /tmp/db_$TS.sql | sudo tee /root/pre_deploy_$TS/db.sql.gz >/dev/null
+sudo rm -f /tmp/db_$TS.sql
+sudo gzip -t /root/pre_deploy_$TS/db.sql.gz
+sudo tar -czf /root/pre_deploy_$TS/app_code.tar.gz \
   -C /var/www/payroll/laravel-app app routes config database/migrations changelog.json
-tar -czf /root/pre_deploy_$TS/app_front.tar.gz \
+sudo tar -czf /root/pre_deploy_$TS/app_front.tar.gz \
   -C /var/www/payroll/laravel-app/public app
-md5sum /root/pre_deploy_$TS/*
+sudo md5sum /root/pre_deploy_$TS/*
 ```
 
 4. 只改前端时不要跑后端发布；只改后端时不要重传前端整包。
@@ -83,14 +83,15 @@ md5sum /root/pre_deploy_$TS/*
 ```powershell
 # 本地，laravel-app 根目录
 tar -czf $env:TEMP\backend-bundle.tar.gz app routes config database/migrations changelog.json
-scp $env:TEMP\backend-bundle.tar.gz root@120.53.8.216:/tmp/
-scp deploy/deploy-backend.sh root@120.53.8.216:/tmp/
+scp -i $HOME\.ssh\payroll_deploy $env:TEMP\backend-bundle.tar.gz ubuntu@120.53.8.216:/tmp/
+scp -i $HOME\.ssh\payroll_deploy deploy/deploy-backend.sh ubuntu@120.53.8.216:/tmp/
 ```
 
 ### 4.2 执行
 
 ```bash
-ssh root@120.53.8.216 "bash /tmp/deploy-backend.sh"
+# 脚本会写 /root 快照，必须用 sudo 运行
+ssh -i ~/.ssh/payroll_deploy ubuntu@120.53.8.216 "sudo bash /tmp/deploy-backend.sh"
 ```
 
 脚本固定顺序：部署前快照 → 解压代码 → `sudo -u www-data php artisan migrate --force` → 清缓存 → 重建 `config/route/view` 缓存 → 重置 `storage`/`bootstrap/cache` 属主 → `systemctl reload php8.2-fpm` → 错误密码登录冒烟（期望 400）。
@@ -113,9 +114,9 @@ cd frontend
 npm.cmd run build
 cd ..
 tar -czf $env:TEMP\app-bundle.tar.gz -C public app
-scp $env:TEMP\app-bundle.tar.gz root@120.53.8.216:/tmp/
-scp deploy/deploy-frontend-full.sh root@120.53.8.216:/tmp/
-ssh root@120.53.8.216 "bash /tmp/deploy-frontend-full.sh"
+scp -i $HOME\.ssh\payroll_deploy $env:TEMP\app-bundle.tar.gz ubuntu@120.53.8.216:/tmp/
+scp -i $HOME\.ssh\payroll_deploy deploy/deploy-frontend-full.sh ubuntu@120.53.8.216:/tmp/
+ssh -i $HOME\.ssh\payroll_deploy ubuntu@120.53.8.216 "sudo bash /tmp/deploy-frontend-full.sh"
 ```
 
 脚本会：备份 `index.html` → 解压覆盖 → 包完整性检查 → 逐个校验 `index.html` 引用资源返回 200 → 清理旧哈希产物 → 清理后复检 200 → 重置 storage 属主。
@@ -126,7 +127,7 @@ ssh root@120.53.8.216 "bash /tmp/deploy-frontend-full.sh"
 # 本地
 Get-ChildItem -Recurse -File public/app | ForEach-Object { ... }
 # 服务器
-ssh root@120.53.8.216 "cd /var/www/payroll/laravel-app && find public/app -type f -exec md5sum {} +"
+ssh -i $HOME\.ssh\payroll_deploy ubuntu@120.53.8.216 "cd /var/www/payroll/laravel-app && find public/app -type f -exec md5sum {} +"
 ```
 
 注意：Windows 生成的清单若带 CRLF，服务器 `md5sum -c` 会报 `$'\r'`；在服务器端 `tr -d '\r'` 后再校验。
@@ -151,11 +152,12 @@ bash deploy/merge-procurement-db.sh
 
 ## 7. cron 与属主
 
-### 7.1 当前 root crontab（2026-11-20 实测）
+### 7.1 当前 root crontab（2026-11-21 实测）
 
 ```cron
 0 3 * * *   /usr/local/bin/payroll-backup.sh
-* * * * *   cd /var/www/payroll/laravel-app && php artisan schedule:run
+* * * * *   cd /var/www/payroll/laravel-app && sudo -u www-data /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+* * * * *   /usr/local/bin/cpu-watchdog.sh >> /var/log/cpu-watchdog.log 2>&1
 ```
 
 Laravel 调度任务（`routes/console.php`）：
@@ -181,9 +183,9 @@ mkdir -p storage/framework/cache/data
 chown -R www-data:www-data storage/framework/cache/data
 ```
 
-### 7.3 已知偏差（未获批准，暂不修改）
+### 7.3 属主现状
 
-当前 crontab 里的 `schedule:run` 仍以 root 运行。这会周期性生成 root 属主的缓存目录（如 `storage/framework/cache/data/xx/xx`），导致 www-data 写缓存失败。用户当前未批准修改 crontab，**保持原样**；处理办法见第 10 节「schedule 缓存目录报错」。
+当前 root crontab 的 `schedule:run` 已使用 `sudo -u www-data`，不会再生成 root 属主缓存目录。所有手工 artisan 命令仍必须用 `sudo -u www-data`；若发现 `storage/framework/cache/data/**` 属主异常，按第 10 节处理。
 
 ---
 
@@ -248,15 +250,15 @@ tar -xzf /root/pre_deploy_<TS>/app_code.tar.gz -C /var/www/payroll/laravel-app
 tar -xzf /root/pre_deploy_<TS>/app_front.tar.gz -C /var/www/payroll/laravel-app/public
 
 # 数据库（会覆盖当前库，先确认）
-gunzip < /root/pre_deploy_<TS>/db.sql.gz | mysql -uroot -p
+sudo gunzip < /root/pre_deploy_<TS>/db.sql.gz | sudo mysql
 
 # 缓存与权限
 cd /var/www/payroll/laravel-app
 sudo -u www-data php artisan optimize:clear
 sudo -u www-data php artisan config:cache
 sudo -u www-data php artisan route:cache
-chown -R www-data:www-data storage bootstrap/cache
-systemctl reload php8.2-fpm
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo systemctl reload php8.2-fpm
 ```
 
 回滚后按第 9 节重新冒烟。
@@ -269,7 +271,7 @@ systemctl reload php8.2-fpm
 - 退役前 dump：`/root/gy_procurement_deprecated_20261120.sql.gz`（14 表，`gzip -t` 通过，md5 `117bc494416679034328bd9f8986dcdf`）。
 - 删除前后主库 12 张采购表行数与金额合计完全一致；`payroll` 69 表、`gy_finance` 6 表未受影响。
 - 代码零业务改动；新增 `deploy/merge-procurement-db.sh` 供以后核验/重建。
-- 回滚：`gunzip < /root/gy_procurement_deprecated_20261120.sql.gz | mysql -uroot -p` 可重建旧库；但**不可把 `PROC_DB_NAME` 切回旧库运行**（结构落后）。
+- 回滚：`sudo gunzip < /root/gy_procurement_deprecated_20261120.sql.gz | sudo mysql` 可重建旧库；但**不可把 `PROC_DB_NAME` 切回旧库运行**（结构落后）。
 - 详细字段与合并记录见 `docs/数据库说明.md` 第 5、6 节。
 
 ---

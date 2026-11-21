@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **任何服务器（120.53.8.216）操作必须先经用户逐项确认；本地开发/构建/提交不需要确认**
+- **任何服务器（旧机（已退役））操作必须先经用户逐项确认；本地开发/构建/提交不需要确认**
 - 后端 API 契约零改动：不改 `routes/api.php`、不改任何 `app/` 下的 PHP（唯一例外：既定性能计划的 `dashboard.php` 缓存补丁，属部署阶段）
 - **UI 复刻现有版本**：布局、交互、文案、金额/日期格式均以线上页面为基准，不自创设计
 - 采购 SPA 打包产物（`public/purchase/assets/*.js`）只读，不修改；重建版写在新工程内
@@ -74,7 +74,7 @@ Run: `git log --oneline -1`
 export default defineConfig({
   base: '/app/',
   resolve: { alias: { '@': '/src' } },
-  server: { proxy: { '/api': { target: 'https://oa.haoxuanyunshu.cn', changeOrigin: true, secure: true } } },
+  server: { proxy: { '/api': { target: '旧域名（已退役）', changeOrigin: true, secure: true } } },
   build: { outDir: '../public/app', emptyOutDir: true }
 })
 ```
@@ -160,7 +160,7 @@ Grep `app.js`：`APPS` 数组定义、`appEnabled`、`pageHome`(`app.js:457` 起
 - [ ] **Step 5: 构建与走查**
 
 Run: `npm run build` → 成功
-dev server 走查：登录 → 首页卡片/待办与线上 `https://oa.haoxuanyunshu.cn` 同账号对照（菜单分组数、卡片数、待办数字一致）
+dev server 走查：登录 → 首页卡片/待办与线上 `旧域名（已退役）` 同账号对照（菜单分组数、卡片数、待办数字一致）
 
 - [ ] **Step 6: Commit**
 
@@ -368,7 +368,7 @@ Run: `npm run build` → 成功
 
 - [ ] **Step 4: 对照走查（只读）**
 
-5 页对照 `https://oa.haoxuanyunshu.cn/finance/index.html` 同年份数据一致（图表、台账行、付款记录、汇总数字）。特别注意旧版 echarts 引用 bug（stylesheet 引 JS）——新版行为以"echarts 正常渲染图表"为基准。
+5 页对照 `旧域名（已退役）/finance/index.html` 同年份数据一致（图表、台账行、付款记录、汇总数字）。特别注意旧版 echarts 引用 bug（stylesheet 引 JS）——新版行为以"echarts 正常渲染图表"为基准。
 
 - [ ] **Step 5: Commit**
 
@@ -411,7 +411,7 @@ git add frontend/docs; git commit -m "前端统一: 采购 API 契约清单(10 h
 
 - [ ] **Step 1: 侦察旧驾驶舱渲染**
 
-`Dashboard-z4nKb73E.js` 是压缩产物，不可读——以**线上页面为基准**：dev server 打开旧 `https://oa.haoxuanyunshu.cn/purchase/` 驾驶舱，逐组记录 12 个图表/卡片的类型、维度、交互（月份切换、项目筛选）。
+`Dashboard-z4nKb73E.js` 是压缩产物，不可读——以**线上页面为基准**：dev server 打开旧 `旧域名（已退役）/purchase/` 驾驶舱，逐组记录 12 个图表/卡片的类型、维度、交互（月份切换、项目筛选）。
 
 - [ ] **Step 2: 实现 ChartBox 组件 + Dashboard 页**
 
@@ -565,7 +565,7 @@ git add frontend; git commit -m "前端统一: staging 写流程验证与全量�
 ### Task 19: 生产构建 + Nginx 切换配置准备
 
 **Files:**
-- Create: `deploy/nginx-haoxuanyunshu-unified.conf`（本地准备完整 server 块，部署经确认）
+- Create: `deploy/nginx-旧域名（已退役）-unified.conf`（本地准备完整 server 块，部署经确认）
 - Modify: `public/app/`（最终构建产物）
 
 **Interfaces:** Produces: 可部署的最终产物 + 切换配置。
@@ -576,7 +576,7 @@ Run: `cd frontend; npm run build`；核对产物体积（主 chunk 应远小于�
 
 - [ ] **Step 2: Nginx 配置编写**
 
-以服务器现有配置为基底（部署时先 `cat /etc/nginx/sites-enabled/oa.haoxuanyunshu.cn`）：
+以服务器现有配置为基底（部署时先 `cat /etc/nginx/sites-enabled/旧域名（已退役）`）：
 - `root .../public/app;` + `index index.html;` + `location / { try_files $uri $uri/ /app/index.html; }`（SPA history 回退）
 - gzip（text/css application/javascript application/json image/svg+xml）
 - `location /app/assets/ { expires 1y; add_header Cache-Control "public, immutable"; }`
@@ -595,7 +595,7 @@ git add deploy public/app; git commit -m "前端统一: 生产构建产物与 ng
 
 ### Task 20: 服务器部署（【用户逐项确认后执行】）
 
-**Files:** 服务器侧：`/etc/nginx/sites-enabled/oa.haoxuanyunshu.cn`、`/var/www/payroll/laravel-app/public/app/`（新目录）、`app/Purchase/handlers/dashboard.php`（驾驶舱缓存补丁，随切换生效）
+**Files:** 服务器侧：`/etc/nginx/sites-enabled/旧域名（已退役）`、`/var/www/payroll/laravel-app/public/app/`（新目录）、`app/Purchase/handlers/dashboard.php`（驾驶舱缓存补丁，随切换生效）
 
 **Interfaces:** Consumes: Task 19 产物与配置、Task 18 验收记录。
 
@@ -605,7 +605,7 @@ git add deploy public/app; git commit -m "前端统一: 生产构建产物与 ng
 
 ```bash
 # 经确认后执行：
-cp /etc/nginx/sites-enabled/oa.haoxuanyunshu.cn /root/nginx_conf_backup_<date>.conf
+cp /etc/nginx/sites-enabled/旧域名（已退役） /root/nginx_conf_backup_<date>.conf
 tar czf /root/pre_unified_backup_<date>.tar.gz -C /var/www/payroll/laravel-app app/Purchase/handlers/dashboard.php
 ```
 
@@ -617,7 +617,7 @@ tar czf /root/pre_unified_backup_<date>.tar.gz -C /var/www/payroll/laravel-app a
 
 - [ ] **Step 5: 健康检查**
 
-`curl -s https://oa.haoxuanyunshu.cn/up` → Application up；首页/登录/驾驶舱/财务各抽一页 200；`curl -sI /app/assets/<主chunk>` 见 gzip+immutable。
+`curl -s 旧域名（已退役）/up` → Application up；首页/登录/驾驶舱/财务各抽一页 200；`curl -sI /app/assets/<主chunk>` 见 gzip+immutable。
 
 - [ ] **Step 6: 回滚预案演练说明交付**
 
