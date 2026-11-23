@@ -92,6 +92,48 @@ function ref_price($item_name, $spec, $beforeMonth): float {
     return $v;
 }
 
+/**
+ * 汇总收集表「主要采购内容」聚合：按 商品名+规格 合并当月明细（数量累加），
+ * 排序分 = 数量×单价（无单价回退参考价，仍无价按数量兜底），金额大的排前面。
+ * $priceOf 可注入以便单测；生产默认 ref_price()。
+ */
+function purchase_plan_aggregate_items(array $rows, string $month, ?callable $priceOf = null): array {
+    $priceOf = $priceOf ?: fn($name, $spec) => ref_price($name, $spec, $month);
+    $agg = [];
+    foreach ($rows as $r) {
+        $name = trim((string)($r['item_name'] ?? ''));
+        if ($name === '') continue;
+        $spec = trim((string)($r['spec'] ?? ''));
+        $key = $name . '|' . $spec;
+        $qty = (float)($r['quantity'] ?? 0);
+        $price = (float)($r['price'] ?? 0);
+        if (!isset($agg[$key])) $agg[$key] = ['name' => $name, 'spec' => $spec, 'qty' => 0.0, 'amount' => 0.0];
+        $agg[$key]['qty'] += $qty;
+        $agg[$key]['amount'] += $price > 0 ? $qty * $price : $qty;
+    }
+    usort($agg, fn($a, $b) => ($b['amount'] <=> $a['amount']) ?: strcmp($a['name'] . $a['spec'], $b['name'] . $b['spec']));
+    return array_values($agg);
+}
+
+/** 「主要采购内容」列文本：金额前 3 项（品名(规格)×数量），更多时追加「等共 N 项」；无明细留空 */
+function purchase_plan_top_items(array $agg, int $limit = 3): string {
+    $n = count($agg);
+    if ($n === 0) return '';
+    $parts = [];
+    foreach (array_slice($agg, 0, $limit) as $it) {
+        $qty = rtrim(rtrim(sprintf('%.2f', $it['qty']), '0'), '.');
+        $parts[] = $it['name'] . ($it['spec'] !== '' ? '(' . $it['spec'] . ')' : '') . '×' . $qty;
+    }
+    $text = implode('、', $parts);
+    if ($n > $limit) $text .= ' 等共 ' . $n . ' 项';
+    return $text;
+}
+
+/** 汇总收集表表头：12 列（2026-11-23 删除「采购理由」列——存档月取不到 reason 恒为空，误导） */
+function purchase_plan_summary_headers(): array {
+    return ['序号', '采购项目名称', "环境条线\n(元)", "绿化条线\n(元)", "工程条线\n(元)", "秩序条线\n(元)", "办公用品\n(元)", "小计\n(元)", "预算金额\n(元)", "实际金额\n(元)", '预算执行率', '主要采购内容'];
+}
+
 function handle_export_excel() {
     require_admin();
     $month = $_GET['month'] ?? date('Y-m');
@@ -104,10 +146,12 @@ function handle_export_excel() {
     if ($hasArchive) {
         $st = db()->prepare(
             "SELECT ap.id, ap.item_id, ap.month, ap.project_id, ap.line, ap.product_id, ap.item_name, ap.brand, ap.spec, ap.unit,
-                    ap.quantity, ap.price, 0 AS stock, '' AS reason, '' AS use_location, ap.remark,
+                    ap.quantity, ap.price, 0 AS stock,
+                    COALESCE(pi.reason, '') AS reason, COALESCE(pi.use_location, '') AS use_location, ap.remark,
                     p.name AS project_name
              FROM archived_purchases ap
              JOIN payroll.payroll_projects p ON ap.project_id=p.id
+             LEFT JOIN purchase_items pi ON pi.id = ap.item_id
              WHERE ap.month=? ORDER BY FIELD(ap.line,'环境','绿化','工程','秩序','行政'), ap.project_id, ap.id"
         );
         $st->execute([$month]);
@@ -141,26 +185,26 @@ function handle_export_excel() {
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('月度采购计划汇总收集表');
     $titleMonth = sprintf('%d年%d月', (int)substr($month, 0, 4), (int)substr($month, 5, 2));
-    $ws->mergeCells('A1:M1');
+    $ws->mergeCells('A1:L1');
     $ws->setCellValue('A1', "广盈物业 {$titleMonth} 月度采购计划收集表");
-    style_title($ws, 'A1:M1', 1, "广盈物业 {$titleMonth} 月度采购计划收集表");
+    style_title($ws, 'A1:L1', 1, "广盈物业 {$titleMonth} 月度采购计划收集表");
 
     $ws->setCellValue('A2', '统计月份：' . $month);
     $ws->setCellValue('C2', '填报日期：');
     $ws->setCellValue('E2', '汇总人：');
-    $ws->mergeCells('I2:M2');
+    $ws->mergeCells('I2:L2');
     $ws->setCellValue('I2', '备注：请各项目于每月20-23日完成填报，招采确认后统一报价');
     $ws->getStyle('A2:H2')->getFont()->setSize(10);
     $ws->getStyle('I2')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF2F2F2');
     $ws->getStyle('A2:H2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
     $ws->getRowDimension(2)->setRowHeight(24);
 
-    // 表头（第4行）：序号/项目/5条线/小计/预算/实际/执行率/主要采购内容/采购理由
-    $headers = ['序号', '采购项目名称', "环境条线\n(元)", "绿化条线\n(元)", "工程条线\n(元)", "秩序条线\n(元)", "办公用品\n(元)", "小计\n(元)", "预算金额\n(元)", "实际金额\n(元)", '预算执行率', '主要采购内容', '采购理由'];
+    // 表头（第4行）：序号/项目/5条线/小计/预算/实际/执行率/主要采购内容（12 列，无「采购理由」）
+    $headers = purchase_plan_summary_headers();
     foreach ($headers as $i => $h) {
         $ws->setCellValue(Coordinate::stringFromColumnIndex($i + 1) . '4', $h);
     }
-    style_header($ws, 'A4:M4', 4, 40);
+    style_header($ws, 'A4:L4', 4, 40);
 
     // 按项目归集明细
     $byProject = [];
@@ -198,24 +242,15 @@ function handle_export_excel() {
             $ws->getStyle('K' . $row)->getFont()->getColor()->setARGB('FF999999');
         }
         $lineItems = $byProject[$p['id']] ?? [];
-        $names = []; $reasons = [];
-        if ($lineItems) {
-            foreach ($lineItems as $li) {
-                $names[] = $li['item_name'] . ($li['spec'] ? '(' . $li['spec'] . ')' : '');
-                if ($li['reason'] !== '') $reasons[] = $li['reason'];
-            }
-        } else {
+        if (!$lineItems) {
             // 无填报记录（历史存档月）：从存档归集采购内容
-            $stA2 = db()->prepare("SELECT item_name, spec, remark FROM archived_purchases WHERE month=? AND project_id=? ORDER BY line, id");
+            $stA2 = db()->prepare("SELECT item_name, spec, quantity, price FROM archived_purchases WHERE month=? AND project_id=? ORDER BY line, id");
             $stA2->execute([$month, $p['id']]);
-            foreach ($stA2->fetchAll() as $li) {
-                $names[] = $li['item_name'] . ($li['spec'] ? '(' . $li['spec'] . ')' : '');
-                if (!empty($li['remark'])) $reasons[] = $li['remark'];
-            }
+            $lineItems = $stA2->fetchAll();
         }
-        $ws->setCellValue('L' . $row, implode('、', array_unique($names)));
-        $ws->setCellValue('M' . $row, implode('；', array_unique($reasons)));
-        style_data($ws, "A{$row}:M{$row}");
+        // 主要采购内容：金额前 3 项（品名(规格)×数量）+ 总数，避免整墙文字
+        $ws->setCellValue('L' . $row, purchase_plan_top_items(purchase_plan_aggregate_items($lineItems, $month)));
+        style_data($ws, "A{$row}:L{$row}");
         $ws->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $ws->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         foreach (['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as $col) {
@@ -223,7 +258,6 @@ function handle_export_excel() {
         }
         $ws->getStyle('K' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $ws->getStyle('L' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
-        $ws->getStyle('M' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
         $ws->getRowDimension($row)->setRowHeight(22);
         $row++;
         $no++;
@@ -237,11 +271,11 @@ function handle_export_excel() {
     $rateText = $tr === null ? '--' : ($totActual > $totBudget ? '超支 ' . number_format($tr, 1) . '%' : '预算内 ' . number_format($tr, 1) . '%');
     $ws->setCellValue('K' . $row, $rateText);
     if ($totBudget > 0) $ws->getStyle('K' . $row)->getFont()->getColor()->setARGB($totActual > $totBudget ? 'FFC00000' : 'FF008000');
-    $ws->getStyle("A{$row}:M{$row}")->getFont()->setBold(true);
-    $ws->getStyle("A{$row}:M{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
-    style_data($ws, "A{$row}:M{$row}");
+    $ws->getStyle("A{$row}:L{$row}")->getFont()->setBold(true);
+    $ws->getStyle("A{$row}:L{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
+    style_data($ws, "A{$row}:L{$row}");
 
-    foreach (['A' => 6, 'B' => 20, 'C' => 12, 'D' => 12, 'E' => 12, 'F' => 12, 'G' => 12, 'H' => 12, 'I' => 12, 'J' => 12, 'K' => 12, 'L' => 38, 'M' => 26] as $col => $w) {
+    foreach (['A' => 6, 'B' => 20, 'C' => 12, 'D' => 12, 'E' => 12, 'F' => 12, 'G' => 12, 'H' => 12, 'I' => 12, 'J' => 12, 'K' => 12, 'L' => 38] as $col => $w) {
         $ws->getColumnDimension($col)->setWidth($w);
     }
     $ws->freezePane('C5');
