@@ -1,6 +1,20 @@
 <?php
 /** 填报模块 */
 
+/** 采购可填报条线：空数组=全部（兼容未配置账号）；admin 不受限 */
+function fill_allowed_lines(array $user): array {
+    if (($user['role'] ?? '') === 'admin') return [];
+    $lines = $user['lines'] ?? [];
+    if (!is_array($lines) || !$lines) return [];
+    return array_values(array_intersect(['环境', '绿化', '工程', '秩序', '行政'], array_map('strval', $lines)));
+}
+
+function fill_line_allowed(array $user, string $line): bool {
+    if (($user['role'] ?? '') === 'admin') return true;
+    $allowed = fill_allowed_lines($user);
+    return !$allowed || in_array($line, $allowed, true);
+}
+
 /**
  * 数量/库存校验：必须是合法数字、最多两位小数、不超过上限。
  * 数量必须 > 0；库存允许 0，不允许负数。
@@ -49,10 +63,23 @@ function handle_fill_items() {
     }
     $project_id = $scope['project_id'];
     $line = $_GET['line'] ?? '';
-    $sql = "SELECT pi.*, p.name AS project_name FROM purchase_items pi JOIN payroll.payroll_projects p ON pi.project_id=p.id WHERE pi.month=?";
+    $allowedLines = fill_allowed_lines($user);
+    if ($line !== '' && !fill_line_allowed($user, (string) $line)) {
+        return ['ok' => false, 'msg' => '无权查看该条线'];
+    }
+    $sql = "SELECT pi.*, p.name AS project_name, NULL AS image_id, NULL AS image_updated_at FROM purchase_items pi JOIN payroll.payroll_projects p ON pi.project_id=p.id WHERE pi.month=?";
+    if (purchase_image_table_ready()) {
+        $sql = "SELECT pi.*, p.name AS project_name, img.id AS image_id, img.updated_at AS image_updated_at
+                FROM purchase_items pi JOIN payroll.payroll_projects p ON pi.project_id=p.id
+                LEFT JOIN purchase_item_images img ON img.item_id=pi.id WHERE pi.month=?";
+    }
     $params = [$month];
     if ($project_id > 0) { $sql .= " AND pi.project_id=?"; $params[] = $project_id; }
     if ($line !== '') { $sql .= " AND pi.line=?"; $params[] = $line; }
+    if ($allowedLines) {
+        $sql .= " AND pi.line IN (" . implode(',', array_fill(0, count($allowedLines), '?')) . ")";
+        foreach ($allowedLines as $l) $params[] = $l;
+    }
     $sql .= " ORDER BY pi.line, pi.id";
     $st = db()->prepare($sql);
     $st->execute($params);
@@ -76,6 +103,7 @@ function handle_fill_create() {
     if ($project_id <= 0) return ['ok' => false, 'msg' => '项目缺失'];
     $line = trim($in['line'] ?? '');
     if ($line === '') return ['ok' => false, 'msg' => '条线必选'];
+    if (!fill_line_allowed($user, $line)) return ['ok' => false, 'msg' => '无权填报该条线'];
     $product_id = isset($in['product_id']) && $in['product_id'] ? (int)$in['product_id'] : null;
     $is_custom = $product_id ? 0 : 1;
     $item_name = trim($in['item_name'] ?? '');
@@ -114,6 +142,9 @@ function handle_fill_update($id) {
     if ($user['role'] !== 'admin' && (int)$item['project_id'] !== (int)$user['project_id']) {
         return ['ok' => false, 'msg' => '只能操作本项目的记录'];
     }
+    if (!fill_line_allowed($user, (string) $item['line'])) {
+        return ['ok' => false, 'msg' => '无权操作该条线的记录'];
+    }
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可修改'];
     if ($item['status'] === 'confirmed') return ['ok' => false, 'msg' => '已确认的记录不可修改'];
     // 已提交：仅管理员可直接编辑；员工只能执行"撤销提交"（status→draft），禁止修改任何字段
@@ -130,6 +161,9 @@ function handle_fill_update($id) {
         return ['ok' => false, 'msg' => fill_window_msg($item['month'])];
     }
     $in = json_decode(file_get_contents('php://input'), true) ?? [];
+    if (array_key_exists('line', $in) && !fill_line_allowed($user, trim((string) $in['line']))) {
+        return ['ok' => false, 'msg' => '无权填报该条线'];
+    }
     $oldStatus = $item['status'];
     $fields = ['line', 'product_id', 'item_name', 'brand', 'spec', 'unit', 'quantity', 'stock', 'reason', 'use_location', 'remark', 'status', 'is_custom'];
     $sets = []; $params = [];
@@ -208,6 +242,9 @@ function handle_fill_submit($id) {
     if ($user['role'] !== 'admin' && (int)$item['project_id'] !== (int)$user['project_id']) {
         return ['ok' => false, 'msg' => '只能操作本项目的记录'];
     }
+    if (!fill_line_allowed($user, (string) $item['line'])) {
+        return ['ok' => false, 'msg' => '无权操作该条线的记录'];
+    }
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可提交'];
     if ($user['role'] !== 'admin' && !fill_window_open($item['month']) && $item['status'] !== 'returned') {
         return ['ok' => false, 'msg' => fill_window_msg($item['month'])];
@@ -230,6 +267,9 @@ function handle_fill_delete($id) {
     if (!$item) return ['ok' => false, 'msg' => '记录不存在'];
     if ($user['role'] !== 'admin' && (int)$item['project_id'] !== (int)$user['project_id']) {
         return ['ok' => false, 'msg' => '只能操作本项目的记录'];
+    }
+    if (!fill_line_allowed($user, (string) $item['line'])) {
+        return ['ok' => false, 'msg' => '无权操作该条线的记录'];
     }
     if (month_archived($item['month'])) return ['ok' => false, 'msg' => '本月已归档锁定，不可删除'];
     if ($item['status'] === 'confirmed') return ['ok' => false, 'msg' => '已确认的记录不可删除'];
@@ -270,6 +310,7 @@ function handle_fill_frequency() {
     $spec = norm_spec($_GET['spec'] ?? '');
     $unit = trim($_GET['unit'] ?? '');
     $line = trim($_GET['line'] ?? '');
+    if ($line !== '' && !fill_line_allowed($user, $line)) return ['ok' => false, 'msg' => '无权查看该条线'];
     $month = $_GET['month'] ?? date('Y-m');
     $scope = purchase_fill_scope($user, (int)($_GET['project_id'] ?? 0));
     if (!$scope['ok']) {
@@ -449,9 +490,11 @@ function handle_my_month_items() {
         $project_id = (int)($_GET['project_id'] ?? 0);
     }
     if ($project_id <= 0) return ['ok' => false, 'msg' => '项目缺失'];
+    $allowedLines = fill_allowed_lines($user);
+    $lineSql = $allowedLines ? " AND line IN (" . implode(',', array_fill(0, count($allowedLines), '?')) . ")" : '';
     // 已导入：读存档（含单价金额）
-    $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, price, total FROM archived_purchases WHERE project_id=? AND month=? ORDER BY line, id");
-    $st->execute([$project_id, $month]);
+    $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, price, total FROM archived_purchases WHERE project_id=? AND month=?$lineSql ORDER BY line, id");
+    $st->execute(array_merge([$project_id, $month], $allowedLines));
     $arch = $st->fetchAll();
     if ($arch) {
         return ['ok' => true, 'data' => ['imported' => true, 'rows' => array_map(fn($r) => [
@@ -460,8 +503,8 @@ function handle_my_month_items() {
         ], $arch)]];
     }
     // 未导入：读填报记录
-    $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, stock, reason, is_custom, status, return_reason, returned_at FROM purchase_items WHERE project_id=? AND month=? ORDER BY line, id");
-    $st->execute([$project_id, $month]);
+    $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, stock, reason, is_custom, status, return_reason, returned_at FROM purchase_items WHERE project_id=? AND month=?$lineSql ORDER BY line, id");
+    $st->execute(array_merge([$project_id, $month], $allowedLines));
     return ['ok' => true, 'data' => ['imported' => false, 'rows' => array_map(fn($r) => [
         'line' => $r['line'], 'item_name' => $r['item_name'], 'spec' => $r['spec'], 'brand' => $r['brand'],
         'unit' => $r['unit'], 'quantity' => (float)$r['quantity'], 'stock' => (float)$r['stock'], 'reason' => $r['reason'],

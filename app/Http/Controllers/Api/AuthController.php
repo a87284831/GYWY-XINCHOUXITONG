@@ -70,6 +70,7 @@ class AuthController extends ApiController
 
         $role = DB::table('payroll_roles')->where('role_key', $account->role)->first();
         $projects = DB::table('payroll_projects')->where('status', '启用')->pluck('name')->values()->all();
+        $accData = json_decode((string) ($account->data ?? ''), true) ?: [];
         $token = $this->tokenFor($account);
         $this->purchaseLog((int) $account->id, $account->username, (string) $account->role, '登录', '登录成功（' . ($account->name ?: $account->username) . '）');
         return response()->json([
@@ -79,6 +80,7 @@ class AuthController extends ApiController
             'username' => $account->username,
             'name' => $account->name ?: $account->username,
             'project' => $account->project_name ?: '',
+            'lines' => is_array($accData['lines'] ?? null) ? array_values($accData['lines']) : [],
             'roles' => $role ? [$role] : [],
             'projects' => $projects,
             'app_modules' => [],

@@ -42,12 +42,16 @@ class PurchaseController extends ApiController
                 $projectId = null; // 采购库暂不可用不阻断其余鉴权流程
             }
         }
+        $accData = json_decode((string) ($account->data ?? ''), true) ?: [];
         Support::setContext([
             'id' => (int) $account->id,
             'username' => (string) $account->username,
             'name' => (string) ($account->name ?: $account->username),
             'role' => $account->role === 'admin' ? 'admin' : 'staff',
             'project_id' => $projectId,
+            'project_name' => (string) ($account->project_name ?? ''),
+            // 采购可填报条线；空数组 = 全部（兼容未配置的老账号）
+            'lines' => is_array($accData['lines'] ?? null) ? array_values($accData['lines']) : [],
             'status' => 1,
         ]);
 
@@ -102,7 +106,7 @@ class PurchaseController extends ApiController
         if ($this->loaded) {
             return;
         }
-        foreach (['log', 'products', 'fill', 'admin', 'export_import', 'dashboard', 'system', 'budget', 'summary'] as $h) {
+        foreach (['log', 'products', 'fill', 'images', 'admin', 'export_import', 'dashboard', 'system', 'budget', 'summary'] as $h) {
             require_once app_path("Purchase/handlers/{$h}.php");
         }
         $this->loaded = true;
@@ -190,6 +194,11 @@ class PurchaseController extends ApiController
         if ($uri === 'fill/window' && $method === 'GET') return handle_fill_window();
         if ($uri === 'fill/items' && $method === 'GET') return handle_fill_items();
         if ($uri === 'fill/items' && $method === 'POST') return handle_fill_create();
+        if (preg_match('#^fill/items/(\d+)/image$#', $uri, $m)) {
+            if ($method === 'POST') return handle_fill_image_upload((int) $m[1]);
+            if ($method === 'DELETE') return handle_fill_image_delete((int) $m[1]);
+            if ($method === 'GET') return handle_fill_image_download((int) $m[1]);
+        }
         if (preg_match('#^fill/items/(\d+)$#', $uri, $m) && $method === 'PUT') return handle_fill_update((int) $m[1]);
         if (preg_match('#^fill/items/(\d+)$#', $uri, $m) && $method === 'DELETE') return handle_fill_delete((int) $m[1]);
         if (preg_match('#^fill/items/(\d+)/submit$#', $uri, $m) && $method === 'POST') return handle_fill_submit((int) $m[1]);

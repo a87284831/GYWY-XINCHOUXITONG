@@ -18,10 +18,12 @@ class DirectoryController extends ApiController
         if ($this->isProjectScope($account)) {
             $projects->where('name', $account->project_name);
         }
+        $accData = json_decode((string) ($account->data ?? ''), true) ?: [];
         return response()->json([
             'ok' => true,
             'user' => ['username' => $account->username, 'name' => $account->name ?: $account->username,
                        'role' => $account->role, 'project' => $account->project_name ?: '',
+                       'lines' => is_array($accData['lines'] ?? null) ? array_values($accData['lines']) : [],
                        'scope' => $this->isProjectScope($account) ? 'project' : 'all'],
             'projects' => $projects->pluck('name')->values()->all(),
             'all_projects' => $projects->get(),

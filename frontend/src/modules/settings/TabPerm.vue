@@ -109,6 +109,13 @@
             <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
           </select></label>
         <label v-show="umShowProj">绑定项目<select v-model="um.project"><option value="">-</option><option v-for="p in auth.projects" :key="p" :value="p">{{ p }}</option></select></label>
+        <label v-if="umShowProj" class="full">可填报条线（不选=全部）
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">
+            <span v-for="l in PURCHASE_LINES" :key="l" style="display:inline-flex;align-items:center;gap:4px;font-weight:400">
+              <input type="checkbox" :value="l" v-model="um.lines"> {{ l }}
+            </span>
+          </div>
+        </label>
         <label>账号状态<select v-model="um.enabledStr"><option value="1">启用</option><option value="0">停用</option></select></label>
         <label class="full">{{ um.isNew ? '初始密码（至少8位）' : '重置密码（留空则不修改）' }}<input type="password" v-model="um.password"></label>
       </div>
@@ -146,7 +153,8 @@ const staffList = ref([])
 const staffKw = ref('')
 const staffProj = ref('')
 const staffDept = ref('')
-const um = reactive({ isNew: false, isAdmin: false, id: 0, username: '', name: '', role: 'project', project: '', staff_id: '', enabledStr: '1', password: '' })
+const um = reactive({ isNew: false, isAdmin: false, id: 0, username: '', name: '', role: 'project', project: '', lines: [], staff_id: '', enabledStr: '1', password: '' })
+const PURCHASE_LINES = ['环境', '绿化', '工程', '秩序', '行政']
 
 const curRole = computed(() => roles.value.find((x) => x.id === roleTypeId.value) || null)
 // 新增账号时弹窗内只读展示当前角色名（账号类型由左侧选择决定，不再二次选择）
@@ -290,6 +298,7 @@ function userEdit(u) {
   // 新增账号直接挂到左侧当前选中的角色（此前写死 'project'，在自定义角色下新增会"消失"）
   um.role = v.role || roleTypeId.value || 'project'
   um.project = v.project || ''
+  um.lines = Array.isArray(v.lines) ? [...v.lines] : []
   um.staff_id = v.staff_id != null ? String(v.staff_id) : ''
   um.enabledStr = v.enabled ? '1' : '0'
   um.password = ''
@@ -308,7 +317,7 @@ async function userSave() {
   const project = rdef && rdef.scope === 'project' ? um.project : ''
   const staffId = um.staff_id ? Number(um.staff_id) : null
   try {
-    await api('/api/users/save', { body: { user: { id: um.id || null, username: um.username.trim(), name: um.name.trim(), role: um.role, project, staff_id: staffId, enabled: um.enabledStr === '1', password: um.password } } })
+    await api('/api/users/save', { body: { user: { id: um.id || null, username: um.username.trim(), name: um.name.trim(), role: um.role, project, lines: um.lines, staff_id: staffId, enabled: um.enabledStr === '1', password: um.password } } })
     userModal.value = false
     toast('已保存')
     loadUsersList()

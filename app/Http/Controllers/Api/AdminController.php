@@ -187,9 +187,11 @@ class AdminController extends ApiController
             ->keyBy('legacy_id');
         $users = $rows->map(function ($a) use ($staffMap) {
             $bound = isset($a->staff_id) ? ($staffMap[$a->staff_id] ?? null) : null;
+            $data = json_decode((string) ($a->data ?? ''), true) ?: [];
             return [
                 'id' => $a->legacy_id, 'username' => $a->username, 'name' => $a->name,
                 'role' => $a->role, 'project' => $a->project_name,
+                'lines' => is_array($data['lines'] ?? null) ? array_values($data['lines']) : [],
                 'staff_id' => $a->staff_id, 'enabled' => (bool) $a->enabled,
                 'staff_name' => $bound?->name, 'staff_dept' => $bound?->dept_path,
                 'staff_deleted' => $bound ? (bool) $bound->deleted : null,
@@ -258,6 +260,14 @@ class AdminController extends ApiController
             }
         }
         $data = ['name' => $bound ? $bound->name : trim((string) ($input['name'] ?? '')), 'role' => $role->role_key, 'project' => $project];
+        // 采购可填报条线：仅项目范围账号生效；空数组 = 全部条线（兼容老账号）
+        $validLines = ['环境', '绿化', '工程', '秩序', '行政'];
+        $lines = [];
+        $linesProvided = array_key_exists('lines', $input);
+        if ($role->scope === 'project' && $linesProvided && is_array($input['lines'])) {
+            $lines = array_values(array_intersect($validLines, array_map('strval', $input['lines'])));
+        }
+        $data['lines'] = $lines;
         $password = (string) ($input['password'] ?? '');
         $enabled = array_key_exists('enabled', $input) ? (bool) $input['enabled'] : true;
         if ($id) {
@@ -265,8 +275,14 @@ class AdminController extends ApiController
             if (!$old) return response()->json(['ok' => false, 'error' => '账号不存在'], 404);
             // 行内快速改类型等部分更新场景未传 enabled 时，保留原启用状态，避免把已停用账号意外启用
             if (!array_key_exists('enabled', $input)) $enabled = (bool) $old->enabled;
+            $oldData = json_decode((string) ($old->data ?? ''), true) ?: [];
+            if (!$linesProvided && $role->scope === 'project') {
+                $lines = is_array($oldData['lines'] ?? null) ? array_values($oldData['lines']) : [];
+            }
+            $oldData['lines'] = $lines;
             $update = ['name' => $data['name'], 'role' => $data['role'], 'project_name' => $project,
-                'staff_id' => $staffId, 'enabled' => $enabled, 'updated_at' => now()];
+                'staff_id' => $staffId, 'enabled' => $enabled, 'data' => json_encode($oldData, JSON_UNESCAPED_UNICODE),
+                'updated_at' => now()];
             if ($password !== '') {
                 if (strlen($password) < 8) return response()->json(['ok' => false, 'error' => '密码至少8位'], 400);
                 $update['password_hash'] = hash('sha256', 'gwxy_' . $password);
@@ -281,6 +297,7 @@ class AdminController extends ApiController
         $newId = (int) (DB::table('payroll_accounts')->max('legacy_id') ?? 0) + 1;
         // 落库 data 前剔除明文密码，避免密码被持久化到 JSON 扩展字段
         $dataInput = $input; unset($dataInput['password']);
+        $dataInput['lines'] = $lines;
         DB::table('payroll_accounts')->insert(['legacy_id' => $newId, 'username' => $input['username'],
             'name' => $data['name'], 'role' => $data['role'], 'project_name' => $project,
             'staff_id' => $staffId, 'enabled' => $enabled,

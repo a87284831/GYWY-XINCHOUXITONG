@@ -89,6 +89,21 @@ class PurchaseQtyValidationTest extends TestCase
         $this->assertNull(\purchase_import_status_guard(3, 3));
     }
 
+    public function test_purchase_line_scope_guards(): void
+    {
+        $staff = ['role' => 'staff', 'lines' => ['工程']];
+        $this->assertSame(['工程'], \fill_allowed_lines($staff));
+        $this->assertTrue(\fill_line_allowed($staff, '工程'));
+        $this->assertFalse(\fill_line_allowed($staff, '行政'));
+
+        $all = ['role' => 'staff', 'lines' => []];
+        $this->assertSame([], \fill_allowed_lines($all));
+        $this->assertTrue(\fill_line_allowed($all, '行政'), '未配置条线=全部，兼容老账号');
+
+        $admin = ['role' => 'admin', 'lines' => ['工程']];
+        $this->assertTrue(\fill_line_allowed($admin, '行政'), '管理员不受条线限制');
+    }
+
     public function test_archive_rows_match_exact_line_and_item_id(): void
     {
         $items = [

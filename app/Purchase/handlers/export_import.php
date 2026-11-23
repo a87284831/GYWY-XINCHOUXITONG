@@ -103,7 +103,7 @@ function handle_export_excel() {
     $hasArchive = (int)$stArch->fetchColumn() > 0;
     if ($hasArchive) {
         $st = db()->prepare(
-            "SELECT ap.id, ap.month, ap.project_id, ap.line, ap.product_id, ap.item_name, ap.brand, ap.spec, ap.unit,
+            "SELECT ap.id, ap.item_id, ap.month, ap.project_id, ap.line, ap.product_id, ap.item_name, ap.brand, ap.spec, ap.unit,
                     ap.quantity, ap.price, 0 AS stock, '' AS reason, '' AS use_location, ap.remark,
                     p.name AS project_name
              FROM archived_purchases ap
@@ -114,7 +114,7 @@ function handle_export_excel() {
         $items = $st->fetchAll();
     } else {
         $st = db()->prepare(
-            "SELECT pi.*, p.name AS project_name FROM purchase_items pi
+            "SELECT pi.*, pi.id AS item_id, p.name AS project_name FROM purchase_items pi
              JOIN payroll.payroll_projects p ON pi.project_id=p.id
              WHERE pi.month=? AND pi.status IN ('submitted','confirmed')
              ORDER BY FIELD(pi.line,'环境','绿化','工程','秩序','行政'), pi.project_id, pi.id"
@@ -122,6 +122,7 @@ function handle_export_excel() {
         $st->execute([$month]);
         $items = $st->fetchAll();
     }
+    $imageMap = purchase_image_map(array_column($items, 'item_id'));
 
     $spreadsheet = new Spreadsheet();
 
@@ -253,14 +254,15 @@ function handle_export_excel() {
         $lws = $spreadsheet->createSheet();
         $lws->setTitle($title);
         $isEng = ($line === '工程');
-        $maxCol = $isEng ? 'M' : 'L';
+        $lheaders = ['序号', '项目名称', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '合计', '项目库存', '申购原因'];
+        if ($isEng) $lheaders[] = '使用位置';
+        $lheaders[] = '备注';
+        $lheaders[] = '示例图片';
+        $maxCol = Coordinate::stringFromColumnIndex(count($lheaders));
         $lws->mergeCells("A1:{$maxCol}1");
         $lws->setCellValue('A1', '广盈物业 ' . $month . ' ' . $title . '采购明细');
         style_title($lws, "A1:{$maxCol}1", 1, '广盈物业 ' . $month . ' ' . $title . '采购明细', 14);
 
-        $lheaders = ['序号', '项目名称', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '合计', '项目库存', '申购原因'];
-        if ($isEng) $lheaders[] = '使用位置';
-        $lheaders[] = '备注';
         foreach ($lheaders as $i => $h) {
             $lws->setCellValue(Coordinate::stringFromColumnIndex($i + 1) . '2', $h);
         }
@@ -303,6 +305,8 @@ function handle_export_excel() {
                 $col = 13;
             }
             $lws->setCellValue(Coordinate::stringFromColumnIndex($col) . $r, $it['remark']);
+            $imgCol = Coordinate::stringFromColumnIndex($col + 1);
+            $hasImg = purchase_image_embed($lws, $imgCol . $r, $imageMap[(int)($it['item_id'] ?? 0)] ?? null);
             style_data($lws, "A{$r}:{$maxCol}{$r}");
             $lws->getStyle('A' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $lws->getStyle('B' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
@@ -310,13 +314,14 @@ function handle_export_excel() {
             $lws->getStyle('G' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
             $lws->getStyle('H' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
             $lws->getStyle('I' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-            $lws->getRowDimension($r)->setRowHeight(20);
+            $lws->getRowDimension($r)->setRowHeight($hasImg ? 60 : 20);
             $r++;
             $seq++;
         }
         foreach (['A' => 6, 'B' => 18, 'C' => 20, 'D' => 13, 'E' => 20, 'F' => 8, 'G' => 10, 'H' => 12, 'I' => 12, 'J' => 10, 'K' => 22, 'L' => 13, 'M' => 13] as $col => $w) {
             if (in_array($col, range('A', $maxCol))) $lws->getColumnDimension($col)->setWidth($w);
         }
+        $lws->getColumnDimension($maxCol)->setWidth(14);
         $lws->getStyle("G2:{$maxCol}2")->getNumberFormat()->setFormatCode('#,##0.00');
         $lws->freezePane('A3');
     }
@@ -344,31 +349,32 @@ function handle_export_my_month() {
     if ($project_id <= 0) return ['ok' => false, 'msg' => '项目缺失'];
     $pname = project_name($project_id);
     // 已导入：读存档（含实际单价金额）；未导入：读填报记录
-    $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, price, total, remark FROM archived_purchases WHERE project_id=? AND month=? ORDER BY line, id");
+    $st = db()->prepare("SELECT item_id, line, item_name, spec, brand, unit, quantity, price, total, remark FROM archived_purchases WHERE project_id=? AND month=? ORDER BY line, id");
     $st->execute([$project_id, $month]);
     $rows = $st->fetchAll();
     $imported = count($rows) > 0;
     if (!$imported) {
-        $st = db()->prepare("SELECT line, item_name, spec, brand, unit, quantity, stock, reason FROM purchase_items WHERE project_id=? AND month=? ORDER BY line, id");
+        $st = db()->prepare("SELECT id AS item_id, line, item_name, spec, brand, unit, quantity, stock, reason FROM purchase_items WHERE project_id=? AND month=? ORDER BY line, id");
         $st->execute([$project_id, $month]);
         $rows = $st->fetchAll();
     }
+    $imageMap = purchase_image_map(array_column($rows, 'item_id'));
 
     $spreadsheet = new Spreadsheet();
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('填报明细');
     // 未导入报价时与管理端导出保持同一口径：展示参考价并明确标注，避免两份文件金额不一致
     $titleText = "广盈物业 {$month} {$pname} 采购填报明细" . ($imported ? '' : '（报价未导入，单价/金额为参考价）');
-    $ws->mergeCells('A1:J1');
+    $ws->mergeCells('A1:K1');
     $ws->setCellValue('A1', $titleText);
-    style_title($ws, 'A1:J1', 1, $titleText, 14);
+    style_title($ws, 'A1:K1', 1, $titleText, 14);
 
     $headers = ['条线', '商品名称', '规格型号', '品牌', '单位', '数量',
-        $imported ? '单价（元）' : '单价（参考价）', $imported ? '金额（元）' : '金额（参考价）', '申购原因', '库存'];
+        $imported ? '单价（元）' : '单价（参考价）', $imported ? '金额（元）' : '金额（参考价）', '申购原因', '库存', '示例图片'];
     foreach ($headers as $i => $h) {
         $ws->setCellValue(Coordinate::stringFromColumnIndex($i + 1) . '2', $h);
     }
-    style_header($ws, 'A2:J2', 2, 28);
+    style_header($ws, 'A2:K2', 2, 28);
 
     $r = 3;
     $totQty = 0; $totAmount = 0;
@@ -399,27 +405,28 @@ function handle_export_my_month() {
         }
         $ws->setCellValue('I' . $r, $imported ? ($it['remark'] ?? '') : ($it['reason'] ?? ''));
         $ws->setCellValue('J' . $r, $imported ? '' : (float)($it['stock'] ?? 0));
+        $hasImg = purchase_image_embed($ws, 'K' . $r, $imageMap[(int)($it['item_id'] ?? 0)] ?? null);
         $totQty += (float)$it['quantity'];
         $totAmount += $rowAmount;
-        style_data($ws, "A{$r}:J{$r}");
+        style_data($ws, "A{$r}:K{$r}");
         $ws->getStyle('A' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $ws->getStyle('B' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         $ws->getStyle('C' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         $ws->getStyle('F' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $ws->getStyle('G' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $ws->getStyle('H' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $ws->getRowDimension($r)->setRowHeight(20);
+        $ws->getRowDimension($r)->setRowHeight($hasImg ? 60 : 20);
         $r++;
     }
     // 合计行
     $ws->setCellValue('E' . $r, '合计');
     $ws->setCellValue('F' . $r, round($totQty, 2));
     if ($totAmount > 0) $ws->setCellValue('H' . $r, round($totAmount, 2));
-    $ws->getStyle("A{$r}:J{$r}")->getFont()->setBold(true);
-    $ws->getStyle("A{$r}:J{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
-    style_data($ws, "A{$r}:J{$r}");
+    $ws->getStyle("A{$r}:K{$r}")->getFont()->setBold(true);
+    $ws->getStyle("A{$r}:K{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
+    style_data($ws, "A{$r}:K{$r}");
 
-    foreach (['A' => 10, 'B' => 24, 'C' => 20, 'D' => 14, 'E' => 8, 'F' => 10, 'G' => 12, 'H' => 12, 'I' => 26, 'J' => 10] as $col => $w) {
+    foreach (['A' => 10, 'B' => 24, 'C' => 20, 'D' => 14, 'E' => 8, 'F' => 10, 'G' => 12, 'H' => 12, 'I' => 26, 'J' => 10, 'K' => 14] as $col => $w) {
         $ws->getColumnDimension($col)->setWidth($w);
     }
     $ws->getStyle("F2:J{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
@@ -683,7 +690,7 @@ function handle_export_year() {
     require_admin();
     $year = (int)($_GET['year'] ?? date('Y'));
     $st = db()->prepare(
-        "SELECT ap.month, p.name AS project_name, ap.line, ap.item_name, ap.brand, ap.spec, ap.unit,
+        "SELECT ap.month, ap.item_id, p.name AS project_name, ap.line, ap.item_name, ap.brand, ap.spec, ap.unit,
                 ap.quantity, ap.price, ap.total
          FROM archived_purchases ap
          JOIN payroll.payroll_projects p ON ap.project_id=p.id
@@ -692,19 +699,20 @@ function handle_export_year() {
     );
     $st->execute([$year . '-01', $year . '-12']);
     $rows = $st->fetchAll();
+    $imageMap = purchase_image_map(array_column($rows, 'item_id'));
 
     $spreadsheet = new Spreadsheet();
     $ws = $spreadsheet->getActiveSheet();
     $ws->setTitle('全年采购明细');
-    $ws->mergeCells('A1:J1');
+    $ws->mergeCells('A1:K1');
     $ws->setCellValue('A1', "广盈物业 {$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）');
-    style_title($ws, 'A1:J1', 1, "广盈物业 {$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）', 14);
+    style_title($ws, 'A1:K1', 1, "广盈物业 {$year} 年度采购明细汇总（截至 " . date('Y-m-d') . '）', 14);
 
-    $headers = ['月份', '项目名称', '条线', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '金额'];
+    $headers = ['月份', '项目名称', '条线', '商品名称', '品牌', '规格型号', '单位', '数量', '单价', '金额', '示例图片'];
     foreach ($headers as $i => $h) {
         $ws->setCellValue(Coordinate::stringFromColumnIndex($i + 1) . '2', $h);
     }
-    style_header($ws, 'A2:J2', 2, 30);
+    style_header($ws, 'A2:K2', 2, 30);
 
     $r = 3;
     $totQty = 0; $totAmount = 0;
@@ -719,9 +727,10 @@ function handle_export_year() {
         $ws->setCellValue('H' . $r, (float)$it['quantity']);
         $ws->setCellValue('I' . $r, (float)$it['price']);
         $ws->setCellValue('J' . $r, (float)$it['total']);
+        $hasImg = purchase_image_embed($ws, 'K' . $r, $imageMap[(int)($it['item_id'] ?? 0)] ?? null);
         $totQty += (float)$it['quantity'];
         $totAmount += (float)$it['total'];
-        style_data($ws, "A{$r}:J{$r}");
+        style_data($ws, "A{$r}:K{$r}");
         $ws->getStyle('A' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $ws->getStyle('B' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         $ws->getStyle('C' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
@@ -729,24 +738,24 @@ function handle_export_year() {
         $ws->getStyle('H' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $ws->getStyle('I' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $ws->getStyle('J' . $r)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $ws->getRowDimension($r)->setRowHeight(20);
+        $ws->getRowDimension($r)->setRowHeight($hasImg ? 60 : 20);
         $r++;
     }
     // 合计行
     $ws->setCellValue('G' . $r, '合计');
     $ws->setCellValue('H' . $r, round($totQty, 2));
     $ws->setCellValue('J' . $r, round($totAmount, 2));
-    $ws->getStyle("A{$r}:J{$r}")->getFont()->setBold(true);
-    $ws->getStyle("A{$r}:J{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
-    style_data($ws, "A{$r}:J{$r}");
+    $ws->getStyle("A{$r}:K{$r}")->getFont()->setBold(true);
+    $ws->getStyle("A{$r}:K{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9E2F3');
+    style_data($ws, "A{$r}:K{$r}");
 
-    foreach (['A' => 10, 'B' => 18, 'C' => 8, 'D' => 22, 'E' => 14, 'F' => 20, 'G' => 8, 'H' => 10, 'I' => 12, 'J' => 12] as $col => $w) {
+    foreach (['A' => 10, 'B' => 18, 'C' => 8, 'D' => 22, 'E' => 14, 'F' => 20, 'G' => 8, 'H' => 10, 'I' => 12, 'J' => 12, 'K' => 14] as $col => $w) {
         $ws->getColumnDimension($col)->setWidth($w);
     }
     $ws->getStyle("H2:J{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
     $ws->freezePane('A3');
     // 自动筛选
-    $ws->setAutoFilter('A2:J' . max($r - 1, 2));
+    $ws->setAutoFilter('A2:K' . max($r - 1, 2));
 
     $fileName = "广盈物业_{$year}年度采购明细汇总.xlsx";
     log_action('年度导出', "{$year} 年度采购明细汇总导出（{$fileName}）");

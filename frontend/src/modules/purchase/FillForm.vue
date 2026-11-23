@@ -24,6 +24,57 @@ const rows = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const defaultLine = ref(FILL_LINES[0])
+// 采购条线授权：空/未配置=全部；仅项目账号生效
+const allowedLines = computed(() => {
+  if (isAdmin.value) return FILL_LINES
+  const ls = auth.user && Array.isArray(auth.user.lines) ? auth.user.lines : []
+  const hit = FILL_LINES.filter((l) => ls.includes(l))
+  return hit.length ? hit : FILL_LINES
+})
+const singleLine = computed(() => allowedLines.value.length === 1)
+watch(allowedLines, (ls) => {
+  if (!ls.includes(defaultLine.value)) defaultLine.value = ls[0] || FILL_LINES[0]
+}, { immediate: true })
+
+// 示例图片：每行一张；仅可编辑行可上传/删除
+const imgDialog = ref(false)
+const imgUrl = ref('')
+function imageEditable(row) {
+  return !!row.id && !isRowReadonly(row, isAdmin) && row.status !== 'confirmed'
+}
+async function uploadImage(row, opt) {
+  if (!row.id) { toast('请先保存该行再上传图片', false); return }
+  const fd = new FormData()
+  fd.append('file', opt.file)
+  try {
+    const d = await api('/api/purchase/fill/items/' + row.id + '/image', { method: 'POST', form: fd })
+    row.has_image = true
+    row.image_version = d.version || Date.now()
+    toast(d.msg || '图片已上传')
+  } catch (e) { toast(e.message, false) }
+}
+async function viewImage(row) {
+  try {
+    const blob = await api('/api/purchase/fill/items/' + row.id + '/image?thumb=1')
+    if (imgUrl.value) URL.revokeObjectURL(imgUrl.value)
+    imgUrl.value = URL.createObjectURL(blob)
+    imgDialog.value = true
+  } catch (e) { toast(e.message, false) }
+}
+function closeImg() {
+  if (imgUrl.value) URL.revokeObjectURL(imgUrl.value)
+  imgUrl.value = ''
+}
+async function removeImage(row) {
+  try {
+    await ElMessageBox.confirm('删除该行的示例图片？', '删除图片', { type: 'warning' })
+  } catch (e) { return }
+  try {
+    await api('/api/purchase/fill/items/' + row.id + '/image', { method: 'DELETE' })
+    row.has_image = false
+    toast('图片已删除')
+  } catch (e) { toast(e.message, false) }
+}
 let keySeq = 0
 
 const noProject = computed(() => isAdmin.value && !projectId.value) // admin 未指定代填项目：不能保存
@@ -117,6 +168,7 @@ async function loadRows() {
       key: ++keySeq, id: n.id, line: n.line, item_name: n.item_name, spec: n.spec, brand: n.brand, unit: n.unit,
       quantity: Number(n.quantity), stock: Number(n.stock), reason: n.reason, use_location: n.use_location, remark: n.remark,
       is_custom: n.is_custom == 1, status: n.status, product_id: n.product_id || null, price: n.price,
+      has_image: !!n.image_id, image_version: n.image_updated_at || '',
       return_reason: n.return_reason || '', returned_at: n.returned_at || '',
       nameOptions: [], specs: [], freq: null, loadingName: false, _isNew: false,
     }))
@@ -352,7 +404,7 @@ onMounted(async () => {
   await Promise.all([loadWindow(), loadRows(), loadProxyName()])
 })
 // 离开页面取消防抖中的草稿写入，避免卸载后误写
-onUnmounted(() => clearTimeout(draftTimer))
+onUnmounted(() => { clearTimeout(draftTimer); closeImg() })
 </script>
 
 <template>
@@ -377,14 +429,22 @@ onUnmounted(() => clearTimeout(draftTimer))
     <el-alert v-if="returnedCount > 0" type="warning" :closable="false" show-icon style="margin-bottom:12px;"
       :title="'招采已退回 ' + returnedCount + ' 条记录要求修改，请查看红色行中的退回原因，修改后点击「提交全部」重新提交'" />
 
+    <el-alert type="warning" :closable="false" show-icon style="margin-bottom:12px;"
+      title="清单内没有的商品，请打开行尾「清单外」开关后手动填写；不要硬选清单内商品。" />
+
     <div class="dash-card" style="padding:12px 14px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div style="font-weight:600;color:#2b5a9e;font-size:14px;">批量填写</div>
-        <span style="color:#666;font-size:13px;">默认条线：</span>
-        <el-select v-model="defaultLine" style="width:120px">
-          <el-option v-for="l in FILL_LINES" :key="l" :value="l" :label="l" />
-        </el-select>
-        <span style="color:#999;font-size:12px;">新行自动沿用，行内可单独修改</span>
+        <template v-if="singleLine">
+          <span style="color:#666;font-size:13px;">当前条线：<b style="color:#2b5a9e;">{{ defaultLine }}</b></span>
+        </template>
+        <template v-else>
+          <span style="color:#666;font-size:13px;">默认条线：</span>
+          <el-select v-model="defaultLine" style="width:120px">
+            <el-option v-for="l in allowedLines" :key="l" :value="l" :label="l" />
+          </el-select>
+          <span style="color:#999;font-size:12px;">新行自动沿用，行内可单独修改</span>
+        </template>
         <div style="flex:1 1 auto"></div>
         <el-button type="primary" :loading="saving" :disabled="noProject" @click="saveAll(false)">保存全部 {{ saveableCount }}</el-button>
         <el-button type="success" :loading="saving" :disabled="noProject" @click="saveAll(true)">提交全部 {{ saveableCount }}</el-button>
@@ -400,8 +460,8 @@ onUnmounted(() => clearTimeout(draftTimer))
       :row-class-name="({ row }) => (errorMarks.has(row.key) ? 'row-error' : row.status === 'returned' ? 'row-returned' : '')">
       <el-table-column label="条线" width="100">
         <template #default="{ row }">
-          <el-select v-model="row.line" size="small" :disabled="isRowReadonly(row, isAdmin)" @change="resetProduct(row)">
-            <el-option v-for="l in FILL_LINES" :key="l" :value="l" :label="l" />
+          <el-select v-model="row.line" size="small" :disabled="isRowReadonly(row, isAdmin) || singleLine" @change="resetProduct(row)">
+            <el-option v-for="l in allowedLines" :key="l" :value="l" :label="l" />
           </el-select>
         </template>
       </el-table-column>
@@ -475,6 +535,18 @@ onUnmounted(() => clearTimeout(draftTimer))
           <el-switch v-model="row.is_custom" :disabled="isRowReadonly(row, isAdmin)" @change="resetProduct(row)" />
         </template>
       </el-table-column>
+      <el-table-column label="示例图片" width="132">
+        <template #default="{ row }">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <el-button v-if="row.has_image" link type="primary" size="small" @click="viewImage(row)">查看</el-button>
+            <el-upload v-if="!row.has_image && imageEditable(row)" :show-file-list="false" :http-request="(o) => uploadImage(row, o)" accept="image/jpeg,image/png,image/webp">
+              <el-button link type="primary" size="small">上传</el-button>
+            </el-upload>
+            <el-button v-if="row.has_image && imageEditable(row)" link type="danger" size="small" @click="removeImage(row)">删除</el-button>
+            <span v-if="!row.id" style="color:#bbb;font-size:12px;">先保存</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="96" align="center">
         <template #default="{ row }">
           <el-tag v-if="row.status === 'confirmed'" size="small" type="success">已确认</el-tag>
@@ -506,6 +578,9 @@ onUnmounted(() => clearTimeout(draftTimer))
       <span>共 {{ rows.length }} 行（已存 {{ savedCount }} 条）</span>
       <span>输入内容 2 秒后自动存为本地草稿，防止误关丢失；提交后不可再修改，招采确认前可撤销提交；被退回的行与未填完整的行红框标出，补全后重新保存/提交</span>
     </div>
+    <el-dialog v-model="imgDialog" title="示例图片" width="560px" @closed="closeImg">
+      <img v-if="imgUrl" :src="imgUrl" style="max-width:100%;max-height:70vh;display:block;margin:0 auto">
+    </el-dialog>
   </div>
 </template>
 
