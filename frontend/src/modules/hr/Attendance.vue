@@ -49,7 +49,7 @@
         <div class="table-wrap">
           <table class="tb">
             <thead><tr>
-              <th>姓名</th><th>职位</th><th>人员状态</th><th>应出勤</th><th>实出勤</th><th>应出勤(符号统计)</th><th>事假</th><th>病假</th><th>产假</th><th>带薪假</th>
+              <th>姓名</th><th>部门</th><th>职位</th><th>人员状态</th><th>应出勤</th><th>实出勤</th><th>应出勤(符号统计)</th><th>事假</th><th>病假</th><th>产假</th><th>带薪假</th>
               <th>缺卡</th><th>旷工</th><th>迟到</th><th>早退</th><th>绩效系数</th>
               <th>奖励</th><th>已发福利</th><th>补发工资</th><th>餐补</th><th>夜班/话费</th><th>职称/证书</th>
               <th>月度扣罚</th><th>迟早扣款</th><th>缺卡扣款</th><th>其他扣款</th><th>工装扣款</th>
@@ -57,7 +57,7 @@
             </tr></thead>
             <tbody>
               <tr v-for="n in names" :key="n" :class="{ 'att-hl': hlName === n }" @click="hlName = hlName === n ? '' : n">
-                <td>{{ n }}</td><td>{{ view.rows[n].position }}</td><td>{{ view.rows[n].status || '-' }}</td>
+                <td>{{ n }}</td><td>{{ (view.depts || {})[n] || '-' }}</td><td>{{ view.rows[n].position }}</td><td>{{ view.rows[n].status || '-' }}</td>
                 <td class="num">{{ (view.stats[n] || {}).req_attend ?? view.rows[n].req_attend ?? '-' }}</td>
                 <td class="num">{{ (view.stats[n] || {}).act_attend ?? view.rows[n].act_attend ?? '-' }}</td>
                 <td class="num">{{ (view.stats[n] || {}).required_value ?? (view.stats[n] || {}).required }}</td>
@@ -117,7 +117,7 @@ const attNotice = ref(null)
 const pendingFile = ref(null)
 // 统计列与格子数不一致时的显式覆盖开关：默认拒绝，用户点"仍然上传"后才带 force_stats
 const forceStats = ref(false)
-const view = ref({ rows: {}, stats: {}, meta: {} })
+const view = ref({ rows: {}, stats: {}, meta: {}, depts: {} })
 const viewLoaded = ref(false)
 const viewErr = ref('')
 const attLocked = ref(false)
@@ -310,7 +310,7 @@ async function attDelete() {
     await refreshStatus()
     await refreshWarnings()
     viewLoaded.value = false
-    view.value = { rows: {}, stats: {}, meta: {} }
+      view.value = { rows: {}, stats: {}, meta: {}, depts: {} }
   } catch (e) { alert(e.message) }
 }
 

@@ -33,7 +33,7 @@ class PayrollController extends ApiController
             ->where('year_month', $ym)->where('project_name', $project)->first();
         if (!$record) {
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-                'rows' => [], 'order' => [], 'stats' => [], 'locked' => false, 'symbol_warnings' => []]);
+                'rows' => [], 'order' => [], 'depts' => [], 'stats' => [], 'locked' => false, 'symbol_warnings' => []]);
         }
         $rows = $this->jsonValue($record->rows) ?: [];
         // 顶部提示条只需未知符号告警：轻量返回，不计算整表统计
@@ -51,14 +51,51 @@ class PayrollController extends ApiController
         foreach ($rows as $name => $attendance) {
             $stats[$name] = $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3);
         }
+        // 查看已上传考勤：按人员档案部门排序（同部门保持上传表格行序），并回传部门供页面显示
+        $depts = $this->attendanceDeptMap($project, $rows);
+        $order = $this->sortNamesByDept(\App\Services\PayrollCalculator::attendanceOrder($record, $rows), $depts);
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
             'rows' => $this->jsonValue($record->rows),
-            // 上传表格行序（MySQL JSON 会重排对象键，前端按该数组渲染）
-            'order' => \App\Services\PayrollCalculator::attendanceOrder($record, $rows),
+            'order' => $order,
+            'depts' => $depts,
             'stats' => $stats,
             'locked' => (bool) $record->locked,
             'symbol_warnings' => $symbolWarnings,
             'meta' => ['uploaded_at' => $record->updated_at]]);
+    }
+
+    /** 考勤查看的部门映射：优先按行内 staff_id，旧数据按同项目姓名兜底 */
+    private function attendanceDeptMap(string $project, array $rows): array
+    {
+        $staff = DB::table('payroll_staff')->where('project_name', $project)->where('deleted', false)
+            ->get(['legacy_id', 'name', 'dept_path']);
+        $byId = []; $byName = [];
+        foreach ($staff as $s) {
+            $dept = \App\Services\PayrollCalculator::deptName($s->dept_path ?? null, $project);
+            $byId[(int) $s->legacy_id] = $dept;
+            if (!isset($byName[$s->name])) $byName[$s->name] = $dept;
+        }
+        $out = [];
+        foreach ($rows as $name => $att) {
+            $sid = is_array($att) ? ($att['staff_id'] ?? null) : null;
+            $out[$name] = $sid !== null && isset($byId[(int) $sid])
+                ? $byId[(int) $sid]
+                : ($byName[$name] ?? '');
+        }
+        return $out;
+    }
+
+    /** 按部门稳定排序：空部门排最后，同部门保持原行序（PHP 8 usort 稳定） */
+    private function sortNamesByDept(array $names, array $depts): array
+    {
+        usort($names, function ($a, $b) use ($depts) {
+            $da = (string) ($depts[$a] ?? '');
+            $db = (string) ($depts[$b] ?? '');
+            if ($da === '' && $db !== '') return 1;
+            if ($da !== '' && $db === '') return -1;
+            return strcmp($da, $db);
+        });
+        return $names;
     }
 
     /** 单块考勤的未知符号告警（考勤页提示条与核算告警共用口径） */
@@ -98,13 +135,18 @@ class PayrollController extends ApiController
                 $q->where(function ($qq) { $qq->where('status', '!=', '离职')->whereNull('resign_date'); })
                   ->orWhere('resign_date', '>=', $ym . '-01');
             })
-            ->get(['legacy_id', 'name', 'project_name'])
+            ->get(['legacy_id', 'name', 'project_name', 'dept_path'])
             ->filter(function ($p) use ($catMap, $category) {
                 if (($catMap[(int) $p->legacy_id] ?? 'staff') !== $category) return false;
                 return !($category === 'manager' && $p->project_name === \App\Services\PayrollCalculator::HQ_PROJECT);
             })->values();
-        $byProject = [];
-        foreach ($staff as $p) { $byProject[$p->project_name][$p->name] = true; }
+        $byProject = []; $deptById = []; $deptByKey = [];
+        foreach ($staff as $p) {
+            $byProject[$p->project_name][$p->name] = true;
+            $dept = \App\Services\PayrollCalculator::deptName($p->dept_path ?? null, (string) $p->project_name);
+            $deptById[(int) $p->legacy_id] = $dept;
+            $deptByKey[$p->project_name . '|' . $p->name] = $dept;
+        }
 
         $symbols = \App\Services\PayrollCalculator::symbols();
         $rules = new \App\Services\CalcRules();
@@ -122,6 +164,7 @@ class PayrollController extends ApiController
                 $attendance = $recordRows[$name];
                 if (!isset($namesInProj[$name])) continue;
                 $entries[] = ['name' => $name, 'project' => $proj, 'att' => $attendance,
+                    'dept' => $deptById[(int) ($attendance['staff_id'] ?? 0)] ?? ($deptByKey[$proj . '|' . $name] ?? ''),
                     'st' => $warningsOnly ? [] : $this->attendanceRowStats($attendance, $symbols, $missEnabled, $missFirst3, $missAfter3)];
             }
         }
@@ -134,18 +177,26 @@ class PayrollController extends ApiController
             return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
                 'symbol_warnings' => $warnings]);
         }
-        // 虚拟组跨项目合并：只按项目归组（既定顺序），组内保持各项目上传表格行序
-        usort($entries, fn ($a, $b) => strcmp($a['project'], $b['project']));
+        // 虚拟组跨项目合并：按项目 → 部门排序；同项目同部门保持各项目上传表格行序
+        usort($entries, function ($a, $b) {
+            $cmp = strcmp((string) $a['project'], (string) $b['project']);
+            if ($cmp !== 0) return $cmp;
+            $da = (string) ($a['dept'] ?? ''); $db = (string) ($b['dept'] ?? '');
+            if ($da === '' && $db !== '') return 1;
+            if ($da !== '' && $db === '') return -1;
+            return strcmp($da, $db);
+        });
         $nameCounts = [];
         foreach ($entries as $e) { $nameCounts[$e['name']] = ($nameCounts[$e['name']] ?? 0) + 1; }
-        $rows = []; $stats = [];
+        $rows = []; $stats = []; $depts = [];
         foreach ($entries as $e) {
             $key = $nameCounts[$e['name']] > 1 ? $e['name'] . '（' . $e['project'] . '）' : $e['name'];
             $rows[$key] = $e['att'];
             $stats[$key] = $e['st'];
+            $depts[$key] = $e['dept'] ?? '';
         }
         return response()->json(['ok' => true, 'ym' => $ym, 'project' => $project,
-            'rows' => $rows, 'order' => array_keys($rows), 'stats' => $stats, 'locked' => false,
+            'rows' => $rows, 'order' => array_keys($rows), 'depts' => $depts, 'stats' => $stats, 'locked' => false,
             'meta' => ['uploaded_at' => '']]);
     }
 
