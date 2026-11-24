@@ -52,6 +52,94 @@ function purchase_match_item_ids(array $items, array $rows): array {
     return $rows;
 }
 
+/** 导入行守卫（纯函数）：数量非正但填了单价 = 明显填错，导入应整体拒绝 */
+function purchase_import_row_invalid(float $qty, float $price): bool
+{
+    return $qty <= 0 && $price > 0;
+}
+
+/**
+ * 导入与填报差异报告（纯函数，v2026.11.23.3，只提示不拦截）。
+ * 按 项目+条线 分组，双方各按 名称+品牌+归一规格+单位 聚合（数量累加）后比对：
+ *  - 同键数量不同 → 「品名(规格) 数量 a→b」
+ *  - 名称+单位对得上但规格/品牌不同 → 「品名 规格「a」→「b」」
+ *  - 填报有、导入无 → 「品名(规格) 已删除」
+ *  - 导入有、填报无 → 「品名(规格) 新增」
+ * 返回差异描述列表；调用方在 msg 里最多展示 8 条，完整列表随响应 diffs 返回。
+ */
+function purchase_import_diff_report(array $fillRows, array $importRows): array
+{
+    $norm = fn($s) => norm_spec((string)($s ?? ''));
+    $agg = function (array $rows) use ($norm): array {
+        $out = [];
+        foreach ($rows as $r) {
+            $pid = (int)($r['project_id'] ?? 0);
+            $line = (string)($r['line'] ?? '');
+            $name = trim((string)($r['item_name'] ?? ''));
+            if ($pid <= 0 || $line === '' || $name === '') continue;
+            $brand = trim((string)($r['brand'] ?? ''));
+            $spec = $norm($r['spec'] ?? '');
+            $unit = trim((string)($r['unit'] ?? ''));
+            $g = $pid . '|' . $line;
+            $exact = $name . '|' . $brand . '|' . $spec . '|' . $unit;
+            if (!isset($out[$g][$exact])) {
+                $out[$g][$exact] = ['name' => $name, 'brand' => $brand, 'spec' => $spec, 'unit' => $unit,
+                    'relaxed' => $name . '|' . $unit, 'qty' => 0.0];
+            }
+            $out[$g][$exact]['qty'] += (float)($r['quantity'] ?? 0);
+        }
+        return $out;
+    };
+    $F = $agg($fillRows);
+    $I = $agg($importRows);
+    $qtyTxt = fn($q) => rtrim(rtrim(sprintf('%.2f', $q), '0'), '.');
+    $label = fn($it) => $it['name'] . ($it['spec'] !== '' ? '(' . $it['spec'] . ')' : '');
+    $diffs = [];
+    foreach (array_unique(array_merge(array_keys($F), array_keys($I))) as $g) {
+        $fmap = $F[$g] ?? [];
+        $imap = $I[$g] ?? [];
+        $irel = [];
+        foreach ($imap as $iex => $row) {
+            $irel[$row['relaxed']][] = $iex;
+        }
+        $usedImp = [];
+        // 以填报为准：数量不同 / 规格·品牌不同 / 已删除
+        foreach ($fmap as $fex => $f) {
+            if (isset($imap[$fex])) {
+                $i = $imap[$fex];
+                $usedImp[$fex] = true;
+                if (abs($i['qty'] - $f['qty']) > 0.005) {
+                    $diffs[] = $label($f) . ' 数量 ' . $qtyTxt($f['qty']) . '→' . $qtyTxt($i['qty']);
+                }
+                continue;
+            }
+            $cand = null;
+            foreach ($irel[$f['relaxed']] ?? [] as $iex) {
+                if (isset($usedImp[$iex])) continue;
+                $cand = $iex;
+                break;
+            }
+            if ($cand === null) {
+                $diffs[] = $label($f) . ' 已删除';
+                continue;
+            }
+            $usedImp[$cand] = true;
+            $i = $imap[$cand];
+            $chg = [];
+            if ($f['spec'] !== $i['spec']) $chg[] = '规格「' . $f['spec'] . '」→「' . $i['spec'] . '」';
+            if ($f['brand'] !== $i['brand']) $chg[] = '品牌「' . $f['brand'] . '」→「' . $i['brand'] . '」';
+            if (abs($i['qty'] - $f['qty']) > 0.005) $chg[] = '数量 ' . $qtyTxt($f['qty']) . '→' . $qtyTxt($i['qty']);
+            $diffs[] = $f['name'] . ' ' . implode('、', $chg);
+        }
+        // 导入侧新增
+        foreach ($imap as $iex => $i) {
+            if (isset($usedImp[$iex]) || isset($fmap[$iex])) continue;
+            $diffs[] = $label($i) . ' 新增';
+        }
+    }
+    return $diffs;
+}
+
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -532,7 +620,7 @@ function handle_import_archive() {
     };
 
     $linesMap = ['环境类' => '环境', '绿化类' => '绿化', '工程类' => '工程', '秩序部' => '秩序', '行政办公类' => '行政'];
-    $scopeRows = []; $toInsert = []; $skipped = 0; $errors = [];
+    $scopeRows = []; $toInsert = []; $skipped = 0; $errors = []; $badQty = [];
     foreach ($spreadsheet->getSheetNames() as $sheetName) {
         if (!isset($linesMap[$sheetName])) continue;
         $line = $linesMap[$sheetName];
@@ -551,6 +639,11 @@ function handle_import_archive() {
             $unit = trim((string)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(6) . $r)->getValue());
             $qty = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(7) . $r)->getValue();
             $price = (float)$ws->getCell(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(8) . $r)->getValue();
+            // 数量非正但填了单价 = 明显填错，整单拒绝（2026-11-23.3）
+            if (purchase_import_row_invalid($qty, $price)) {
+                $badQty[] = "{$sheetName} 第{$r}行 {$item_name}（数量 {$qty} / 单价 {$price}）";
+                continue;
+            }
             // 有项目、有商品名即纳入本次覆盖范围（用于清理旧存档），空数量空单价的行不写入
             $scopeRows[] = ['project_id' => $project_id, 'line' => $line];
             if ($qty <= 0 && $price <= 0) { $skipped++; continue; }
@@ -566,10 +659,20 @@ function handle_import_archive() {
         }
     }
 
+    // 数量非正但填了单价：整单拒绝，未写入任何数据
+    if ($badQty) {
+        return ['ok' => false, 'msg' => '导入拒绝：' . count($badQty) . ' 行数量非正但填了单价（'
+            . implode('；', array_slice($badQty, 0, 5)) . (count($badQty) > 5 ? ' 等' : '')
+            . '）。数量必须为正数，请修正后重新导入，本次未写入任何数据'];
+    }
+
     // M3：给每条存档关联填报明细 id，删除退回记录时按 id 精确删，不再靠名称猜
     $itemSt = db()->prepare("SELECT id, project_id, line, item_name, brand, spec, unit, quantity FROM purchase_items WHERE month=?");
     $itemSt->execute([$month]);
-    $toInsert = purchase_match_item_ids($itemSt->fetchAll(PDO::FETCH_ASSOC), $toInsert);
+    $fillRows = $itemSt->fetchAll(PDO::FETCH_ASSOC);
+    $toInsert = purchase_match_item_ids($fillRows, $toInsert);
+    // 与填报差异（只提示不拦截）：数量/规格/品牌不一致、删行、加行
+    $diffs = purchase_import_diff_report($fillRows, $toInsert);
 
     $result = purchase_import_archive_rows($month, $toInsert, $scopeRows);    if (empty($result['ok'])) {
         $result['msg'] = ($result['msg'] ?? '导入失败') . ($errors ? '；异常：' . implode('; ', array_slice($errors, 0, 10)) : '');
@@ -580,6 +683,7 @@ function handle_import_archive() {
     log_action('导入', json_encode(['month' => $month, 'projects' => $scopeProjects,
         'pairs' => $result['pairs'], 'inserted' => $inserted, 'deleted' => $deleted,
         'skipped' => $skipped, 'snapshot' => $result['snapshot'],
+        'diffs' => $diffs,
         'operator' => auth_user()['username'] ?? '-'], JSON_UNESCAPED_UNICODE));
     // 通知本次涉及项目的员工：报价导入完成
     try {
@@ -611,9 +715,11 @@ function handle_import_archive() {
         }
     } catch (Throwable $e) {}
     $msg = "导入完成：新增 {$inserted} 条，覆盖旧存档 {$deleted} 条，跳过 {$skipped} 条空行";
+    if ($diffs) $msg .= '；与填报不一致 ' . count($diffs) . ' 处：' . implode('、', array_slice($diffs, 0, 8)) . (count($diffs) > 8 ? ' 等' : '');
     if ($errors) $msg .= '；异常：' . implode('; ', array_slice($errors, 0, 10));
     if ($unboundList) $msg .= '；未绑定商品库商品 ' . count($unboundList) . ' 种（' . implode('、', array_slice(array_column($unboundList, 'name'), 0, 8)) . '）';
     return ['ok' => true, 'msg' => $msg, 'unbound' => array_values($unboundList),
+        'diffs' => $diffs,
         'scope' => ['projects' => $scopeProjects, 'inserted' => $inserted, 'deleted' => $deleted]];
 }
 
