@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   qs, gateLabel, normalizePlate, isValidPlate, isValidPhone, reasonsOf,
-  validateRegistration, kpiCards, trendBars, projectBars, pageList,
+  validateRegistration, kpiCards, trendBars, projectBars, pageList, qrFileName,
 } from './parkingLogic'
 
 const config = {
@@ -116,5 +116,15 @@ describe('pageList（分页器）', () => {
     expect(pageList(0, 1)).toEqual({ pages: 1, current: 1, items: [1] })
     expect(pageList(260, 2)).toEqual({ pages: 6, current: 2, items: [1, 2, 3, 4, 5] })
     expect(pageList(260, 6)).toEqual({ pages: 6, current: 6, items: [2, 3, 4, 5, 6] })
+  })
+})
+
+describe('qrFileName（二维码下载名）', () => {
+  it('带小区·门标签', () => {
+    expect(qrFileName('罗庄春暖花开 · 东门')).toBe('停车登记二维码-罗庄春暖花开 · 东门')
+  })
+  it('替换非法字符并兜底', () => {
+    expect(qrFileName('A/B:C*D?')).toBe('停车登记二维码-A_B_C_D_')
+    expect(qrFileName('')).toBe('停车登记二维码-停车场')
   })
 })

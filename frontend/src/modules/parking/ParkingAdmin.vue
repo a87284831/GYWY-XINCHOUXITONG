@@ -123,6 +123,7 @@
               <td class="url">{{ g.entry_url }}</td>
               <td><span class="badge" :class="{ gray: !g.enabled }">{{ g.enabled ? '启用' : '停用' }}</span></td>
               <td class="ops">
+                <button class="btn sm primary" :disabled="!g.enabled" @click="openQr(g)">二维码</button>
                 <button class="btn sm" @click="copyUrl(g.entry_url)">复制 URL</button>
                 <button class="btn sm" @click="editGate(g)">编辑</button>
                 <button class="btn sm danger" @click="removeGate(g)">删除</button>
@@ -169,15 +170,37 @@
         <p class="muted">字段 key 由系统按名称生成，改名称不会丢历史数据；停用字段不再出现在司机端与导出列。</p>
       </div>
     </template>
+
+    <div v-if="qr" class="qr-mask" @click.self="qr = null">
+      <div class="qr-box">
+        <div class="qr-head">
+          <h3>停车登记二维码</h3>
+          <span class="spacer"></span>
+          <button class="btn" @click="qr = null">关闭</button>
+        </div>
+        <img :src="qr.png" class="qr-img" :alt="qr.label + ' 停车登记二维码'">
+        <div class="qr-name">{{ qr.label }}</div>
+        <label class="qr-link">入口链接
+          <input id="parkingQrLink" :value="qr.url" readonly @focus="$event.target.select()">
+        </label>
+        <div class="qr-actions">
+          <button class="btn" @click="copyQrLink">复制链接</button>
+          <button class="btn primary" @click="downloadQrPng">下载 PNG</button>
+          <button class="btn" @click="downloadQrSvg">下载 SVG</button>
+        </div>
+        <p class="muted">打印张贴到对应门岗；门停用、删除或重置 token 后旧二维码立即失效。</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import QRCode from 'qrcode'
 import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import {
-  qs, kpiCards, trendBars, projectBars, pageList,
+  qs, kpiCards, trendBars, projectBars, pageList, gateLabel, qrFileName,
 } from './parkingLogic'
 
 const auth = useAuthStore()
@@ -211,6 +234,7 @@ const pager = computed(() => pageList(total.value, page.value))
 const gates = ref([])
 const projectOptions = ref([])
 const gateForm = reactive({ id: 0, project_id: 0, name: '', enabled: true, reset_token: false })
+const qr = ref(null)
 
 const config = ref({ reasons: [], fields: [] })
 const activeFields = computed(() => (config.value.fields || []).filter((f) => f.enabled))
@@ -361,6 +385,89 @@ async function copyUrl(url) {
   flash('入口 URL 已复制，可用它生成二维码')
 }
 
+async function openQr(g) {
+  error.value = ''
+  try {
+    const label = gateLabel(g.project_name, g.name)
+    const qrCanvas = document.createElement('canvas')
+    await QRCode.toCanvas(qrCanvas, g.entry_url, { width: 640, margin: 2, errorCorrectionLevel: 'M' })
+    const pad = 48
+    const labelH = 84
+    const canvas = document.createElement('canvas')
+    canvas.width = qrCanvas.width + pad * 2
+    canvas.height = qrCanvas.height + pad * 2 + labelH
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(qrCanvas, pad, pad)
+    ctx.fillStyle = '#0f172a'
+    ctx.textAlign = 'center'
+    ctx.font = '600 30px "Microsoft YaHei", sans-serif'
+    ctx.fillText(label.slice(0, 24), canvas.width / 2, qrCanvas.height + pad + 44)
+    const svgRaw = await QRCode.toString(g.entry_url, { type: 'svg', margin: 2, width: 640 })
+    qr.value = {
+      label,
+      url: g.entry_url,
+      png: canvas.toDataURL('image/png'),
+      svg: withQrSvgLabel(svgRaw, label),
+    }
+  } catch (e) {
+    error.value = '二维码生成失败：' + e.message
+  }
+}
+
+function withQrSvgLabel(svg, label) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1] || '0 0 41 41'
+  const inner = svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="680" height="752" viewBox="0 0 680 752">'
+    + '<rect width="680" height="752" fill="#ffffff"/>'
+    + '<svg x="20" y="20" width="640" height="640" viewBox="' + vb + '">' + inner + '</svg>'
+    + '<text x="340" y="706" text-anchor="middle" font-family="Microsoft YaHei, sans-serif" font-size="28" font-weight="600" fill="#0f172a">'
+    + esc(String(label).slice(0, 24)) + '</text></svg>'
+}
+
+function triggerDownload(href, name) {
+  const a = document.createElement('a')
+  a.href = href
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function downloadQrPng() {
+  if (!qr.value) return
+  triggerDownload(qr.value.png, qrFileName(qr.value.label) + '.png')
+}
+
+function downloadQrSvg() {
+  if (!qr.value) return
+  const blob = new Blob([qr.value.svg], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  triggerDownload(url, qrFileName(qr.value.label) + '.svg')
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+async function copyQrLink() {
+  if (!qr.value) return
+  try {
+    await navigator.clipboard.writeText(qr.value.url)
+    flash('入口链接已复制')
+  } catch (e) {
+    const el = document.getElementById('parkingQrLink')
+    if (!el) return
+    el.focus()
+    el.select()
+    try {
+      document.execCommand('copy')
+      flash('入口链接已复制')
+    } catch (err) {
+      error.value = '复制失败，请手动选择链接复制'
+    }
+  }
+}
+
 function addReason() {
   const r = String(newReason.value || '').trim().slice(0, 20)
   if (!r) return
@@ -464,5 +571,15 @@ onMounted(async () => {
 .badge{display:inline-block;background:#ecfdf5;color:#047857;border-radius:999px;font-size:11px;padding:2px 8px}
 .badge.gray{background:#f1f5f9;color:#64748b}
 .btn.sm{height:28px;padding:0 10px;font-size:12px}
+.qr-mask{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px}
+.qr-box{background:#fff;border-radius:14px;padding:18px 20px 16px;width:420px;max-width:100%;box-shadow:0 20px 60px rgba(15,23,42,.25)}
+.qr-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.qr-head h3{margin:0;font-size:15px}
+.qr-img{display:block;width:320px;max-width:100%;margin:0 auto;border:1px solid #eef2f7;border-radius:10px}
+.qr-name{text-align:center;font-size:14px;font-weight:600;color:#0f172a;margin:8px 0 12px}
+.qr-link{display:flex;flex-direction:column;gap:5px;font-size:11px;color:#64748b}
+.qr-link input{height:34px;border:1px solid #dbe0e8;border-radius:8px;padding:0 9px;font-size:11px;background:#f8fafc;color:#334155}
+.qr-actions{display:flex;gap:8px;margin-top:12px}
+.qr-actions .btn{flex:1}
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
 </style>

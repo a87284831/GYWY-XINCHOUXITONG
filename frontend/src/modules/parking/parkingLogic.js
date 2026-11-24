@@ -129,3 +129,10 @@ export function pageList(total, page, size = 50) {
   for (let i = start; i <= Math.min(pages, start + 4); i++) out.push(i)
   return { pages, current: cur, items: out }
 }
+
+// 二维码下载文件名：去掉 Windows 非法字符，空标签回退
+export function qrFileName(label) {
+  const base = String(label || '').trim().replace(/[\\/:*?"<>|]/g, '_')
+  return '停车登记二维码-' + (base || '停车场')
+}
+
