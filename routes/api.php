@@ -24,11 +24,16 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ChangelogController;
 use App\Http\Controllers\Api\InvoicePublicController;
 use App\Http\Controllers\Api\InvoiceAdminController;
+use App\Http\Controllers\Api\ParkingController;
 
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/payslip/query', [PayslipController::class, 'query']);
+
+// 停车场登记（公开，凭门入口 token 访问）
+Route::get('/parking/entry', [ParkingController::class, 'entry']);
+Route::post('/parking/register', [ParkingController::class, 'register']);
 
 // 业主扫码开票（公开，凭项目入口 token / 查询密钥访问）
 Route::get('/invoice/entry', [InvoicePublicController::class, 'entry']);
@@ -62,6 +67,16 @@ Route::get('/invoice/admin/account-sets/{id}/reviewers', [InvoiceAdminController
 Route::put('/invoice/admin/account-sets/{id}/reviewers', [InvoiceAdminController::class, 'reviewers']);
 Route::get('/invoice/admin/users', [InvoiceAdminController::class, 'users']);
 Route::post('/invoice/admin/bindings', [InvoiceAdminController::class, 'saveBinding']);
+
+// 停车场登记管理（X-Token；门/字段配置仅 admin，stats/list/export 项目账号强制本小区）
+Route::get('/parking/gates', [ParkingController::class, 'gatesList']);
+Route::post('/parking/gates', [ParkingController::class, 'gatesSave']);
+Route::post('/parking/gates/delete', [ParkingController::class, 'gatesDelete']);
+Route::get('/parking/config', [ParkingController::class, 'configGet']);
+Route::post('/parking/config', [ParkingController::class, 'configSave']);
+Route::get('/parking/stats', [ParkingController::class, 'stats']);
+Route::get('/parking/list', [ParkingController::class, 'list']);
+Route::get('/parking/export', [ParkingController::class, 'export']);
 
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::post('/change-password', [AuthController::class, 'changePassword']);

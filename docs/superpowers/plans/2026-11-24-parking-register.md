@@ -8,26 +8,26 @@
 - [x] 实施计划落档。
 
 ## T2 后端数据与配置
-- [ ] 迁移 `2026_11_24_000001_create_parking_tables`（parking_gates / parking_registrations）。
-- [ ] `ParkingController`：公开 entry/register（校验链 + IP 限频）。
-- [ ] `ParkingController`：管理端 gates/config/stats/list/export（权限 + 项目范围强制）。
-- [ ] `routes/api.php` 注册公开与管端路由；`routes/web.php` 加 `/parking.html`。
-- [ ] `AppModules` 新增 parking 模块权限点。
+- [x] 迁移 `2026_11_24_000001_create_parking_tables`（parking_gates / parking_registrations）。
+- [x] `ParkingController`：公开 entry/register（校验链 + IP 限频）。
+- [x] `ParkingController`：管理端 gates/config/stats/list/export（权限 + 项目范围强制）。
+- [x] `routes/api.php` 注册公开与管端路由；`routes/web.php` 加 `/parking.html`。
+- [x] `AppModules` 新增 parking 模块权限点。
 - 验证：`php -l` 全通过。
 
 ## T3 后端测试
-- [ ] `tests/Feature/ParkingPublicTest.php`（entry/register 全校验链 + 限频 + 禁用门）。
-- [ ] `tests/Feature/ParkingAdminTest.php`（门 CRUD、配置、范围强制、导出）。
-- [ ] 全量 PHPUnit 通过且不低于基线。
+- [x] `tests/Feature/ParkingPublicTest.php`（entry/register 全校验链 + 限频 + 禁用门）。
+- [x] `tests/Feature/ParkingAdminTest.php`（门 CRUD、配置、范围强制、导出）。
+- [x] 全量 PHPUnit 通过且不低于基线。
 
 ## T4 司机端 H5
-- [ ] `public/parking.html`（照 invoice.html 模式：entry → 表单 → register → 完成屏，顶部显示小区名·门名）。
-- [ ] `routes/web.php` 可访问；手机端样式可用。
+- [x] `public/parking.html`（照 invoice.html 模式：entry → 表单 → register → 完成屏，顶部显示小区名·门名）。
+- [x] `routes/web.php` 可访问；手机端样式可用。
 
 ## T5 管理端 SPA
-- [ ] `frontend/src/modules/parking/parkingLogic.js` + `ParkingAdmin.vue`（驾驶舱/登记数据/门与URL/字段设置 4 Tab）。
-- [ ] `Icon.vue` 补 `car` 图标；`menus.js` + `router/index.js` 接入（perm parking_view）。
-- [ ] `parkingLogic.test.js`；Vitest 全量通过；`npm run build` 通过。
+- [x] `frontend/src/modules/parking/parkingLogic.js` + `ParkingAdmin.vue`（驾驶舱/登记数据/门与URL/字段设置 4 Tab）。
+- [x] `Icon.vue` 补 `car` 图标；`menus.js` + `router/index.js` 接入（perm parking_view）。
+- [x] `parkingLogic.test.js`；Vitest 全量通过；`npm run build` 通过。
 
 ## T6 发布
 - [ ] changelog.json v2026.11.24.1 + 开发记录条目，commit + push + CI 绿。

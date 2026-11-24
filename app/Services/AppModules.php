@@ -47,6 +47,10 @@ class AppModules
                 ['security_view', '安保台账查看'],
                 ['security_manage', '安保管理'],
             ]],
+            ['key' => 'parking', 'name' => '停车场管理', 'icon' => '🚗', 'color' => '#f97316', 'perms' => [
+                ['parking_view', '停车登记查看'],
+                ['parking_manage', '门与字段配置（仅管理员）'],
+            ]],
             ['key' => 'cleaning', 'name' => '保洁绿化', 'icon' => '🧹', 'color' => '#14b8a6', 'perms' => [
                 ['cleaning_view', '保洁绿化查看'],
                 ['cleaning_manage', '保洁绿化管理'],

@@ -21,6 +21,11 @@ Route::get('/invoice.html', function () {
     return response()->file(public_path('invoice.html'));
 });
 
+// 停车场登记 H5（免登录，门入口 token 由 ?p= 传入）
+Route::get('/parking.html', function () {
+    return response()->file(public_path('parking.html'));
+});
+
 // SPA fallback：前端 router 为 history 模式（base=/app/），深链/刷新时把 /app/{any} 交回 index.html
 // 静态文件（/app/assets/*、/app/index.html）由 PHP 内置服务器优先直返，不会进入此路由
 Route::get('/app/{any}', function () {

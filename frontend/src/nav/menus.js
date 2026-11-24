@@ -6,12 +6,13 @@ export const APPS = [
 
   { key: 'maintain', name: '工程维保', icon: 'wrench', color: '#f59e0b' },
   { key: 'purchase', name: '采购管理', icon: 'briefcase', color: '#6366f1' },
+  { key: 'parking', name: '停车场管理', icon: 'car', color: '#f97316' },
   { key: 'finance', name: '财务管理', icon: 'coins', color: '#0d9488' },
   { key: 'report', name: '报表中心', icon: 'chart', color: '#0ea5e9' },
   { key: 'setting', name: '系统设置', icon: 'gear', color: '#64748b' },
 ]
 
-export const HOME_BUILT = new Set(['hr', 'maintain', 'report', 'setting', 'purchase', 'finance'])
+export const HOME_BUILT = new Set(['hr', 'maintain', 'report', 'setting', 'purchase', 'finance', 'parking'])
 export const HOME_META = {
   hr: { desc: '薪资核算 · 考勤管理 · 人员档案 · 预算管理 · 绩效考核', go: '进入人力资源 →' },
   maintain: { desc: '消防 / 电梯维保报表、维保台账与签约方维护', go: '进入工程维保 →' },
@@ -19,6 +20,7 @@ export const HOME_META = {
   setting: { desc: '账号权限 · 数据备份 · 工资规则 · 字段设置', go: '进入系统设置 →' },
 
   purchase: { desc: '月度采购计划 · 填报 · 审批确认 · 预算执行 · 汇总导出', go: '进入采购系统 →' },
+  parking: { desc: '外来车辆进场登记 · 门与入口 URL · 登记报表与导出', go: '进入停车场管理 →' },
   finance: { desc: '应收费用台账 · 付款记录 · 汇总分析 · 驾驶舱', go: '进入财务管理 →' },
 }
 
@@ -45,6 +47,7 @@ purchaseEntry: '月度采购系统',
   financeMaint: '维保管理',
   financePayments: '付款记录', financeSummary: '汇总分析',
   financeImport: '历史数据导入',
+  parking: '停车场登记',
   invoiceReview: '开票审核', invoiceStats: '发票查询统计', invoiceSettings: '账套配置',
   rules: '工资计算规则设置', symbols: '考勤符号库设置',
   users: '系统设置', logs: '系统设置', backup: '系统设置', settings: '系统设置',
@@ -109,6 +112,9 @@ export const ALL_MENUS = [
     { key: 'invoiceStats', label: '发票查询统计', icon: 'bar', perm: 'invoice_stats' },
     { key: 'invoiceSettings', label: '账套配置', icon: 'gear', perm: 'invoice_config' },
   ]},
+  { section: '停车场管理', icon: 'car', app: 'parking', items: [
+    { key: 'parking', label: '停车登记', icon: 'car', perm: 'parking_view' },
+  ]},
   { section: '工程维保模块', icon: 'wrench', app: 'maintain', items: [
     { key: 'fireReport', label: '消防维保报表', icon: 'flame', perm: 'maint_fire' },
     { key: 'elevReport', label: '电梯维保报表', icon: 'lift', perm: 'maint_elev' },
@@ -125,6 +131,7 @@ const PURCHASE_PAGES = ['purchaseDashboard', 'purchaseFill', 'purchaseOverview',
   'purchaseWindows', 'purchaseOplogs', 'purchaseMyItems']
 const FINANCE_PAGES = ['financeDashboard', 'financeLedger', 'financePayments', 'financeSummary', 'financeImport', 'invoiceReview', 'invoiceStats', 'invoiceSettings']
 const REPORT_PAGES = ['reportHome', 'hrReport', 'salaryReport', 'attReport']
+const PARKING_PAGES = ['parking']
 const MAINT_PAGES = ['fireReport', 'elevReport', 'maintFire', 'maintElev', 'maintPartners', 'maintDevices']
 const HR_PAGES = ['summary', 'payroll', 'annualPayroll', 'taxMode', 'attendance', 'org', 'staff', 'adjust', 'budget', 'export', 'performanceExport',
   'perfCreate', 'perfApprove', 'perfReport', 'perfMine', 'perfRecords']
@@ -134,6 +141,7 @@ export function appOfPage(key) {
   if (key === 'home' || key === 'changelog' || !key) return 'home'
   // 采购子路由（如 /purchase/fill-form）不在 PURCHASE_PAGES 枚举中，按前缀兜底，避免侧栏误落到 oa
   if (PURCHASE_PAGES.includes(key) || key.startsWith('purchase/')) return 'purchase'
+  if (PARKING_PAGES.includes(key)) return 'parking'
   if (FINANCE_PAGES.includes(key)) return 'finance'
   if (REPORT_PAGES.includes(key)) return 'report'
   if (MAINT_PAGES.includes(key)) return 'maintain'
@@ -188,6 +196,7 @@ export const APP_ROUTE = {
   report: '/reportHome',
   maintain: '/fireReport',
   purchase: '/purchase/dashboard',
+  parking: '/parking',
   finance: '/financeDashboard',
   setting: '/settings',
 }

@@ -277,6 +277,12 @@ const routes = [
         meta: { perm: 'invoice_config' },
       },
       {
+        path: 'parking',
+        name: 'parking',
+        component: () => import('@/modules/parking/ParkingAdmin.vue'),
+        meta: { perm: 'parking_view' },
+      },
+      {
         path: 'purchase/dashboard',
         name: 'purchaseDashboard',
         component: () => import('@/modules/purchase/Dashboard.vue'),

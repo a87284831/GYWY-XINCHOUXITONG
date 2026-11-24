@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>停车场登记</title>
+<style>
+  :root{--brand:#f97316;--brand-dark:#ea580c;--muted:#6b7280;--ok:#16a34a;--danger:#dc2626;--line:#e5e7eb;--bg:#f6f7fb;--card:#fff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#0f172a}
+  .page{max-width:520px;margin:0 auto;min-height:100vh;background:#fff;display:flex;flex-direction:column}
+  .hero{background:linear-gradient(135deg,#ea580c,#fb923c);color:#fff;padding:20px 18px 18px}
+  .hero h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
+  .hero p{margin:6px 0 0;font-size:12px;opacity:.9;line-height:1.6}
+  .hero .gate{display:inline-block;margin-top:10px;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;font-size:12px}
+  .body{flex:1;padding:14px 14px 28px}
+  .card{background:var(--card);border:1px solid #edf0f5;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.04);margin-bottom:12px}
+  .card h2{margin:0 0 10px;font-size:14px;font-weight:650}
+  .field{margin-bottom:11px}
+  .field label{display:block;font-size:12px;color:#374151;margin-bottom:5px}
+  .field input,.field select{width:100%;border:1px solid #dbe0e8;border-radius:10px;padding:11px 12px;font-size:15px;outline:0;background:#fff;color:#111827}
+  .field input:focus,.field select:focus{border-color:#fdba74;box-shadow:0 0 0 3px rgba(249,115,22,.1)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn{display:flex;align-items:center;justify-content:center;height:46px;border-radius:11px;background:var(--brand);color:#fff;font-size:16px;font-weight:600;border:0;width:100%;margin-top:8px;cursor:pointer}
+  .btn:disabled{opacity:.55}
+  .btn.ghost{background:#fff;color:#374151;border:1px solid #dbe0e8;font-weight:500;height:40px;font-size:14px}
+  .note{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;line-height:1.6}
+  .error{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.6}
+  .loading{text-align:center;padding:48px 0;color:var(--muted);font-size:13px;line-height:1.8}
+  .hidden{display:none!important}
+  .done{text-align:center;padding:26px 8px 10px}
+  .done .tick{width:64px;height:64px;border-radius:50%;background:#dcfce7;color:#16a34a;font-size:34px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+  .done h2{margin:0 0 6px;font-size:19px}
+  .done p{margin:0;color:var(--muted);font-size:12px;line-height:1.8}
+  .rows{margin-top:14px;border-top:1px dashed var(--line);padding-top:8px}
+  .row{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:6px 0}
+  .row .k{color:var(--muted);flex:0 0 auto}
+  .row .v{text-align:right;word-break:break-all}
+  .plate-big{font-size:24px;font-weight:700;letter-spacing:1px;margin:10px 0 2px}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <h1>外来车辆进场登记</h1>
+    <p>请如实填写司机与访问信息，提交后即可进场</p>
+    <span class="gate" id="heroGate">正在加载入口信息…</span>
+  </div>
+  <div class="body">
+    <div class="loading" id="loading">加载中…</div>
+    <div class="error hidden" id="globalError"></div>
+
+    <section id="screenForm" class="hidden">
+      <div class="card">
+        <h2>车辆与司机</h2>
+        <div class="field"><label>车牌号 *</label><input id="plate" maxlength="10" placeholder="如 鲁Q12345 / 京AD12345" autocomplete="off"></div>
+        <div class="grid2">
+          <div class="field"><label>司机姓名 *</label><input id="name" maxlength="60" placeholder="请输入姓名"></div>
+          <div class="field"><label>手机号 *</label><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="11 位手机号"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>访问信息</h2>
+        <div class="field"><label>访问户号 / 受访人 *</label><input id="visit" maxlength="120" placeholder="如 3-2-101 王先生"></div>
+        <div class="field"><label>事由 *</label><select id="reason"></select></div>
+        <div id="customFields"></div>
+      </div>
+
+      <button class="btn" id="submitBtn">提交登记</button>
+      <div class="note">提交即表示所填信息真实有效，请配合物业核验。</div>
+    </section>
+
+    <section id="screenDone" class="hidden">
+      <div class="card done">
+        <div class="tick">✓</div>
+        <h2>登记成功，请进场</h2>
+        <p id="doneGate">—</p>
+        <div class="plate-big" id="donePlate">—</div>
+        <div class="rows">
+          <div class="row"><span class="k">登记时间</span><span class="v" id="doneTime">—</span></div>
+          <div class="row"><span class="k">司机</span><span class="v" id="doneName">—</span></div>
+          <div class="row"><span class="k">访问</span><span class="v" id="doneVisit">—</span></div>
+        </div>
+      </div>
+      <button class="btn ghost" id="againBtn">再登记一辆车</button>
+      <div class="note">如入口有误，请联系物业管理员重新获取二维码。</div>
+    </section>
+  </div>
+</div>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var token = qs.get('p') || '';
+  var state = { projectName: '', gateName: '', config: { reasons: [], fields: [] } };
+  function $(id){ return document.getElementById(id); }
+  function show(el){ el.classList.remove('hidden'); }
+  function hide(el){ el.classList.add('hidden'); }
+  function showError(msg){ var el = $('globalError'); el.textContent = msg; show(el); window.scrollTo(0,0); }
+  function clearError(){ hide($('globalError')); }
+
+  function request(url, opts){
+    return fetch(url, opts).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        if (!res.ok || data.ok === false) {
+          var err = new Error(data.error || ('请求失败(' + res.status + ')'));
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  function normalizePlate(v){
+    return String(v || '').toUpperCase().replace(/[\s·。.]/g, '');
+  }
+  var PLATE_RE = /^[京津沪渝冀晋蒙辽吉黑苏浙皖闽赣鲁豫鄂湘粤桂琼川贵云藏陕甘青宁新使领][A-HJ-NP-Z][A-HJ-NP-Z0-9]{4,5}[A-HJ-NP-Z0-9挂学警港澳]$/;
+
+  function renderForm(){
+    var reason = $('reason');
+    reason.innerHTML = '';
+    var reasons = state.config.reasons && state.config.reasons.length ? state.config.reasons : ['拜访','送货','施工','快递','其他'];
+    reasons.forEach(function(r){
+      var o = document.createElement('option');
+      o.value = r; o.textContent = r;
+      reason.appendChild(o);
+    });
+
+    var box = $('customFields');
+    box.innerHTML = '';
+    var fields = (state.config.fields || []).filter(function(f){ return f && f.enabled !== false && f.label; });
+    fields.forEach(function(f){
+      var wrap = document.createElement('div');
+      wrap.className = 'field';
+      var label = document.createElement('label');
+      label.textContent = f.label + (f.required ? ' *' : '');
+      wrap.appendChild(label);
+      var input;
+      if (f.type === 'radio' && f.options && f.options.length) {
+        input = document.createElement('select');
+        var empty = document.createElement('option');
+        empty.value = ''; empty.textContent = '请选择';
+        input.appendChild(empty);
+        f.options.forEach(function(o){
+          var op = document.createElement('option');
+          op.value = o; op.textContent = o;
+          input.appendChild(op);
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = f.type === 'number' ? 'number' : 'text';
+        input.maxLength = 100;
+        input.placeholder = '选填';
+      }
+      input.id = 'extra_' + f.key;
+      input.setAttribute('data-key', f.key);
+      input.setAttribute('data-label', f.label);
+      input.setAttribute('data-type', f.type || 'text');
+      input.setAttribute('data-required', f.required ? '1' : '0');
+      wrap.appendChild(input);
+      box.appendChild(wrap);
+    });
+  }
+
+  function collect(){
+    var extra = {};
+    var inputs = $('customFields').querySelectorAll('input,select');
+    for (var i = 0; i < inputs.length; i++){
+      var el = inputs[i];
+      var v = String(el.value || '').trim();
+      if (v !== '') extra[el.getAttribute('data-key')] = v;
+    }
+    return {
+      p: token,
+      plate: normalizePlate($('plate').value),
+      name: $('name').value.trim(),
+      phone: $('phone').value.trim(),
+      visit_target: $('visit').value.trim(),
+      reason: $('reason').value,
+      extra: extra
+    };
+  }
+
+  function validate(data){
+    if (!PLATE_RE.test(data.plate)) return '请填写正确的车牌号';
+    if (!data.name) return '请填写司机姓名';
+    if (data.name.length > 60) return '司机姓名不能超过 60 字';
+    if (!/^1\d{10}$/.test(data.phone)) return '请填写正确的手机号';
+    if (!data.visit_target) return '请填写访问户号/受访人';
+    if (!data.reason) return '请选择事由';
+    var inputs = $('customFields').querySelectorAll('input,select');
+    for (var i = 0; i < inputs.length; i++){
+      var el = inputs[i];
+      var v = String(el.value || '').trim();
+      var label = el.getAttribute('data-label');
+      if (!v) {
+        if (el.getAttribute('data-required') === '1') return '请填写「' + label + '」';
+        continue;
+      }
+      if (v.length > 100) return '「' + label + '」内容过长';
+      if (el.getAttribute('data-type') === 'number' && isNaN(Number(v))) return '「' + label + '」必须为数字';
+    }
+    return '';
+  }
+
+  function fillDone(data){
+    $('doneGate').textContent = data.project_name + ' · ' + data.gate_name;
+    $('donePlate').textContent = data.plate;
+    $('doneTime').textContent = data.time;
+    $('doneName').textContent = $('name').value.trim();
+    $('doneVisit').textContent = $('visit').value.trim();
+  }
+
+  function submit(){
+    clearError();
+    var data = collect();
+    var err = validate(data);
+    if (err){ showError(err); return; }
+    var btn = $('submitBtn');
+    btn.disabled = true; btn.textContent = '提交中…';
+    request('/api/parking/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(function(res){
+      fillDone(res);
+      hide($('screenForm'));
+      show($('screenDone'));
+      window.scrollTo(0,0);
+    }).catch(function(e){
+      showError(e.message || '提交失败，请稍后重试');
+    }).then(function(){
+      btn.disabled = false; btn.textContent = '提交登记';
+    });
+  }
+
+  function init(){
+    if (!token){ $('loading').textContent = '缺少入口参数，请重新扫描物业提供的二维码'; return; }
+    request('/api/parking/entry?p=' + encodeURIComponent(token)).then(function(data){
+      state.projectName = data.project_name || '';
+      state.gateName = data.gate_name || '';
+      state.config = data.config || {};
+      $('heroGate').textContent = state.projectName + ' · ' + state.gateName;
+      $('heroGate').className = 'gate';
+      renderForm();
+      hide($('loading'));
+      show($('screenForm'));
+    }).catch(function(e){
+      $('loading').textContent = e.message || '入口不存在或已停用，请联系物业';
+    });
+  }
+
+  $('submitBtn').onclick = submit;
+  $('againBtn').onclick = function(){
+    $('plate').value = '';
+    $('name').value = '';
+    $('phone').value = '';
+    $('visit').value = '';
+    renderForm();
+    clearError();
+    hide($('screenDone'));
+    show($('screenForm'));
+    window.scrollTo(0,0);
+  };
+  init();
+})();
+</script>
+</body>
+</html>

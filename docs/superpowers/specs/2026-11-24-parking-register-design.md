@@ -36,15 +36,18 @@ parking_gates           -- 小区的门
   enabled tinyint default 1, timestamps, UNIQUE(project_id, name)
 
 parking_registrations   -- 登记记录
-  id, gate_id(idx), project_id(idx), plate varchar(20), name varchar(60),
+  id, gate_id(idx), project_id(idx), gate_name varchar(60), project_name varchar(120),
+  plate varchar(20), name varchar(60),
   phone varchar(20), visit_target varchar(120), reason varchar(30),
   extra JSON nullable, ip varchar(45), created_at(idx), updated_at
+
 
 字段配置 → legacy_json_snapshots(file_name='parking_config.json')  -- 沿用工资条配置先例
   { reasons: [...单选选项], fields: [{key,label,type:text|number|radio,required,enabled,options:[...]}] }
 ```
 
 - 固定字段：车牌号*、司机姓名*、手机号*（11 位校验）、访问户号/受访人*、事由*（单选，选项可配，默认 拜访/送货/施工/快递/其他）。
+- 副本身份：`gate_name` / `project_name` 由 register 时冗余写入，门/小区改名或删门后历史报表仍可读。
 - 自定义字段答案存 `extra` JSON（key = label 的 md5 前 8 位，保证改 label 不丢历史数据）。
 
 ## 4. 接口
