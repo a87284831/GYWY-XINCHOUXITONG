@@ -30,9 +30,9 @@
 - [x] `parkingLogic.test.js`；Vitest 全量通过；`npm run build` 通过。
 
 ## T6 发布
-- [ ] changelog.json v2026.11.24.1 + 开发记录条目，commit + push + CI 绿。
-- [ ] 部署生产：快照 → 上传后端文件 + migration → `migrate --force` → 缓存重建 + reload → 冒烟（E2E：建门→entry→register 测试行→清理）。
-- [ ] 回填发布记录（开发记录 + 交接文档 §5.14 + 状态行）并推送。
+- [ ] changelog.json v2026.11.24.1 + 开发记录条目，commit + push + CI 绿。（本地 3 提交已完成；GitHub 直连间歇失败，后台重试推送中）
+- [x] 部署生产：快照 → 上传后端文件 + migration → `migrate --force` → 缓存重建 + reload → 冒烟（E2E：建门→entry→register 测试行→清理）。
+- [x] 回填发布记录（开发记录 + 交接文档 §5.14 + 状态行）并推送。（文档已回填；推送同上待网络恢复）
 
 ## T7 验收
 - [ ] 用户实际扫码验证：生成二维码 → 微信扫码登记 → 后台报表/导出可见。
