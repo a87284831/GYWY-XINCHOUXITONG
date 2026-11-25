@@ -32,26 +32,28 @@ export function rBar(charts, key, el, labels, data, opt) {
   })
 }
 
-export function rHBar(charts, key, el, labels, data, color, fmt) {
+export function rHBar(charts, key, el, labels, data, color, fmt, opts) {
   return charts.render(key, el, {
     type: 'bar',
     data: { labels, datasets: [{ label: '', data, backgroundColor: color, borderRadius: 4, barThickness: 18 }] },
-    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    options: Object.assign({ indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: fmt ? { callbacks: { label: (c) => fmt(c.raw) } } : undefined },
-      scales: { x: { beginAtZero: true, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,.15)' } }, y: { ticks: { color: '#475569', font: { size: 11 } }, grid: { display: false } } } },
+      scales: { x: { beginAtZero: true, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,.15)' } }, y: { ticks: { color: '#475569', font: { size: 11 } }, grid: { display: false } } },
+    }, opts || {}),
   })
 }
 
-export function rLine(charts, key, el, labels, series, extra) {
+export function rLine(charts, key, el, labels, series, extra, opts) {
   const datasets = series.map((s, i) => ({
     label: s.label, data: s.data, borderColor: s.color || PALETTE[i % PALETTE.length],
     backgroundColor: s.color || PALETTE[i % PALETTE.length], tension: 0.3, borderWidth: 2, pointRadius: 3, fill: s.fill || false,
   }))
   return charts.render(key, el, {
     type: 'line', data: { labels, datasets },
-    options: { responsive: true, maintainAspectRatio: false,
+    options: Object.assign({ responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 }, color: '#475569' } } },
-      scales: { x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,.15)' } }, y: { beginAtZero: true, ticks: { color: '#64748b', font: { size: 10 }, callback: (v) => (extra && extra.fmt) ? extra.fmt(v) : v }, grid: { color: 'rgba(148,163,184,.15)' } } } },
+      scales: { x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,.15)' } }, y: { beginAtZero: true, ticks: { color: '#64748b', font: { size: 10 }, callback: (v) => (extra && extra.fmt) ? extra.fmt(v) : v }, grid: { color: 'rgba(148,163,184,.15)' } } },
+    }, opts || {}),
   })
 }
 

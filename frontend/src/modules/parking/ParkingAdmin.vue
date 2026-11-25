@@ -329,16 +329,37 @@ async function loadStats() {
   } catch (e) { fail(e) }
 }
 
+const countCatX = {
+  ticks: { color: '#64748b', font: { size: 10 } },
+  grid: { color: 'rgba(148,163,184,.15)' },
+}
+const countNumY = {
+  beginAtZero: true,
+  ticks: { color: '#64748b', font: { size: 10 }, precision: 0 },
+  grid: { color: 'rgba(148,163,184,.15)' },
+}
+const countNumX = {
+  beginAtZero: true,
+  ticks: { color: '#64748b', font: { size: 10 }, precision: 0 },
+  grid: { color: 'rgba(148,163,184,.15)' },
+}
+const countCatY = {
+  ticks: { color: '#475569', font: { size: 11 } },
+  grid: { display: false },
+}
+
 async function drawDashboard() {
   await nextTick()
   const s = stats.value
   if (els.trend) {
     rLine(charts, 'trend', els.trend, s.series.map((x) => x.label), [
       { label: '登记数', data: s.series.map((x) => x.count), color: '#f97316', fill: true },
-    ])
+    ], null, { scales: { x: countCatX, y: countNumY } })
   }
   if (els.hourly) {
-    rBar(charts, 'hourly', els.hourly, s.hourly.map((x) => x.label), s.hourly.map((x) => x.count), { label: '登记数', color: '#2563eb' })
+    rBar(charts, 'hourly', els.hourly, s.hourly.map((x) => x.label), s.hourly.map((x) => x.count), {
+      label: '登记数', color: '#2563eb', opts: { scales: { x: countCatX, y: countNumY } },
+    })
   }
   if (els.reason && s.by_reason.length) {
     const labels = s.by_reason.map((x) => x.reason || '未填写')
@@ -347,16 +368,24 @@ async function drawDashboard() {
     rDoughnut(charts, 'reason', els.reason, labels, values, PALETTE, '合计', sum, (v) => v + ' 次')
   }
   if (els.project && s.by_project.length) {
-    rHBar(charts, 'project', els.project, s.by_project.map((x) => x.project_name || '未命名小区'), s.by_project.map((x) => x.count), '#f97316', (v) => v + ' 次')
+    rHBar(charts, 'project', els.project, s.by_project.map((x) => x.project_name || '未命名小区'), s.by_project.map((x) => x.count), '#f97316', (v) => v + ' 次', {
+      scales: { x: countNumX, y: countCatY },
+    })
   }
   if (els.gate && s.by_gate.length) {
-    rHBar(charts, 'gate', els.gate, s.by_gate.map((x) => gateLabel(x.project_name, x.gate_name)), s.by_gate.map((x) => x.count), '#0d9488', (v) => v + ' 次')
+    rHBar(charts, 'gate', els.gate, s.by_gate.map((x) => gateLabel(x.project_name, x.gate_name)), s.by_gate.map((x) => x.count), '#0d9488', (v) => v + ' 次', {
+      scales: { x: countNumX, y: countCatY },
+    })
   }
   if (els.weekday) {
-    rBar(charts, 'weekday', els.weekday, s.by_weekday.map((x) => x.label), s.by_weekday.map((x) => x.count), { label: '登记数', color: '#8b5cf6' })
+    rBar(charts, 'weekday', els.weekday, s.by_weekday.map((x) => x.label), s.by_weekday.map((x) => x.count), {
+      label: '登记数', color: '#8b5cf6', opts: { scales: { x: countCatX, y: countNumY } },
+    })
   }
   if (els.monthly) {
-    rBar(charts, 'monthly', els.monthly, s.monthly.map((x) => x.label), s.monthly.map((x) => x.count), { label: '登记数', color: '#0d9488' })
+    rBar(charts, 'monthly', els.monthly, s.monthly.map((x) => x.label), s.monthly.map((x) => x.count), {
+      label: '登记数', color: '#0d9488', opts: { scales: { x: countCatX, y: countNumY } },
+    })
   }
 }
 
