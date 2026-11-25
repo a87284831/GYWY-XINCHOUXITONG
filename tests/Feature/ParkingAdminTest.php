@@ -163,6 +163,51 @@ class ParkingAdminTest extends TestCase
         $this->getJson('/api/parking/list', ['X-Token' => $this->adminToken])->assertOk()->assertJsonPath('total', 2);
     }
 
+    public function test_stats_rich_breakdowns_and_scope(): void
+    {
+        $now = now();
+        $this->gate(['name' => '东门', 'enabled' => 1]);
+        $this->gate(['name' => '西门', 'enabled' => 0]);
+        $this->reg($this->projA, 'A 小区', [
+            'plate' => '鲁Q11111', 'reason' => '拜访',
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $this->reg($this->projA, 'A 小区', [
+            'plate' => '鲁Q22222', 'reason' => '送货',
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $this->reg($this->projB, 'B 小区', [
+            'plate' => '鲁Q33333', 'reason' => '拜访',
+            'created_at' => $now->copy()->subDay(), 'updated_at' => $now,
+        ]);
+
+        $d = $this->getJson('/api/parking/stats?days=30', ['X-Token' => $this->adminToken])
+            ->assertOk()->json();
+        $this->assertSame(30, count($d['series']));
+        $this->assertSame(24, count($d['hourly']));
+        $this->assertSame(7, count($d['by_weekday']));
+        $this->assertSame(6, count($d['monthly']));
+        $this->assertSame(2, $d['kpi']['today']);
+        $this->assertSame(1, $d['kpi']['yesterday']);
+        $this->assertSame(100.0, (float) $d['kpi']['today_delta']);
+        $this->assertSame(2, $d['kpi']['peak_count']);
+        $this->assertSame($now->format('H') . ':00', $d['kpi']['peak_label']);
+        $this->assertSame(2, count($d['by_project']));
+        $this->assertSame('A 小区', $d['by_project'][0]['project_name']);
+        $this->assertSame(2, $d['by_project'][0]['count']);
+        $this->assertSame(2, count($d['by_reason']));
+        $this->assertCount(3, $d['recent']);
+
+        // 项目账号只看 A：总数/小区/门统计均被强制收口
+        $p = $this->getJson('/api/parking/stats?days=30', ['X-Token' => $this->projToken])
+            ->assertOk()->json();
+        $this->assertSame(2, $p['kpi']['total']);
+        $this->assertSame(1, count($p['by_project']));
+        $this->assertSame(1, count($p['by_gate']));
+        $this->assertSame(2, $p['kpi']['gates_total']);
+        $this->assertSame(1, $p['kpi']['gates_active']);
+    }
+
     public function test_export_streams_xlsx_with_config_columns(): void
     {
         DB::table('legacy_json_snapshots')->insert([

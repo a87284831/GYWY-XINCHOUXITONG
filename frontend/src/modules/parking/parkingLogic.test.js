@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   qs, gateLabel, normalizePlate, isValidPlate, isValidPhone, reasonsOf,
-  validateRegistration, kpiCards, trendBars, projectBars, pageList, qrFileName,
+  validateRegistration, kpiCards, pageList, qrFileName,
 } from './parkingLogic'
 
 const config = {
@@ -90,24 +90,26 @@ describe('validateRegistration（与后端校验链一致）', () => {
 })
 
 describe('驾驶舱取数', () => {
+  it('kpiCards 六张卡（含昨日对比/门/高峰）', () => {
+    expect(kpiCards({
+      today: 3, yesterday: 2, today_delta: 50, week: '5', month: null, total: 10,
+      gates_active: 2, gates_total: 3, peak_label: '09:00', peak_count: 2,
+    })).toEqual([
+      { key: 'today', label: '今日登记', value: 3, color: '#2563eb', delta: 50, sub: '昨日 2 次' },
+      { key: 'week', label: '近 7 日', value: 5, sub: '滚动 7 天', color: '#0ea5e9' },
+      { key: 'month', label: '本月登记', value: 0, sub: '自然月', color: '#16a34a' },
+      { key: 'total', label: '累计登记', value: 10, sub: '历史总量', color: '#8b5cf6' },
+      { key: 'gates', label: '启用门', value: '2/3', sub: '停用后二维码失效', color: '#f97316' },
+      { key: 'peak', label: '今日高峰', value: '09:00', sub: '2 次', color: '#d97706' },
+    ])
+  })
   it('kpiCards 空值兜底', () => {
-    expect(kpiCards({ today: 3, week: '5', month: null, total: 10 })).toEqual([
-      { key: 'today', label: '今日登记', value: 3, hint: '含全部小区' },
-      { key: 'week', label: '近 7 日', value: 5, hint: '滚动 7 天' },
-      { key: 'month', label: '本月登记', value: 0, hint: '自然月' },
-      { key: 'total', label: '累计登记', value: 10, hint: '历史总量' },
-    ])
-  })
-  it('trendBars 比例与 2% 下限', () => {
-    expect(trendBars([{ date: '11-23', count: 4 }, { date: '11-24', count: 0 }])).toEqual([
-      { date: '11-23', count: 4, pct: '100%' },
-      { date: '11-24', count: 0, pct: '2%' },
-    ])
-  })
-  it('projectBars 空名称兜底', () => {
-    expect(projectBars([{ project_name: '', count: 2 }])).toEqual([
-      { project_name: '未命名小区', count: 2, pct: '100%' },
-    ])
+    const cards = kpiCards()
+    expect(cards[0].value).toBe(0)
+    expect(cards[0].delta).toBe(null)
+    expect(cards[0].sub).toBe('昨日 0 次')
+    expect(cards[4].value).toBe('0/0')
+    expect(cards[5].value).toBe('—')
   })
 })
 

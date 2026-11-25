@@ -249,32 +249,169 @@ class ParkingController extends ApiController
         $account = $this->requireAccount($request);
         if ($account instanceof JsonResponse) return $account;
         $projectId = $this->scopeProjectId($account);
+        $days = max(7, min(90, (int) $request->query('days', 30)));
+        $now = now();
+
         $base = DB::table('parking_registrations');
         if ($projectId !== null) $base->where('project_id', $projectId);
-        $now = now();
-        $today = (clone $base)->whereBetween('created_at', [$now->copy()->startOfDay(), $now])->count();
-        $week = (clone $base)->whereBetween('created_at', [$now->copy()->subDays(6)->startOfDay(), $now])->count();
-        $month = (clone $base)->whereBetween('created_at', [$now->copy()->startOfMonth(), $now])->count();
+
+        $todayStart = $now->copy()->startOfDay();
+        $yesterdayStart = $now->copy()->subDay()->startOfDay();
+        $yesterdayEnd = $now->copy()->subDay()->endOfDay();
+
+        $today = (clone $base)->whereBetween('created_at', [$todayStart, $now])->count();
+        $yesterday = (clone $base)->whereBetween('created_at', [$yesterdayStart, $yesterdayEnd])->count();
+        $week = (clone $base)->where('created_at', '>=', $now->copy()->subDays(6)->startOfDay())->count();
+        $month = (clone $base)->where('created_at', '>=', $now->copy()->startOfMonth())->count();
         $total = (clone $base)->count();
 
-        $series = [];
-        for ($i = 6; $i >= 0; $i--) {
-            $d = $now->copy()->subDays($i);
-            $c = (clone $base)->whereBetween('created_at', [$d->copy()->startOfDay(), $d->copy()->endOfDay()])->count();
-            $series[] = ['date' => $d->format('m-d'), 'count' => $c];
+        $driver = DB::connection()->getDriverName();
+        $dateExpr = 'DATE(created_at)';
+        $hourExpr = $driver === 'sqlite' ? "CAST(strftime('%H', created_at) AS INTEGER)" : 'HOUR(created_at)';
+        $dowExpr = $driver === 'sqlite'
+            ? '((CAST(strftime(\'%w\', created_at) AS INTEGER) + 6) % 7)'
+            : 'WEEKDAY(created_at)';
+        $monthExpr = $driver === 'sqlite' ? "strftime('%Y-%m', created_at)" : "DATE_FORMAT(created_at, '%Y-%m')";
+
+        $rangeStart = $now->copy()->subDays($days - 1)->startOfDay();
+
+        // 近 N 日趋势（按天补零）
+        $trendMap = [];
+        foreach ((clone $base)->where('created_at', '>=', $rangeStart)
+            ->groupBy(DB::raw($dateExpr))
+            ->get([DB::raw($dateExpr . ' as d'), DB::raw('COUNT(*) as c')]) as $r) {
+            $trendMap[(string) $r->d] = (int) $r->c;
         }
-        $byProject = (clone $base)
-            ->whereBetween('created_at', [$now->copy()->startOfDay(), $now])
+        $series = [];
+        for ($i = $days - 1; $i >= 0; $i--) {
+            $d = $now->copy()->subDays($i);
+            $key = $d->format('Y-m-d');
+            $series[] = ['date' => $key, 'label' => $d->format('m-d'), 'count' => $trendMap[$key] ?? 0];
+        }
+
+        // 近 N 日 24 小时分布
+        $hourMap = [];
+        foreach ((clone $base)->where('created_at', '>=', $rangeStart)
+            ->groupBy(DB::raw($hourExpr))
+            ->get([DB::raw($hourExpr . ' as h'), DB::raw('COUNT(*) as c')]) as $r) {
+            $hourMap[(int) $r->h] = (int) $r->c;
+        }
+        $hourly = [];
+        for ($h = 0; $h < 24; $h++) {
+            $hourly[] = [
+                'hour' => $h,
+                'label' => str_pad((string) $h, 2, '0', STR_PAD_LEFT) . ':00',
+                'count' => $hourMap[$h] ?? 0,
+            ];
+        }
+
+        // 今日高峰时段
+        $todayHourMap = [];
+        foreach ((clone $base)->whereBetween('created_at', [$todayStart, $now])
+            ->groupBy(DB::raw($hourExpr))
+            ->get([DB::raw($hourExpr . ' as h'), DB::raw('COUNT(*) as c')]) as $r) {
+            $todayHourMap[(int) $r->h] = (int) $r->c;
+        }
+        $peakHour = null;
+        $peakCount = 0;
+        foreach ($todayHourMap as $h => $c) {
+            if ($c > $peakCount) {
+                $peakHour = $h;
+                $peakCount = $c;
+            }
+        }
+        $peakLabel = $peakHour === null ? '—' : str_pad((string) $peakHour, 2, '0', STR_PAD_LEFT) . ':00';
+
+        // 近 N 日星期分布（周一=0）
+        $dowMap = [];
+        foreach ((clone $base)->where('created_at', '>=', $rangeStart)
+            ->groupBy(DB::raw($dowExpr))
+            ->get([DB::raw($dowExpr . ' as w'), DB::raw('COUNT(*) as c')]) as $r) {
+            $dowMap[(int) $r->w] = (int) $r->c;
+        }
+        $byWeekday = [];
+        foreach (['周一', '周二', '周三', '周四', '周五', '周六', '周日'] as $i => $name) {
+            $byWeekday[] = ['label' => $name, 'count' => $dowMap[$i] ?? 0];
+        }
+
+        // 近 6 个月
+        $monthRows = [];
+        foreach ((clone $base)->where('created_at', '>=', $now->copy()->startOfMonth()->subMonths(5))
+            ->groupBy(DB::raw($monthExpr))
+            ->get([DB::raw($monthExpr . ' as m'), DB::raw('COUNT(*) as c')]) as $r) {
+            $monthRows[(string) $r->m] = (int) $r->c;
+        }
+        $monthly = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $m = $now->copy()->startOfMonth()->subMonths($i);
+            $monthly[] = ['label' => $m->format('Y-m'), 'count' => $monthRows[$m->format('Y-m')] ?? 0];
+        }
+
+        $byProject = (clone $base)->where('created_at', '>=', $rangeStart)
             ->groupBy('project_name')
             ->orderByDesc(DB::raw('COUNT(*)'))
             ->limit(10)
-            ->get([DB::raw('COALESCE(project_name,\'\') as project_name'), DB::raw('COUNT(*) as c')])
+            ->get([DB::raw("COALESCE(project_name,'') as project_name"), DB::raw('COUNT(*) as c')])
+            ->map(fn($r) => ['project_name' => (string) $r->project_name, 'count' => (int) $r->c])
             ->all();
-        return response()->json(['ok' => true, 'kpi' => [
-            'today' => $today, 'week' => $week, 'month' => $month, 'total' => $total,
-        ], 'series' => $series, 'by_project' => array_map(fn($r) => [
-            'project_name' => $r->project_name, 'count' => (int) $r->c,
-        ], $byProject)]);
+
+        $byGate = (clone $base)->where('created_at', '>=', $rangeStart)
+            ->groupBy('project_name', 'gate_name')
+            ->orderByDesc(DB::raw('COUNT(*)'))
+            ->limit(10)
+            ->get([
+                DB::raw("COALESCE(project_name,'') as project_name"),
+                DB::raw("COALESCE(gate_name,'') as gate_name"),
+                DB::raw('COUNT(*) as c'),
+            ])
+            ->map(fn($r) => [
+                'project_name' => (string) $r->project_name,
+                'gate_name' => (string) $r->gate_name,
+                'count' => (int) $r->c,
+            ])->all();
+
+        $byReason = (clone $base)->where('created_at', '>=', $rangeStart)
+            ->groupBy('reason')
+            ->orderByDesc(DB::raw('COUNT(*)'))
+            ->limit(8)
+            ->get([DB::raw("COALESCE(reason,'') as reason"), DB::raw('COUNT(*) as c')])
+            ->map(fn($r) => ['reason' => (string) $r->reason, 'count' => (int) $r->c])
+            ->all();
+
+        $recent = (clone $base)->orderByDesc('id')->limit(8)->get()
+            ->map(fn($r) => $this->rowOut($r))->all();
+
+        $gateQ = DB::table('parking_gates');
+        if ($projectId !== null) $gateQ->where('project_id', $projectId);
+        $gatesTotal = (clone $gateQ)->count();
+        $gatesActive = (clone $gateQ)->where('enabled', 1)->count();
+
+        $delta = $yesterday > 0 ? round(($today - $yesterday) / $yesterday * 100, 1) : null;
+
+        return response()->json([
+            'ok' => true,
+            'days' => $days,
+            'kpi' => [
+                'today' => $today,
+                'yesterday' => $yesterday,
+                'today_delta' => $delta,
+                'week' => $week,
+                'month' => $month,
+                'total' => $total,
+                'gates_active' => $gatesActive,
+                'gates_total' => $gatesTotal,
+                'peak_label' => $peakLabel,
+                'peak_count' => $peakCount,
+            ],
+            'series' => $series,
+            'hourly' => $hourly,
+            'by_project' => $byProject,
+            'by_gate' => $byGate,
+            'by_reason' => $byReason,
+            'by_weekday' => $byWeekday,
+            'monthly' => $monthly,
+            'recent' => $recent,
+        ]);
     }
 
     public function list(Request $request): JsonResponse

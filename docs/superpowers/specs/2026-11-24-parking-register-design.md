@@ -22,7 +22,7 @@
   - URL：`域名/parking.html?p={gate_entry_token}`（48 位随机 token，仿 `invoice_project_bindings.entry_token`）
   - 流程：GET `/api/parking/entry`（取小区名/门名/字段配置）→ 填表 → POST `/api/parking/register` → 完成屏（✓ + 小区名·门名 + 车牌 + 时间）
 - **管理端**：现有 SPA 新页面 `/parking`「停车场登记」，4 个 Tab：
-  1. **数据驾驶舱**：今日/本周/本月登记数 KPI + 近 7 日趋势柱图（纯 CSS，不引图表库）+ 各小区今日 TOP
+  1. **数据驾驶舱**：6 项 KPI（今日登记/昨日对比、近 7 日、本月、累计、启用门、今日高峰）+ 7 张图表（近 7/30/90 天趋势、24 小时时段分布、事由分布、小区排行、门排行、星期分布、近 6 个月）+ 最近登记明细；复用报表中心 RCard/RSection + Chart.js 样式
   2. **登记数据**：日期范围 + 小区 + 门筛选 → 明细表格 + 分页 + 导出 Excel
   3. **门与入口 URL**：每小区门的增删改/启停；每门展示「小区名 · 门名」+ 入口 URL + 复制按钮（二维码用户自行生成）；禁用门后旧码失效（entry 返回 404）
   4. **登记字段设置**（仅管理员）：事由单选选项 + 自定义字段（label/类型 文本·数字·单选/必填/启用）
@@ -59,7 +59,7 @@ parking_registrations   -- 登记记录
 管理端（X-Token，控制器内 requireAccount）：
 - `GET/POST /api/parking/gates`、`POST /api/parking/gates/delete` —— 门管理（admin，`parking_manage` 权限）
 - `GET/POST /api/parking/config` —— 字段配置（admin）
-- `GET /api/parking/stats` —— 驾驶舱 KPI/趋势/小区分布
+- `GET /api/parking/stats?days=7|30|90` —— 驾驶舱：KPI（今日/昨日对比、近7日、本月、累计、启用门、今日高峰）+ 趋势/24小时/事由/小区/门/星期/近6月 + 最近登记
 - `GET /api/parking/list?from&to&project_id&gate_id&page` —— 明细分页
 - `GET /api/parking/export?同 list 参数` —— xlsx（列：登记时间/小区/门/车牌/姓名/手机号/访问户号/事由/自定义字段…，仿 `InvoiceAdminController::export` 最简模式）
 - **范围强制**：非 admin 账号调 stats/list/export 时 `project_id` 强制取 `auth.project_id`（照考勤导出先例）；门/配置管理 403。

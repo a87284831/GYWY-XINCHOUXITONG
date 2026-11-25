@@ -17,32 +17,83 @@
 
     <!-- 1. 数据驾驶舱 -->
     <template v-if="tab === 'dashboard'">
-      <div class="kpis">
-        <div v-for="c in kpi" :key="c.key" class="kpi">
-          <span>{{ c.label }}</span><b>{{ c.value }}</b><small>{{ c.hint }}</small>
-        </div>
+      <div class="dash-toolbar">
+        <span class="muted">统计范围</span>
+        <select v-model.number="days" class="mini-select" @change="loadStats">
+          <option :value="7">近 7 天</option>
+          <option :value="30">近 30 天</option>
+          <option :value="90">近 90 天</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="btn" @click="loadStats">刷新</button>
       </div>
-      <div class="cols">
-        <div class="card">
-          <h3>近 7 日登记趋势</h3>
-          <div v-for="s in trend" :key="s.date" class="bar-row">
-            <span class="bar-label">{{ s.date }}</span>
-            <div class="bar"><i :style="{ width: s.pct }"></i></div>
-            <span class="bar-val">{{ s.count }} 次</span>
-          </div>
-          <div v-if="!trend.length" class="empty">暂无数据</div>
-        </div>
-        <div class="card">
-          <h3>今日小区分布 TOP</h3>
-          <div v-for="p in projects" :key="p.project_name" class="bar-row">
-            <span class="bar-label">{{ p.project_name }}</span>
-            <div class="bar"><i class="trend" :style="{ width: p.pct }"></i></div>
-            <span class="bar-val">{{ p.count }} 次</span>
-          </div>
-          <div v-if="!projects.length" class="empty">今日暂无登记</div>
-        </div>
+
+      <div class="rpt-kpi-row">
+        <RCard
+          v-for="c in kpi" :key="c.key" :label="c.label" :value="c.value"
+          :delta="c.delta" :sub="c.sub" :color="c.color"
+        />
       </div>
-      <p class="muted">只统计进场登记；同一司机多次扫码会生成多条记录。</p>
+
+      <div class="rpt-grid-2">
+        <RSection :title="`登记趋势（近 ${days} 天）`">
+          <div style="height:280px"><canvas :ref="(el) => setEl('trend', el)"></canvas></div>
+        </RSection>
+        <RSection :title="`时段分布（近 ${days} 天）`">
+          <div style="height:280px"><canvas :ref="(el) => setEl('hourly', el)"></canvas></div>
+        </RSection>
+      </div>
+
+      <div class="rpt-grid-2">
+        <RSection title="事由分布">
+          <div v-if="(stats.by_reason || []).length" style="height:260px">
+            <canvas :ref="(el) => setEl('reason', el)"></canvas>
+          </div>
+          <div v-else class="msg info" style="text-align:center;padding:30px">暂无登记数据</div>
+        </RSection>
+        <RSection :title="`小区登记排行（近 ${days} 天）`">
+          <div
+            v-if="(stats.by_project || []).length"
+            :style="{ height: Math.max(200, stats.by_project.length * 34) + 'px' }"
+          ><canvas :ref="(el) => setEl('project', el)"></canvas></div>
+          <div v-else class="msg info" style="text-align:center;padding:30px">暂无登记数据</div>
+        </RSection>
+      </div>
+
+      <div class="rpt-grid-2">
+        <RSection :title="`门登记排行（近 ${days} 天）`">
+          <div
+            v-if="(stats.by_gate || []).length"
+            :style="{ height: Math.max(200, stats.by_gate.length * 34) + 'px' }"
+          ><canvas :ref="(el) => setEl('gate', el)"></canvas></div>
+          <div v-else class="msg info" style="text-align:center;padding:30px">暂无登记数据</div>
+        </RSection>
+        <RSection :title="`星期分布（近 ${days} 天）`">
+          <div style="height:260px"><canvas :ref="(el) => setEl('weekday', el)"></canvas></div>
+        </RSection>
+      </div>
+
+      <div class="rpt-grid-2">
+        <RSection title="近 6 个月登记">
+          <div style="height:260px"><canvas :ref="(el) => setEl('monthly', el)"></canvas></div>
+        </RSection>
+        <RSection title="最近登记">
+          <table v-if="(stats.recent || []).length" class="mini-table">
+            <thead><tr><th>时间</th><th>小区 · 门</th><th>车牌</th><th>访问户号</th></tr></thead>
+            <tbody>
+              <tr v-for="r in stats.recent" :key="r.id">
+                <td class="nowrap">{{ shortTime(r.time) }}</td>
+                <td>{{ gateLabel(r.project_name, r.gate_name) }}</td>
+                <td>{{ r.plate }}</td>
+                <td>{{ r.visit_target }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="msg info" style="text-align:center;padding:30px">暂无登记数据</div>
+        </RSection>
+      </div>
+
+      <p class="muted">只统计进场登记；同一司机多次扫码会生成多条记录。统计范围仅影响趋势与分布，累计数始终为全量。</p>
     </template>
 
     <!-- 2. 登记数据 -->
@@ -195,12 +246,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import QRCode from 'qrcode'
 import { api, download } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { createCharts, rBar, rHBar, rLine, rDoughnut, PALETTE } from '@/modules/report/chartKit'
+import RCard from '@/modules/report/RCard.vue'
+import RSection from '@/modules/report/RSection.vue'
 import {
-  qs, kpiCards, trendBars, projectBars, pageList, gateLabel, qrFileName,
+  qs, kpiCards, pageList, gateLabel, qrFileName,
 } from './parkingLogic'
 
 const auth = useAuthStore()
@@ -221,9 +275,16 @@ const okMsg = ref('')
 const busy = ref(false)
 let okTimer = null
 
-const kpi = ref(kpiCards())
-const trend = ref([])
-const projects = ref([])
+const stats = ref({
+  kpi: {}, series: [], hourly: [], by_project: [], by_gate: [],
+  by_reason: [], by_weekday: [], monthly: [], recent: [],
+})
+const kpi = computed(() => kpiCards(stats.value.kpi))
+const days = ref(30)
+const charts = createCharts()
+const els = {}
+function setEl(key, el) { els[key] = el }
+function shortTime(t) { return String(t || '').slice(5, 16) }
 
 const filters = reactive({ from: '', to: '', project_id: '', gate_id: '' })
 const rows = ref([])
@@ -252,11 +313,51 @@ function fail(e) {
 
 async function loadStats() {
   try {
-    const d = await api('/api/parking/stats')
-    kpi.value = kpiCards(d.kpi)
-    trend.value = trendBars(d.series)
-    projects.value = projectBars(d.by_project)
+    const d = await api('/api/parking/stats?days=' + days.value)
+    stats.value = {
+      kpi: d.kpi || {},
+      series: d.series || [],
+      hourly: d.hourly || [],
+      by_project: d.by_project || [],
+      by_gate: d.by_gate || [],
+      by_reason: d.by_reason || [],
+      by_weekday: d.by_weekday || [],
+      monthly: d.monthly || [],
+      recent: d.recent || [],
+    }
+    await drawDashboard()
   } catch (e) { fail(e) }
+}
+
+async function drawDashboard() {
+  await nextTick()
+  const s = stats.value
+  if (els.trend) {
+    rLine(charts, 'trend', els.trend, s.series.map((x) => x.label), [
+      { label: '登记数', data: s.series.map((x) => x.count), color: '#f97316', fill: true },
+    ])
+  }
+  if (els.hourly) {
+    rBar(charts, 'hourly', els.hourly, s.hourly.map((x) => x.label), s.hourly.map((x) => x.count), { label: '登记数', color: '#2563eb' })
+  }
+  if (els.reason && s.by_reason.length) {
+    const labels = s.by_reason.map((x) => x.reason || '未填写')
+    const values = s.by_reason.map((x) => x.count)
+    const sum = values.reduce((a, b) => a + b, 0)
+    rDoughnut(charts, 'reason', els.reason, labels, values, PALETTE, '合计', sum, (v) => v + ' 次')
+  }
+  if (els.project && s.by_project.length) {
+    rHBar(charts, 'project', els.project, s.by_project.map((x) => x.project_name || '未命名小区'), s.by_project.map((x) => x.count), '#f97316', (v) => v + ' 次')
+  }
+  if (els.gate && s.by_gate.length) {
+    rHBar(charts, 'gate', els.gate, s.by_gate.map((x) => gateLabel(x.project_name, x.gate_name)), s.by_gate.map((x) => x.count), '#0d9488', (v) => v + ' 次')
+  }
+  if (els.weekday) {
+    rBar(charts, 'weekday', els.weekday, s.by_weekday.map((x) => x.label), s.by_weekday.map((x) => x.count), { label: '登记数', color: '#8b5cf6' })
+  }
+  if (els.monthly) {
+    rBar(charts, 'monthly', els.monthly, s.monthly.map((x) => x.label), s.monthly.map((x) => x.count), { label: '登记数', color: '#0d9488' })
+  }
 }
 
 async function loadList() {
@@ -308,6 +409,7 @@ async function loadProjects() {
 }
 
 async function switchTab(key) {
+  if (tab.value === 'dashboard' && key !== 'dashboard') charts.destroyAll()
   tab.value = key
   error.value = ''
   if (key === 'dashboard') await loadStats()
@@ -514,6 +616,8 @@ onMounted(async () => {
   }
   await loadStats()
 })
+onBeforeUnmount(() => charts.destroyAll())
+
 </script>
 
 <style scoped>
@@ -527,23 +631,13 @@ onMounted(async () => {
 .mini-select:disabled{background:#f8fafc;color:#94a3b8}
 .err{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:10px}
 .okbar{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:10px}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
-.kpi{background:#fff;border:1px solid #edf0f5;border-radius:12px;padding:13px}
-.kpi span{font-size:12px;color:#64748b;display:block}
-.kpi b{font-size:22px;color:#0f172a;display:block;margin-top:5px}
-.kpi small{font-size:11px;color:#94a3b8}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dash-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+.dash-toolbar .btn{height:32px}
 .card{background:#fff;border:1px solid #edf0f5;border-radius:12px;padding:14px;margin-bottom:12px}
 .card h3{margin:0 0 12px;font-size:14px}
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .filters .btn{height:32px}
 .spacer{flex:1}
-.bar-row{display:grid;grid-template-columns:110px 1fr 100px;gap:10px;align-items:center;font-size:11px;margin-bottom:9px}
-.bar-label{color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bar{height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden}
-.bar i{display:block;height:100%;background:#f97316;border-radius:999px}
-.bar i.trend{background:#0d9488}
-.bar-val{text-align:right;color:#64748b;white-space:nowrap}
 .mini-table{width:100%;border-collapse:collapse;font-size:12px}
 .mini-table th{text-align:left;color:#94a3b8;font-weight:500;padding:7px 8px;border-bottom:1px solid #f1f4f8}
 .mini-table td{padding:8px;border-bottom:1px solid #f5f7fa;vertical-align:top}
@@ -581,5 +675,5 @@ onMounted(async () => {
 .qr-link input{height:34px;border:1px solid #dbe0e8;border-radius:8px;padding:0 9px;font-size:11px;background:#f8fafc;color:#334155}
 .qr-actions{display:flex;gap:8px;margin-top:12px}
 .qr-actions .btn{flex:1}
-@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+@media(max-width:1100px){.rpt-grid-2{grid-template-columns:1fr}}
 </style>

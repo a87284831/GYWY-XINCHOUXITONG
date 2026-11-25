@@ -85,39 +85,27 @@ function isNumeric(v) {
   return String(v).trim() !== '' && !Number.isNaN(Number(v))
 }
 
-// 驾驶舱 KPI 卡片
+// 驾驶舱 KPI 卡片（对齐报表中心 RCard 的 label/value/delta/sub/color）
 export function kpiCards(kpi) {
   const k = kpi || {}
   return [
-    { key: 'today', label: '今日登记', value: Number(k.today) || 0, hint: '含全部小区' },
-    { key: 'week', label: '近 7 日', value: Number(k.week) || 0, hint: '滚动 7 天' },
-    { key: 'month', label: '本月登记', value: Number(k.month) || 0, hint: '自然月' },
-    { key: 'total', label: '累计登记', value: Number(k.total) || 0, hint: '历史总量' },
+    {
+      key: 'today', label: '今日登记', value: Number(k.today) || 0, color: '#2563eb',
+      delta: k.today_delta === null || k.today_delta === undefined ? null : Number(k.today_delta),
+      sub: `昨日 ${Number(k.yesterday) || 0} 次`,
+    },
+    { key: 'week', label: '近 7 日', value: Number(k.week) || 0, sub: '滚动 7 天', color: '#0ea5e9' },
+    { key: 'month', label: '本月登记', value: Number(k.month) || 0, sub: '自然月', color: '#16a34a' },
+    { key: 'total', label: '累计登记', value: Number(k.total) || 0, sub: '历史总量', color: '#8b5cf6' },
+    {
+      key: 'gates', label: '启用门', value: `${Number(k.gates_active) || 0}/${Number(k.gates_total) || 0}`,
+      sub: '停用后二维码失效', color: '#f97316',
+    },
+    {
+      key: 'peak', label: '今日高峰', value: k.peak_label || '—',
+      sub: `${Number(k.peak_count) || 0} 次`, color: '#d97706',
+    },
   ]
-}
-
-// 近 7 日趋势柱（pct 最小 2%，保证 0 值也有可见基线）
-export function trendBars(series) {
-  const rows = Array.isArray(series) ? series : []
-  const max = Math.max(1, ...rows.map((r) => Number(r.count) || 0))
-  return rows.map((r) => {
-    const count = Number(r.count) || 0
-    return { date: String(r.date || ''), count, pct: Math.max(2, Math.round((count / max) * 100)) + '%' }
-  })
-}
-
-// 小区分布条（今日 TOP）
-export function projectBars(rows) {
-  const list = Array.isArray(rows) ? rows : []
-  const max = Math.max(1, ...list.map((r) => Number(r.count) || 0))
-  return list.map((r) => {
-    const count = Number(r.count) || 0
-    return {
-      project_name: String(r.project_name || '未命名小区'),
-      count,
-      pct: Math.max(2, Math.round((count / max) * 100)) + '%',
-    }
-  })
 }
 
 // 分页器：最多展示 5 个页码按钮
