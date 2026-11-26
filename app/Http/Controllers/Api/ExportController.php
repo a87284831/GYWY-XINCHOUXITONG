@@ -631,11 +631,21 @@ class ExportController extends ApiController
             ->whereBetween('year_month', [$year . '-01', $ym])
             ->get()->groupBy('project_name');
         $items = [];
+        $hqItems = [];
         foreach ($query->get()->groupBy('project_name') as $project => $records) {
             $split = $this->summarySplitRows($records);
+            $hqHeadcount = $split['hq']->count();
+            if ($hqHeadcount > 0) {
+                $hqItems[] = [
+                    'project' => $project,
+                    'headcount' => $hqHeadcount,
+                    'gross' => $this->summarySum($split['hq'], 'gross'),
+                    'net' => $this->summarySum($split['hq'], 'net'),
+                ];
+            }
             if ($split['hq']->isNotEmpty() && $split['base']->isEmpty()
                 && $split['manager']->isEmpty() && $split['case']->isEmpty()) {
-                continue; // 物业公司总部等载体项目不进入项目汇总
+                continue; // 物业公司总部等载体项目不进入项目汇总，总部人员单独返回
             }
             $budget = isset($budgets[$project]) ? ($this->jsonValue($budgets[$project]->data) ?: []) : [];
             $monthBudget = (float) ($budget['months'][(string) $month] ?? 0);
@@ -675,8 +685,9 @@ class ExportController extends ApiController
         $selected = array_values(array_filter(array_map('trim', explode(',', $projectFilter)), fn ($v) => $v !== ''));
         if ($selected) {
             $items = array_values(array_filter($items, fn ($it) => in_array($it['project'], $selected, true)));
+            $hqItems = array_values(array_filter($hqItems, fn ($it) => in_array($it['project'], $selected, true)));
         }
-        if (!$items) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
+        if (!$items && !$hqItems) return response()->json(['ok' => false, 'error' => '无核算数据'], 404);
 
         $tHead = ['headcount' => 0, 'base_headcount' => 0, 'manager_headcount' => 0, 'case_headcount' => 0,
             'base_gross' => 0.0, 'manager_gross' => 0.0, 'case_gross' => 0.0,
@@ -764,6 +775,43 @@ class ExportController extends ApiController
         }
         $sheet->getStyle("A{$r}:D{$r}")->getFont()->setBold(true);
         $sheet->getStyle("A{$r}:D{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFF2CC');
+
+        // 总部人员单独一段，不计入上面的项目合计
+        $r += 2;
+        $sheet->mergeCells("A{$r}:N{$r}");
+        $sheet->setCellValue("A{$r}", '总部人员（单独核算，不计入项目合计）');
+        $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle("A{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+        $r++;
+        $hqHead = ['项目', '总部人数', '总部应发', '总部实发'];
+        foreach ($hqHead as $ci => $v) {
+            $col = Coordinate::stringFromColumnIndex($ci + 1) . $r;
+            $sheet->setCellValue($col, $v);
+            $sheet->getStyle($col)->getFont()->setBold(true);
+            $sheet->getStyle($col)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DDEBF7');
+            $sheet->getStyle($col)->getAlignment()->setHorizontal('center');
+        }
+        $r++;
+        foreach ($hqItems as $it) {
+            $vals = [$it['project'], $it['headcount'], $it['gross'], $it['net']];
+            foreach ($vals as $ci => $v) {
+                if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+            }
+            $sheet->getStyle("C{$r}:D{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
+            $r++;
+        }
+        $hqTotals = [
+            'headcount' => array_sum(array_column($hqItems, 'headcount')),
+            'gross' => round(array_sum(array_column($hqItems, 'gross')), 2),
+            'net' => round(array_sum(array_column($hqItems, 'net')), 2),
+        ];
+        $hqVals = ['总部合计（不计入项目合计）', $hqTotals['headcount'], $hqTotals['gross'], $hqTotals['net']];
+        foreach ($hqVals as $ci => $v) {
+            if ($v !== null && !$this->isZeroNumber($v)) $sheet->setCellValue(Coordinate::stringFromColumnIndex($ci + 1) . $r, $v);
+        }
+        $sheet->getStyle("C{$r}:D{$r}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle("A{$r}:D{$r}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$r}:D{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
         $last = $r;
         $sheet->getColumnDimension('A')->setWidth(26);
         $sheet->getColumnDimension('B')->setWidth(10);

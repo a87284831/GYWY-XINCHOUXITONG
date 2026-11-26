@@ -560,11 +560,21 @@ class PayrollController extends ApiController
             ->whereBetween('year_month', [$year . '-01', $ym])
             ->get()->groupBy('project_name');
         $items = [];
+        $hqItems = [];
         foreach ($query->get()->groupBy('project_name') as $project => $records) {
             $split = $this->splitSummaryRows($records);
+            $hqHeadcount = $split['hq']->count();
+            if ($hqHeadcount > 0) {
+                $hqItems[] = [
+                    'project' => $project,
+                    'headcount' => $hqHeadcount,
+                    'gross' => $this->sumRows($split['hq'], 'gross'),
+                    'net' => $this->sumRows($split['hq'], 'net'),
+                ];
+            }
             if ($split['hq']->isNotEmpty() && $split['base']->isEmpty()
                 && $split['manager']->isEmpty() && $split['case']->isEmpty()) {
-                continue; // 物业公司总部等载体项目不在项目汇总中展示
+                continue; // 物业公司总部等载体项目不进入项目汇总，总部人员单独返回
             }
             $budget = isset($budgets[$project]) ? ($this->jsonValue($budgets[$project]->data) ?: []) : [];
             $monthBudget = (float) ($budget['months'][(string) $month] ?? 0);
@@ -620,6 +630,11 @@ class PayrollController extends ApiController
         $total['month_rate'] = $total['month_budget'] > 0 ? round($total['gross'] / $total['month_budget'], 4) : 0;
         $total['annual_rate'] = $total['annual_budget'] > 0 ? round($total['ytd_gross'] / $total['annual_budget'], 4) : 0;
         $caseTotal = ['headcount' => $total['case_headcount'], 'gross' => $total['case_gross'], 'net' => $total['case_net']];
+        $hqTotal = [
+            'headcount' => array_sum(array_column($hqItems, 'headcount')),
+            'gross' => round(array_sum(array_column($hqItems, 'gross')), 2),
+            'net' => round(array_sum(array_column($hqItems, 'net')), 2),
+        ];
         $archived = $this->isProjectScope($account)
             ? (DB::table('payroll_results')->where('year_month', $ym)
                 ->where('project_name', $account->project_name)
@@ -629,7 +644,7 @@ class PayrollController extends ApiController
                     ->where('project_name', $account->project_name)->exists())
             : $this->allArchived($ym);
         return response()->json(['ok' => true, 'ym' => $ym, 'items' => $items, 'total' => $total,
-            'case_total' => $caseTotal, 'archived' => $archived]);
+            'case_total' => $caseTotal, 'hq_items' => $hqItems, 'hq_total' => $hqTotal, 'archived' => $archived]);
     }
 
     /** GET /api/payroll/archive-status?ym=2026-10：导出前只读查询归档状态。 */

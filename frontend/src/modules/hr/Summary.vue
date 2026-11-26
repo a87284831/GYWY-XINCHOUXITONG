@@ -33,6 +33,7 @@
         <div class="stat"><div class="k">基层应发（不计案场）</div><div class="v">{{ moneyOrDash(t.base_gross) }}</div></div>
         <div class="stat"><div class="k">管理应发</div><div class="v">{{ moneyOrDash(t.manager_gross) }}</div></div>
         <div class="stat"><div class="k">案场应发（不计入合计）</div><div class="v">{{ moneyOrDash(t.case_gross) }}</div></div>
+        <div class="stat"><div class="k">总部应发（不计入合计）</div><div class="v">{{ moneyOrDash(hqT.gross) }}</div></div>
         <div class="stat"><div class="k">项目合计应发</div><div class="v">{{ moneyOrDash(t.gross) }}</div></div>
         <div class="stat"><div class="k">实发总金额</div><div class="v">{{ moneyOrDash(t.net) }}</div></div>
         <div class="stat"><div class="k">当月预算执行率</div><div class="v">{{ pctOrDash(t.month_rate) }}</div></div>
@@ -88,7 +89,23 @@
           </tbody>
         </table>
       </div>
-      <div class="hint">口径：项目合计=基层+管理；案场单独列示、不并入项目合计，也不参与预算执行率。发放人数为基层+管理人数；预算执行率只用项目合计应发计算。筛选后总计与顶部统计卡随勾选范围联动；全不勾选视为全部。</div>
+      <h4 style="margin:16px 0 6px">总部人员（单独核算，不计入项目合计）</h4>
+      <div class="table-wrap">
+        <table class="tb">
+          <thead><tr><th>项目</th><th>总部人数</th><th>总部应发</th><th>总部实发</th></tr></thead>
+          <tbody>
+            <tr v-for="it in hqFiltered" :key="'hq-' + it.project">
+              <td>{{ it.project }}</td><td class="num">{{ it.headcount }}</td>
+              <td class="num">{{ moneyOrDash(it.gross) }}</td><td class="num">{{ moneyOrDash(it.net) }}</td>
+            </tr>
+            <tr style="font-weight:bold;background:#ecfdf5">
+              <td>总部合计（不计入项目合计）</td><td class="num">{{ hqT.headcount }}</td>
+              <td class="num">{{ moneyOrDash(hqT.gross) }}</td><td class="num">{{ moneyOrDash(hqT.net) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="hint">口径：项目合计=基层+管理；案场、总部分别单独列示、不并入项目合计，也不参与预算执行率。发放人数为基层+管理人数；预算执行率只用项目合计应发计算。筛选后总计与顶部统计卡随勾选范围联动；全不勾选视为全部。</div>
     </div>
     <div style="margin-top:12px" v-else><div class="msg err">{{ loadErr }}</div></div>
   </div>
@@ -103,6 +120,7 @@ import { summaryTotals } from './payrollLogic'
 
 const ui = useUiStore()
 const items = ref([])
+const hqItems = ref([])
 const projectOptions = ref([])
 const archived = ref(false)
 const checks = ref([])
@@ -112,6 +130,10 @@ const loadErr = ref('')
 const CARRIER_PROJECTS = ['物业公司总部', '物业总部']
 const filtered = computed(() => (checks.value.length ? items.value.filter((it) => checks.value.includes(it.project)) : items.value))
 const t = computed(() => summaryTotals(filtered.value))
+const hqFiltered = computed(() => (checks.value.length
+  ? hqItems.value.filter((it) => checks.value.includes(it.project))
+  : hqItems.value))
+const hqT = computed(() => summaryTotals(hqFiltered.value))
 const allChecked = computed(() => projectOptions.value.length > 0 && projectOptions.value.every((p) => checks.value.includes(p)))
 const totalLabel = computed(() =>
   checks.value.length === projectOptions.value.length ? '总计' : checks.value.length ? `总计（${checks.value.length}个项目）` : '总计'
@@ -142,6 +164,7 @@ async function load() {
   try {
     const data = await api(`/api/summary?ym=${ui.month}`)
     items.value = data.items || []
+    hqItems.value = data.hq_items || []
     archived.value = !!data.archived
     checks.value = []
   } catch (e) {

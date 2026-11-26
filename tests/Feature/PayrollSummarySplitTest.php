@@ -93,6 +93,17 @@ class PayrollSummarySplitTest extends TestCase
         $this->assertEqualsWithDelta(2000.0, $total['case_gross'], 0.001);
         $this->assertEqualsWithDelta(2000.0, $resp->json('case_total.gross'), 0.001, '案场单独合计');
         $this->assertSame(1, $resp->json('case_total.headcount'));
+
+        // 总部人员单独返回，不并入项目合计
+        $hq = collect($resp->json('hq_items'))->firstWhere('project', '物业公司总部');
+        $this->assertNotNull($hq, '总部人员应在 hq_items 中单独返回');
+        $this->assertSame(1, $hq['headcount']);
+        $this->assertEqualsWithDelta(9999.0, $hq['gross'], 0.001);
+        $this->assertEqualsWithDelta(8888.0, $hq['net'], 0.001);
+        $this->assertSame(1, $resp->json('hq_total.headcount'));
+        $this->assertEqualsWithDelta(9999.0, $resp->json('hq_total.gross'), 0.001);
+        $this->assertEqualsWithDelta(8888.0, $resp->json('hq_total.net'), 0.001);
+        $this->assertStringNotContainsString('总部王', (string) $resp->getContent(), '只返回汇总，不返回总部人员姓名');
     }
 
     public function test_project_scope_sees_aggregates_only_for_own_project(): void
@@ -111,5 +122,32 @@ class PayrollSummarySplitTest extends TestCase
         // 只有汇总金额，不返回人员明细（无姓名/逐人字段）
         $this->assertArrayNotHasKey('name', $item);
         $this->assertStringNotContainsString('经理甲', (string) $resp->getContent());
+        // 项目账号看不到总部人员
+        $this->assertCount(0, $resp->json('hq_items'));
+        $this->assertSame(0, $resp->json('hq_total.headcount'));
+        $this->assertEqualsWithDelta(0.0, $resp->json('hq_total.gross'), 0.001);
+    }
+
+    public function test_summary_export_contains_hq_section(): void
+    {
+        $res = $this->get('/api/summary/export?ym=' . self::YM, ['X-Token' => $this->adminToken]);
+        $res->assertOk();
+        $content = $res->streamedContent();
+        $this->assertSame('PK', substr($content, 0, 2));
+
+        $file = sys_get_temp_dir() . '/payroll_summary_hq_test.xlsx';
+        file_put_contents($file, $content);
+        try {
+            $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file)->getActiveSheet();
+            $text = json_encode($sheet->toArray(null, true, true, false), JSON_UNESCAPED_UNICODE);
+            $this->assertStringContainsString('总部人员（单独核算，不计入项目合计）', $text);
+            $this->assertStringContainsString('总部合计（不计入项目合计）', $text);
+            $this->assertStringContainsString('物业公司总部', $text);
+            // 总部应发 9999 / 实发 8888 在导出中可见（单元格已套千分位格式）
+            $this->assertStringContainsString('9,999', $text);
+            $this->assertStringContainsString('8,888', $text);
+        } finally {
+            @unlink($file);
+        }
     }
 }
