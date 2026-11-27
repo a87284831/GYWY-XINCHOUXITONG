@@ -114,10 +114,10 @@ class ReportScopeConsistencyTest extends TestCase
         $comp = collect($r->json('composition'))->keyBy('label');
         $this->assertSame(1000.0, (float) $comp['基本工资']['value']);
 
-        // 与 /api/summary 同口径
+        // 与 /api/summary 的口径差异：汇总展示按「基层+管理+总部」合并，报表中心仍按类别拆分
         $s = $this->get('/api/summary?ym=' . self::YM, ['X-Token' => $this->adminToken]);
         $s->assertOk();
-        $this->assertSame((float) $s->json('total.gross'), (float) $kpis['gross']['value']);
+        $this->assertSame(15999.0, (float) $s->json('total.gross'), '汇总展示 = 基层 + 管理 + 总部');
         $this->assertSame((float) $s->json('total.base_gross'), (float) $b['base']['gross']);
         $this->assertSame((float) $s->json('total.manager_gross'), (float) $b['manager']['gross']);
         $this->assertSame((float) $s->json('total.case_gross'), (float) $b['case']['gross']);

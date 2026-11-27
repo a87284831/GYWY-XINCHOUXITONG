@@ -71,7 +71,7 @@ class PayrollSummarySplitTest extends TestCase
         $resp->assertOk();
 
         $items = collect($resp->json('items'));
-        $this->assertCount(1, $items, '物业公司总部等载体项目不应出现在项目汇总里');
+        $this->assertCount(2, $items, '总部载体项目应与普通项目一样进入主表');
         $item = $items->firstWhere('project', '甲项目');
         $this->assertNotNull($item);
 
@@ -82,28 +82,29 @@ class PayrollSummarySplitTest extends TestCase
         $this->assertEqualsWithDelta(5000.0, $item['manager_gross'], 0.001);
         $this->assertEqualsWithDelta(2000.0, $item['case_gross'], 0.001);
 
-        // 项目合计 = 基层 + 管理；案场不计入
-        $this->assertSame(2, $item['headcount'], '项目合计人数 = 基层 + 管理');
-        $this->assertEqualsWithDelta(6000.0, $item['gross'], 0.001, '项目合计应发 = 基层 + 管理');
+        // 展示口径 = 基层 + 管理 + 总部；案场不计入
+        $this->assertSame(2, $item['headcount'], '项目人数 = 基层 + 管理 + 总部');
+        $this->assertEqualsWithDelta(6000.0, $item['gross'], 0.001, '项目应发 = 基层 + 管理 + 总部');
         $this->assertEqualsWithDelta(5400.0, $item['net'], 0.001);
 
+        // 总部人员并入主表行，不再单独返回
+        $hqItem = $items->firstWhere('project', '物业公司总部');
+        $this->assertNotNull($hqItem);
+        $this->assertSame(1, $hqItem['headcount']);
+        $this->assertEqualsWithDelta(9999.0, $hqItem['gross'], 0.001);
+        $this->assertEqualsWithDelta(8888.0, $hqItem['net'], 0.001);
+        $this->assertArrayNotHasKey('hq_items', $resp->json());
+        $this->assertArrayNotHasKey('hq_total', $resp->json());
+
         $total = $resp->json('total');
-        $this->assertEqualsWithDelta(6000.0, $total['gross'], 0.001);
+        $this->assertEqualsWithDelta(15999.0, $total['gross'], 0.001, '总应发 = 基层 + 管理 + 总部');
+        $this->assertEqualsWithDelta(14288.0, $total['net'], 0.001);
+        $this->assertSame(3, $total['headcount']);
         $this->assertEqualsWithDelta(6000.0, $total['base_gross'] + $total['manager_gross'], 0.001);
         $this->assertEqualsWithDelta(2000.0, $total['case_gross'], 0.001);
         $this->assertEqualsWithDelta(2000.0, $resp->json('case_total.gross'), 0.001, '案场单独合计');
         $this->assertSame(1, $resp->json('case_total.headcount'));
-
-        // 总部人员单独返回，不并入项目合计
-        $hq = collect($resp->json('hq_items'))->firstWhere('project', '物业公司总部');
-        $this->assertNotNull($hq, '总部人员应在 hq_items 中单独返回');
-        $this->assertSame(1, $hq['headcount']);
-        $this->assertEqualsWithDelta(9999.0, $hq['gross'], 0.001);
-        $this->assertEqualsWithDelta(8888.0, $hq['net'], 0.001);
-        $this->assertSame(1, $resp->json('hq_total.headcount'));
-        $this->assertEqualsWithDelta(9999.0, $resp->json('hq_total.gross'), 0.001);
-        $this->assertEqualsWithDelta(8888.0, $resp->json('hq_total.net'), 0.001);
-        $this->assertStringNotContainsString('总部王', (string) $resp->getContent(), '只返回汇总，不返回总部人员姓名');
+        $this->assertStringNotContainsString('总部王', (string) $resp->getContent(), '只返回汇总，不返回人员姓名');
     }
 
     public function test_project_scope_sees_aggregates_only_for_own_project(): void
@@ -123,29 +124,31 @@ class PayrollSummarySplitTest extends TestCase
         $this->assertArrayNotHasKey('name', $item);
         $this->assertStringNotContainsString('经理甲', (string) $resp->getContent());
         // 项目账号看不到总部人员
-        $this->assertCount(0, $resp->json('hq_items'));
-        $this->assertSame(0, $resp->json('hq_total.headcount'));
-        $this->assertEqualsWithDelta(0.0, $resp->json('hq_total.gross'), 0.001);
+        $this->assertNull($items->firstWhere('project', '物业公司总部'));
+        $this->assertEqualsWithDelta(6000.0, $resp->json('total.gross'), 0.001);
     }
 
-    public function test_summary_export_contains_hq_section(): void
+    public function test_summary_export_contains_merged_table(): void
     {
         $res = $this->get('/api/summary/export?ym=' . self::YM, ['X-Token' => $this->adminToken]);
         $res->assertOk();
         $content = $res->streamedContent();
         $this->assertSame('PK', substr($content, 0, 2));
 
-        $file = sys_get_temp_dir() . '/payroll_summary_hq_test.xlsx';
+        $file = sys_get_temp_dir() . '/payroll_summary_merged_test.xlsx';
         file_put_contents($file, $content);
         try {
             $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file)->getActiveSheet();
             $text = json_encode($sheet->toArray(null, true, true, false), JSON_UNESCAPED_UNICODE);
-            $this->assertStringContainsString('总部人员（单独核算，不计入项目合计）', $text);
-            $this->assertStringContainsString('总部合计（不计入项目合计）', $text);
             $this->assertStringContainsString('物业公司总部', $text);
-            // 总部应发 9999 / 实发 8888 在导出中可见（单元格已套千分位格式）
+            $this->assertStringContainsString('总计', $text);
+            // 总部应发 9999 / 实发 8888 并入主表（单元格已套千分位格式）
             $this->assertStringContainsString('9,999', $text);
             $this->assertStringContainsString('8,888', $text);
+            // 不再有基层/管理分列，也不再有独立总部段
+            $this->assertStringNotContainsString('基层人数', $text);
+            $this->assertStringNotContainsString('管理人数', $text);
+            $this->assertStringNotContainsString('总部人员（单独核算，不计入项目合计）', $text);
         } finally {
             @unlink($file);
         }
